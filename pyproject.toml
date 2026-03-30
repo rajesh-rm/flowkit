@@ -1,0 +1,60 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "engmx-flowkit"
+version = "0.1.0"
+description = "Turnkey data-as-asset ETLs for Apache Airflow 3.1+"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+authors = [
+    { name = "EngMX Team" },
+]
+keywords = ["airflow", "etl", "assets", "data-engineering"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Framework :: Apache Airflow",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "apache-airflow-task-sdk>=1.0.0",
+    "httpx>=0.27",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov",
+    "responses>=0.25",
+    "ruff",
+    "mypy",
+]
+
+[project.entry-points."engmx_flowkit.sources"]
+sonarqube = "engmx_flowkit.assets.sonarqube"
+servicenow = "engmx_flowkit.assets.servicenow"
+github = "engmx_flowkit.assets.github"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/engmx_flowkit"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
