@@ -60,5 +60,16 @@ strict = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "integration: marks tests requiring a live Postgres instance",
+    "integration: marks tests requiring a live Postgres instance (Docker)",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0",
+    "pytest-cov",
+    "pytest-mock",
+    "respx>=0.21",
+    "testcontainers[postgres]>=4.0",
+    "ruff",
+    "mypy",
 ]

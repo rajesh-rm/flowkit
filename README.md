@@ -33,6 +33,7 @@ result = run_asset("sonarqube_projects", run_mode="full")
 
 ## Documentation
 
+- [**Local Dev Quickstart**](docs/quickstart-dev.md) — get running in 5 minutes with uv
 - [Architecture](docs/architecture.md) — design and lifecycle
 - [User Guide](docs/user-guide.md) — installation and setup
 - [Configuration](docs/configuration.md) — credentials and runtime overrides

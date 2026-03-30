@@ -28,7 +28,10 @@ def test_rate_limiting_enforced():
 
 def test_thread_safety():
     """Multiple threads sharing a limiter should not exceed the rate."""
-    limiter = RateLimiter(rate_per_second=20.0)
+    # Rate of 10/sec with 4 threads x 5 calls = 20 calls total.
+    # Bucket starts with 10 tokens, so first 10 are instant,
+    # remaining 10 need ~1s to refill → total >= 0.8s
+    limiter = RateLimiter(rate_per_second=10.0)
     call_count = 0
     lock = threading.Lock()
 
@@ -48,7 +51,7 @@ def test_thread_safety():
     elapsed = time.monotonic() - start
 
     assert call_count == 20
-    # 20 calls at 20/sec should take ~1s
+    # 20 calls at 10/sec: first 10 instant, remaining 10 need ~1s
     assert elapsed >= 0.8
 
 
