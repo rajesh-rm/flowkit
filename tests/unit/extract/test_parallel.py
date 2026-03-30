@@ -94,6 +94,7 @@ def test_fetch_pages_multiple_pages():
     asset = MagicMock()
     asset.name = "test_asset"
     asset.pagination_config = PaginationConfig(strategy="offset", page_size=10)
+    asset.should_stop.return_value = False
     asset.parse_response.side_effect = [
         (pd.DataFrame({"id": [1, 2]}), PaginationState(has_more=True, next_offset=10)),
         (pd.DataFrame({"id": [3, 4]}), PaginationState(has_more=False)),
@@ -226,6 +227,7 @@ def test_entity_not_marked_complete_on_partial_failure():
     asset = MagicMock()
     asset.name = "test_asset"
     asset.pagination_config = PaginationConfig(strategy="page_number")
+    asset.should_stop.return_value = False
 
     # First page succeeds, second page fails
     asset.parse_response.side_effect = [

@@ -56,8 +56,8 @@ class GitHubPullRequests(APIAsset):
     primary_key = ["id"]
     date_column = "updated_at"
     # GitHub PRs endpoint does NOT support a `since` query param.
-    # We sort by updated desc and rely on the coverage tracker watermark
-    # for incremental extraction boundaries.
+    # We sort by updated desc and use should_stop() to halt when
+    # all PRs on a page are older than the watermark.
 
     def build_entity_request(
         self,
@@ -128,3 +128,22 @@ class GitHubPullRequests(APIAsset):
 
         has_more = len(response) >= self.pagination_config.page_size
         return df, PaginationState(has_more=has_more, next_page=None)
+
+    def should_stop(self, df: pd.DataFrame, context: RunContext) -> bool:
+        """Stop paginating when all PRs on the page are older than the watermark.
+
+        Since we sort by updated desc, once we hit a full page where every PR
+        has updated_at < start_date, there's no point fetching more pages —
+        they'll all be older. In FULL mode, never stop early.
+        """
+        if context.mode.value != "forward" or not context.start_date:
+            return False
+        if df.empty or "updated_at" not in df.columns:
+            return False
+
+        updated = pd.to_datetime(df["updated_at"], utc=True, errors="coerce")
+        oldest_on_page = updated.min()
+        if oldest_on_page is pd.NaT:
+            return False
+
+        return oldest_on_page < context.start_date

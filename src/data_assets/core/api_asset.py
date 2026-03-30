@@ -73,6 +73,17 @@ class APIAsset(Asset):
             return "skip"
         return "fail"
 
+    def should_stop(self, df: pd.DataFrame, context: RunContext) -> bool:
+        """Check if extraction should stop early (watermark-based).
+
+        Called after each page is fetched. Return True to stop paginating.
+        Useful for APIs without date filters (e.g., GitHub PRs) where you
+        sort by updated desc and stop when records are older than the watermark.
+
+        Default: never stop early (pagination exhausts naturally).
+        """
+        return False
+
     @abstractmethod
     def build_request(
         self, context: RunContext, checkpoint: dict | None = None

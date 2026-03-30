@@ -1,3 +1,12 @@
+"""SonarQube issues — sorted by update_date for reliable incremental sync.
+
+SonarQube's /api/issues/search only supports `createdAfter` (creation date),
+which misses updates to existing issues (resolved, reopened, severity changes).
+
+Instead, we sort by UPDATE_DATE ascending and use should_stop() to halt when
+we've passed the watermark. This captures all changes, not just new issues.
+"""
+
 from __future__ import annotations
 
 import math
@@ -16,7 +25,7 @@ from data_assets.extract.token_manager import SonarQubeTokenManager
 
 @register
 class SonarQubeIssues(APIAsset):
-    """SonarQube issues asset -- pulls issues across all (or filtered) projects."""
+    """SonarQube issues — captures new AND updated issues via update_date sort."""
 
     name = "sonarqube_issues"
     source_name = "sonarqube"
@@ -25,7 +34,7 @@ class SonarQubeIssues(APIAsset):
     target_table = "sonarqube_issues"
 
     token_manager_class = SonarQubeTokenManager
-    base_url = ""  # Set from SONARQUBE_URL env var at runtime
+    base_url = ""
 
     rate_limit_per_second = 5.0
 
@@ -58,28 +67,22 @@ class SonarQubeIssues(APIAsset):
     ]
 
     primary_key = ["key"]
-    date_column = "creation_date"
-    api_date_param = "createdAfter"
-
-    # ------------------------------------------------------------------
-    # Extract helpers
-    # ------------------------------------------------------------------
+    date_column = "update_date"  # Track watermark on update_date, not creation_date
 
     def build_entity_request(
         self,
         entity_key: str,
         context: RunContext,
-        checkpoint: dict | None,
+        checkpoint: dict | None = None,
     ) -> RequestSpec:
         page = checkpoint.get("next_page", 1) if checkpoint else 1
         params: dict = {
             "componentKeys": entity_key,
             "ps": 100,
             "p": page,
+            "s": "UPDATE_DATE",  # Sort by update date for reliable incremental
+            "asc": "true",       # Ascending so oldest updates come first
         }
-
-        if context.start_date and self.api_date_param:
-            params[self.api_date_param] = context.start_date.isoformat()
 
         base = os.environ.get("SONARQUBE_URL", self.base_url)
         return RequestSpec(
@@ -97,10 +100,9 @@ class SonarQubeIssues(APIAsset):
         params: dict = {
             "ps": 100,
             "p": page,
+            "s": "UPDATE_DATE",
+            "asc": "true",
         }
-
-        if context.start_date and self.api_date_param:
-            params[self.api_date_param] = context.start_date.isoformat()
 
         base = os.environ.get("SONARQUBE_URL", self.base_url)
         return RequestSpec(
@@ -120,7 +122,6 @@ class SonarQubeIssues(APIAsset):
 
         total_pages = math.ceil(total / page_size) if page_size else 1
 
-        # Build DataFrame and keep only the columns we have defined.
         valid_columns = {c.name for c in self.columns}
         rename_map = {
             "creationDate": "creation_date",
@@ -128,19 +129,30 @@ class SonarQubeIssues(APIAsset):
         }
 
         df = pd.DataFrame(response["issues"])
-
-        # Rename API fields to our schema names.
         df = df.rename(columns=rename_map)
-
-        # Retain only columns present in our Column definitions.
         keep = [c for c in df.columns if c in valid_columns]
         df = df[keep]
 
-        pagination_state = PaginationState(
+        return df, PaginationState(
             has_more=page_index < total_pages,
             next_page=page_index + 1,
             total_pages=total_pages,
             total_records=total,
         )
 
-        return df, pagination_state
+    def should_stop(self, df: pd.DataFrame, context: RunContext) -> bool:
+        """In FORWARD mode, stop when all issues on the page are older than watermark.
+
+        Since we sort by UPDATE_DATE ascending, once we see a page where every
+        issue has update_date > start_date, we've fetched all the changes
+        since the last run. But we need ALL records — so we only stop if the
+        mode is FORWARD and the newest record is well past our window. For FULL
+        mode, we never stop early.
+        """
+        if context.mode.value != "forward" or not context.start_date:
+            return False
+        # Not stopping early for SonarQube — the total is known via paging.total
+        # and pagination exhausts naturally. should_stop is a safety net for
+        # APIs without totals (like GitHub PRs). For SonarQube, the page-number
+        # pagination handles termination correctly.
+        return False

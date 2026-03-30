@@ -76,6 +76,11 @@ def _fetch_pages(
         if not state.has_more:
             break
 
+        # Watermark-based early stop (e.g., GitHub PRs sorted by updated desc)
+        if asset.should_stop(df, context):
+            logger.info("Worker %s: should_stop() triggered, ending extraction", worker_id)
+            break
+
         # Build next-page checkpoint from pagination state
         cp = {
             "cursor": state.cursor,

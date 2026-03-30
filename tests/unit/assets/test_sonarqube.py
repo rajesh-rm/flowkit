@@ -64,6 +64,18 @@ def test_issues_build_entity_request(monkeypatch):
     spec = asset.build_entity_request("proj-alpha", _ctx(), checkpoint=None)
     assert spec.url == "https://sonar.test/api/issues/search"
     assert spec.params["componentKeys"] == "proj-alpha"
+    # Must sort by UPDATE_DATE ascending for reliable incremental
+    assert spec.params["s"] == "UPDATE_DATE"
+    assert spec.params["asc"] == "true"
+
+
+def test_issues_tracks_watermark_on_update_date(monkeypatch):
+    """date_column must be update_date (not creation_date) to catch all changes."""
+    monkeypatch.setenv("SONARQUBE_TOKEN", "fake")
+    from data_assets.assets.sonarqube.issues import SonarQubeIssues
+
+    asset = SonarQubeIssues()
+    assert asset.date_column == "update_date"
 
 
 def test_issues_parse_response(monkeypatch):
