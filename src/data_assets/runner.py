@@ -150,6 +150,7 @@ def run_asset(
                 asset, engine, temp_tbl, context, existing_cp_map, overrides
             )
         elif isinstance(asset, TransformAsset):
+            _check_source_freshness(engine, asset)
             query = asset.query(context)
             rows_extracted = execute_transform(engine, query, temp_tbl, context)
         else:
@@ -335,6 +336,40 @@ def _update_watermarks(
         update_coverage(engine, asset.name, forward_watermark=max_date)
     if mode in (RunMode.FULL, RunMode.BACKFILL):
         update_coverage(engine, asset.name, backward_watermark=min_date)
+
+
+def _check_source_freshness(
+    engine: Engine, asset, max_stale_hours: int = 24,
+) -> None:
+    """Warn if a transform's source tables haven't been refreshed recently."""
+    source_tables = getattr(asset, "source_tables", [])
+    if not source_tables:
+        return
+
+    try:
+        from data_assets.db.models import AssetRegistry
+
+        now = datetime.now(UTC)
+        with Session(engine) as session:
+            for table in source_tables:
+                row = session.execute(
+                    select(AssetRegistry.last_success_at)
+                    .where(AssetRegistry.target_table == table)
+                ).scalar()
+                if row is None:
+                    logger.warning(
+                        "Transform '%s': source table '%s' has never been loaded.",
+                        asset.name, table,
+                    )
+                elif (now - row).total_seconds() > max_stale_hours * 3600:
+                    hours_ago = (now - row).total_seconds() / 3600
+                    logger.warning(
+                        "Transform '%s': source table '%s' is %.0f hours stale "
+                        "(threshold: %d hours).",
+                        asset.name, table, hours_ago, max_stale_hours,
+                    )
+    except Exception:
+        pass  # Non-critical
 
 
 def _check_row_count_anomaly(

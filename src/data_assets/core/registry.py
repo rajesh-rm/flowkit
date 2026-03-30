@@ -47,6 +47,7 @@ def discover() -> None:
     """Auto-discover and import all asset modules under data_assets.assets.
 
     Importing each module triggers @register decorators on asset classes.
+    After discovery, validates that all declared dependencies exist.
     """
     import data_assets.assets as assets_pkg
 
@@ -57,6 +58,41 @@ def discover() -> None:
             importlib.import_module(modname)
         except Exception:
             logger.exception("Failed to import asset module '%s'", modname)
+
+    _validate_dependencies()
+
+
+def _validate_dependencies() -> None:
+    """Check that all declared asset dependencies reference registered assets.
+
+    Validates:
+    - parent_asset_name on entity-parallel APIAssets
+    - source_tables entries on TransformAssets (matched by target_table)
+    """
+    known_names = set(_registry.keys())
+    known_tables = {cls().target_table for cls in _registry.values()}
+
+    for name, cls in _registry.items():
+        asset = cls()
+
+        # Check parent_asset_name (entity-parallel)
+        parent = getattr(asset, "parent_asset_name", None)
+        if parent and parent not in known_names:
+            logger.error(
+                "Asset '%s' declares parent_asset_name='%s' which is not registered. "
+                "Known assets: %s",
+                name, parent, sorted(known_names),
+            )
+
+        # Check source_tables (transform assets)
+        source_tables = getattr(asset, "source_tables", [])
+        for table in source_tables:
+            if table not in known_tables:
+                logger.warning(
+                    "Asset '%s' declares source_table '%s' which doesn't match "
+                    "any registered asset's target_table.",
+                    name, table,
+                )
 
 
 def sync_to_db(engine: Engine) -> None:

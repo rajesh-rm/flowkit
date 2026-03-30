@@ -6,6 +6,18 @@ concept is explained from scratch, with code examples you can copy and adapt.
 
 ---
 
+## Design Principles
+
+Every change to this codebase must follow these five rules:
+
+1. **Simple and modular** — code must be understandable by junior developers and AI agents. Just modular enough for extension, not more.
+2. **Pure Python, self-sufficient** — the package handles all ETL logic itself. Only Airflow handles scheduling. No delegating core logic to external frameworks.
+3. **Simple patterns over complexity** — prefer 10 lines of clear code over importing a library. No unnecessary abstractions.
+4. **Battle-tested libraries only** — dependencies must be 5+ years old, popular in data engineering, and carry a liberal open-source license (MIT, Apache 2.0, BSD). Current deps: SQLAlchemy, pandas, httpx, python-dotenv, PyJWT.
+5. **90%+ test coverage** — every module has unit tests. Integration tests use mocked APIs + testcontainers Postgres.
+
+---
+
 ## Table of Contents
 
 1. [Before You Start -- Decision Flowchart](#1-before-you-start--decision-flowchart)
