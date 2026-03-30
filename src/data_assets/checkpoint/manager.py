@@ -5,9 +5,9 @@ from __future__ import annotations
 import logging
 import os
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
@@ -34,7 +34,7 @@ def acquire_lock(
     Raises LockError if a non-stale lock is held by another run.
     """
     worker_id = os.environ.get("AIRFLOW__CORE__HOSTNAME", "local")
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     with Session(engine) as session:
         existing = session.execute(
@@ -42,7 +42,7 @@ def acquire_lock(
         ).scalar_one_or_none()
 
         if existing is not None:
-            age = now - existing.locked_at.replace(tzinfo=timezone.utc)
+            age = now - existing.locked_at.replace(tzinfo=UTC)
             if age > timedelta(hours=stale_threshold_hours):
                 logger.warning(
                     "Stale lock detected for '%s' (locked %s ago by %s, run %s). "
@@ -118,7 +118,7 @@ def save_checkpoint(
     status: str = "in_progress",
 ) -> None:
     """Insert or update a checkpoint row for a specific worker."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     with Session(engine) as session:
         existing = session.execute(
             select(Checkpoint).where(

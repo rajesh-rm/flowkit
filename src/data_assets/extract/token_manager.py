@@ -117,8 +117,8 @@ class GitHubAppTokenManager(TokenManager):
         return {"Authorization": f"Bearer {self.get_token()}"}
 
     def _refresh(self) -> None:
-        import jwt
         import httpx
+        import jwt
 
         now = int(time.time())
         payload = {

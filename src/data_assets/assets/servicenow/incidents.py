@@ -69,7 +69,8 @@ class ServiceNowIncidents(APIAsset):
 
         if checkpoint and checkpoint.get("cursor"):
             import json
-            last = json.loads(checkpoint["cursor"]) if isinstance(checkpoint["cursor"], str) else checkpoint["cursor"]
+            raw = checkpoint["cursor"]
+            last = json.loads(raw) if isinstance(raw, str) else raw
             # Records after the last-seen (sys_updated_on, sys_id) pair
             query_parts.append(
                 f"sys_updated_on>={last['sys_updated_on']}"

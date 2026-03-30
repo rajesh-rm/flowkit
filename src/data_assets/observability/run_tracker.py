@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -28,7 +28,7 @@ def record_run_start(
             asset_name=asset_name,
             run_mode=run_mode,
             status="running",
-            started_at=datetime.now(timezone.utc),
+            started_at=datetime.now(UTC),
             metadata_=metadata or {},
             airflow_run_id=airflow_run_id,
         )
@@ -44,7 +44,7 @@ def record_run_success(
     metadata: dict | None = None,
 ) -> None:
     """Update the run_history row on successful completion."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     values: dict = {
         "status": "success",
         "completed_at": now,
@@ -66,7 +66,7 @@ def record_run_failure(
     error_message: str,
 ) -> None:
     """Update the run_history row on failure."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     with Session(engine) as session:
         session.execute(
             update(RunHistory)
@@ -87,7 +87,7 @@ def update_coverage(
     backward_watermark: datetime | None = None,
 ) -> None:
     """Upsert the coverage_tracker row for an asset after a successful run."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     values: dict = {"asset_name": asset_name, "updated_at": now}
     update_set: dict = {"updated_at": now}
 
@@ -113,7 +113,7 @@ def update_coverage(
 
 def update_last_success(engine: Engine, asset_name: str) -> None:
     """Set last_success_at on the asset_registry row."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     with Session(engine) as session:
         session.execute(
             update(AssetRegistry)

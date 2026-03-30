@@ -146,7 +146,10 @@ def write_to_temp(engine: Engine, table_name: str, df: pd.DataFrame) -> int:
     if df.empty:
         return 0
     rows = len(df)
-    df.to_sql(table_name, engine, schema=TEMP_SCHEMA, if_exists="append", index=False, method="multi")
+    df.to_sql(
+        table_name, engine, schema=TEMP_SCHEMA,
+        if_exists="append", index=False, method="multi",
+    )
     logger.debug("Wrote %d rows to %s.%s", rows, TEMP_SCHEMA, table_name)
     return rows
 

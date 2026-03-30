@@ -65,7 +65,8 @@ class ServiceNowChanges(APIAsset):
 
         query_parts: list[str] = []
         if checkpoint and checkpoint.get("cursor"):
-            last = json.loads(checkpoint["cursor"]) if isinstance(checkpoint["cursor"], str) else checkpoint["cursor"]
+            raw = checkpoint["cursor"]
+            last = json.loads(raw) if isinstance(raw, str) else raw
             query_parts.append(
                 f"sys_updated_on>={last['sys_updated_on']}"
                 f"^sys_id>{last['sys_id']}"

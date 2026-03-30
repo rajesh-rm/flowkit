@@ -4,18 +4,15 @@ from __future__ import annotations
 
 import logging
 import math
-import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
-import pandas as pd
 from sqlalchemy.engine import Engine
 
 from data_assets.checkpoint.manager import save_checkpoint
 from data_assets.core.run_context import RunContext
-from data_assets.core.types import PaginationState, RequestSpec, SkippedRequestError
+from data_assets.core.types import SkippedRequestError
 from data_assets.extract.api_client import APIClient
-from data_assets.extract.pagination import next_request_params
 from data_assets.load.loader import write_to_temp
 
 logger = logging.getLogger(__name__)

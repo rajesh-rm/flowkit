@@ -5,7 +5,7 @@ Validators can be combined and used in asset.validate() overrides.
 
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 import pandas as pd
 

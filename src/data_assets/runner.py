@@ -8,10 +8,10 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pandas as pd
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
@@ -302,7 +302,7 @@ def _load_entity_keys(engine: Engine, asset: APIAsset) -> list:
 def _compute_date_window(
     mode: RunMode, coverage: CoverageTracker | None, overrides: dict,
 ) -> tuple[datetime | None, datetime | None]:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if "start_date" in overrides and "end_date" in overrides:
         return overrides["start_date"], overrides["end_date"]
     if mode == RunMode.FULL:

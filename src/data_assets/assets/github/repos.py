@@ -91,8 +91,6 @@ class GitHubRepos(APIAsset):
     def parse_response(
         self, response: list[dict[str, Any]]
     ) -> tuple[pd.DataFrame, PaginationState]:
-        orgs = self._get_orgs()
-
         if not response:
             return (
                 pd.DataFrame(columns=[c.name for c in self.columns]),

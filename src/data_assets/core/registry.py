@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib
 import logging
 import pkgutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from data_assets.core.asset import Asset
@@ -66,7 +66,7 @@ def sync_to_db(engine: Engine) -> None:
 
     from data_assets.db.models import AssetRegistry
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     with Session(engine) as session:
         for name, cls in _registry.items():
             asset = cls()

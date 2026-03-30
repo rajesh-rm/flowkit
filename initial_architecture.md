@@ -152,18 +152,16 @@ data_assets/
 │
 ├── extract/
 │   ├── __init__.py
-│   ├── api_client.py               # HTTP client wrapping requests; applies rate limiter
-│   ├── rate_limiter.py             # In-process token-bucket rate limiter (not Postgres-backed)
-│   ├── pagination.py               # Pagination strategy classes (cursor, offset, page, date_window)
+│   ├── api_client.py               # HTTP client: rate limiting, token injection, error classification, retries
+│   ├── rate_limiter.py             # In-process token-bucket rate limiter with jitter (thread-safe)
+│   ├── pagination.py               # Pagination strategy helpers (cursor, offset, page_number, keyset)
 │   ├── parallel.py                 # Thread pool executor for page-parallel and entity-parallel extraction
+│   ├── flatten.py                  # flatten_record() and pick_fields() utilities for nested JSON
 │   └── token_manager.py            # Pluggable credential manager with mid-run rotation support
 │
 ├── load/
-│   ├── __init__.py
-│   ├── temp_table.py               # Create, write to, and drop temp tables in temp_store
-│   ├── promoter.py                 # Temp table → main table promotion (strategy-aware)
-│   ├── schema_manager.py           # DDL: create tables, add columns, compare schemas
-│   └── strategies.py               # FullReplace, Upsert, Append promotion implementations
+│   ├── __init__.py                 # Re-exports public functions from loader.py
+│   └── loader.py                   # DDL, temp tables, and promotion (full_replace/upsert/append)
 │
 ├── transform/
 │   ├── __init__.py
@@ -176,7 +174,7 @@ data_assets/
 ├── observability/
 │   ├── __init__.py
 │   ├── logging.py                  # Configured stdlib logger, stdout output for Airflow
-│   └── metrics.py                  # Write to run_history, duration tracking
+│   └── run_tracker.py              # Write to run_history, coverage tracking, run metrics
 │
 ├── db/
 │   ├── __init__.py

@@ -9,8 +9,8 @@ from data_assets.core.api_asset import APIAsset
 from data_assets.core.column import Column
 from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.registry import register
-from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
 from data_assets.core.run_context import RunContext
+from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
 from data_assets.extract.token_manager import SonarQubeTokenManager
 
 
