@@ -1,46 +1,57 @@
+"""SonarQube projects — uses RestAsset for declarative config.
+
+This is the simplest example of a RestAsset. Compare with sonarqube/issues.py
+which uses APIAsset (custom) because it needs sort-by-update logic.
+
+RestAsset handles build_request() and parse_response() automatically from
+the class attributes. You only need to define: endpoint, response_path,
+pagination, columns, and field_map (if API fields differ from column names).
+"""
+
 from __future__ import annotations
 
-import math
-import os
-
-import pandas as pd
-
-from data_assets.core.api_asset import APIAsset
 from data_assets.core.column import Column
 from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.registry import register
-from data_assets.core.run_context import RunContext
-from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
+from data_assets.core.rest_asset import RestAsset
 from data_assets.extract.token_manager import SonarQubeTokenManager
 
 
 @register
-class SonarQubeProjects(APIAsset):
-    """SonarQube projects asset -- full catalogue of projects on the instance."""
+class SonarQubeProjects(RestAsset):
+    """SonarQube projects — full catalog, refreshed each run."""
 
     name = "sonarqube_projects"
     source_name = "sonarqube"
-
     target_schema = "raw"
     target_table = "sonarqube_projects"
 
+    # --- Source config ---
     token_manager_class = SonarQubeTokenManager
-    base_url = ""  # Set from SONARQUBE_URL env var at runtime
-
+    base_url_env = "SONARQUBE_URL"
+    endpoint = "/api/projects/search"
     rate_limit_per_second = 5.0
 
-    pagination_config = PaginationConfig(
-        strategy="page_number",
-        page_size=100,
-        total_field="paging.total",
-    )
+    # --- Response parsing ---
+    response_path = "components"  # JSON path to the records array
+    pagination = {
+        "strategy": "page_number",
+        "page_size": 100,
+        "total_path": "paging.total",
+    }
+    field_map = {
+        "lastAnalysisDate": "last_analysis_date",  # API field → column name
+    }
 
+    # --- Parallelism ---
     parallel_mode = ParallelMode.PAGE_PARALLEL
     max_workers = 3
 
+    # --- Load behavior ---
     load_strategy = LoadStrategy.FULL_REPLACE
     default_run_mode = RunMode.FULL
 
+    # --- Schema ---
     columns = [
         Column("key", "TEXT", nullable=False),
         Column("name", "TEXT"),
@@ -49,45 +60,4 @@ class SonarQubeProjects(APIAsset):
         Column("last_analysis_date", "TIMESTAMPTZ"),
         Column("revision", "TEXT"),
     ]
-
     primary_key = ["key"]
-    date_column = "last_analysis_date"
-
-    # ------------------------------------------------------------------
-    # Extract helpers
-    # ------------------------------------------------------------------
-
-    def build_request(
-        self,
-        context: RunContext,
-        checkpoint: dict | None = None,
-    ) -> RequestSpec:
-        page = checkpoint.get("page", 1) if checkpoint else 1
-        base = os.environ.get("SONARQUBE_URL", self.base_url)
-        return RequestSpec(
-            url=f"{base}/api/projects/search",
-            method="GET",
-            params={"ps": 100, "p": page},
-        )
-
-    def parse_response(
-        self,
-        response: dict,
-    ) -> tuple[pd.DataFrame, PaginationState]:
-        paging = response["paging"]
-        total = paging["total"]
-        page_index = paging["pageIndex"]
-        page_size = paging["pageSize"]
-
-        total_pages = math.ceil(total / page_size) if page_size else 1
-
-        df = pd.DataFrame(response["components"])
-
-        pagination_state = PaginationState(
-            has_more=page_index < total_pages,
-            next_page=page_index + 1,
-            total_pages=total_pages,
-            total_records=total,
-        )
-
-        return df, pagination_state

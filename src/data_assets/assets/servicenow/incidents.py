@@ -64,7 +64,9 @@ class ServiceNowIncidents(APIAsset):
         base = os.environ.get("SERVICENOW_INSTANCE", self.base_url)
         url = f"{base}/api/now/table/incident"
 
-        # Keyset pagination: sort by sys_updated_on,sys_id and filter from last seen
+        # Keyset pagination: sort by sys_updated_on,sys_id and filter from last seen.
+        # ServiceNow encoded query syntax: ^ = AND, ^OR = OR.
+        # Docs: https://docs.servicenow.com/bundle/latest/page/use/common-ui-elements/reference/r_OpAvailableFiltersQueries.html
         query_parts: list[str] = []
 
         if checkpoint and checkpoint.get("cursor"):

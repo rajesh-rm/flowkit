@@ -1612,3 +1612,56 @@ Every run records operational metrics in `run_history.metadata`:
 - `warnings` (non-blocking validation warnings)
 
 Query with: `SELECT metadata FROM data_ops.run_history WHERE asset_name = 'my_asset'`
+
+---
+
+## 8. Quick Reference: Adding Endpoints by Source
+
+### When to use RestAsset vs APIAsset
+
+| Use RestAsset when... | Use APIAsset when... |
+|----------------------|---------------------|
+| Standard REST: GET endpoint returns JSON with records array | API needs custom request logic (multi-org iteration, JQL construction) |
+| Pagination is page_number, offset, or cursor | Pagination needs keyset or custom sort params |
+| Field mapping is just renames | Response parsing needs nested extraction or type conversion |
+| No incremental date filter needed (FULL_REPLACE) | Incremental needs sort-by-update or should_stop() |
+
+**Example:** `sonarqube_projects` uses RestAsset (simple list). `sonarqube_issues` uses APIAsset (needs UPDATE_DATE sort).
+
+### Adding a SonarQube endpoint
+
+Copy `sonarqube/projects.py` (RestAsset pattern). Key settings:
+- `token_manager_class = SonarQubeTokenManager`
+- `base_url_env = "SONARQUBE_URL"`
+- Pagination: `{"strategy": "page_number", "page_size": 100, "total_path": "paging.total"}`
+- Response path: check API docs for the key containing the records array
+- SonarQube API docs: https://next.sonarqube.com/sonarqube/web_api
+
+### Adding a ServiceNow endpoint
+
+Copy `servicenow/incidents.py` (APIAsset with keyset pagination). Key settings:
+- `token_manager_class = ServiceNowTokenManager`
+- Change URL in `build_request()`: `/api/now/table/{table_name}`
+- Keyset pagination on `sys_updated_on,sys_id` — copy the exact query syntax
+- ServiceNow query syntax: `^` = AND, `^OR` = OR
+- Table API docs: https://docs.servicenow.com/bundle/latest/page/integrate/inbound-rest/concept/c_TableAPI.html
+
+### Adding a GitHub endpoint
+
+Copy `github/pull_requests.py` (APIAsset with entity-parallel). Key settings:
+- `token_manager_class = GitHubAppTokenManager`
+- Pagination: `{"strategy": "page_number", "page_size": 100}`
+- GitHub uses `per_page` + `page` params (not `ps`/`p`)
+- Always include `Accept: application/vnd.github+json` header
+- For child data (commits, reviews): use ENTITY_PARALLEL with `parent_asset_name = "github_repos"`
+- **`since` param**: works on `/repos/{o}/{r}/issues` and `/repos/{o}/{r}/commits` but NOT on `/pulls`
+- GitHub REST API docs: https://docs.github.com/en/rest
+
+### Adding a Jira endpoint
+
+Copy `jira/issues.py` (APIAsset with JQL + entity-parallel). Key settings:
+- `token_manager_class = JiraTokenManager`
+- Pagination: `{"strategy": "offset", "page_size": 100}` with `startAt`/`maxResults`
+- Use JQL for date filtering: `updated >= "{iso_date}"`
+- For entity-parallel: set `parent_asset_name = "jira_projects"` (fans out by project key)
+- Jira REST API v3 docs: https://developer.atlassian.com/cloud/jira/platform/rest/v3/

@@ -66,7 +66,8 @@ class GitHubRepos(APIAsset):
     ]
 
     primary_key = ["id"]
-    date_column = "updated_at"
+    # No date_column — FULL_REPLACE mode refreshes all repos each run.
+    # Watermark tracking is unnecessary for static-list assets.
 
     def _get_orgs(self) -> list[str]:
         return [o.strip() for o in os.environ.get("GITHUB_ORGS", "").split(",") if o.strip()]
@@ -74,6 +75,15 @@ class GitHubRepos(APIAsset):
     def build_request(
         self, context: RunContext, checkpoint: dict[str, Any] | None = None
     ) -> RequestSpec:
+        """Build request for the current org + page.
+
+        Multi-org iteration: the sequential extractor calls build_request()
+        each page with the latest checkpoint. This asset reads {org_idx, next_page}
+        from the checkpoint to know which org and page to fetch. When a page
+        returns fewer than page_size results, parse_response returns has_more=False,
+        and the extractor stops. For the next org, a new run is needed (or override
+        to advance org_idx — current design does full refresh of all orgs each run).
+        """
         orgs = self._get_orgs()
         org_idx = checkpoint.get("org_idx", 0) if checkpoint else 0
         page = checkpoint.get("next_page", 1) if checkpoint else 1

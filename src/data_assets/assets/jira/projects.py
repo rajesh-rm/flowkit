@@ -33,14 +33,16 @@ class JiraProjects(APIAsset):
     default_run_mode = RunMode.FULL
 
     columns = [
-        Column("id", "TEXT", nullable=False),
-        Column("key", "TEXT", nullable=False),
+        Column("id", "TEXT", nullable=False),   # Jira internal ID (numeric string)
+        Column("key", "TEXT", nullable=False),   # Project key (e.g., "ENG") — used as PK
         Column("name", "TEXT"),
         Column("project_type_key", "TEXT"),
         Column("style", "TEXT"),
         Column("is_private", "TEXT"),
     ]
 
+    # PK is "key" (not "id") because jira_issues uses project key in JQL
+    # and entity-parallel fans out by primary key values.
     primary_key = ["key"]
 
     # ------------------------------------------------------------------

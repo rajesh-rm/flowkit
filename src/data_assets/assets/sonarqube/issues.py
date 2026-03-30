@@ -140,19 +140,5 @@ class SonarQubeIssues(APIAsset):
             total_records=total,
         )
 
-    def should_stop(self, df: pd.DataFrame, context: RunContext) -> bool:
-        """In FORWARD mode, stop when all issues on the page are older than watermark.
-
-        Since we sort by UPDATE_DATE ascending, once we see a page where every
-        issue has update_date > start_date, we've fetched all the changes
-        since the last run. But we need ALL records — so we only stop if the
-        mode is FORWARD and the newest record is well past our window. For FULL
-        mode, we never stop early.
-        """
-        if context.mode.value != "forward" or not context.start_date:
-            return False
-        # Not stopping early for SonarQube — the total is known via paging.total
-        # and pagination exhausts naturally. should_stop is a safety net for
-        # APIs without totals (like GitHub PRs). For SonarQube, the page-number
-        # pagination handles termination correctly.
-        return False
+    # No should_stop() override needed — SonarQube returns paging.total,
+    # so page-number pagination exhausts naturally without early termination.

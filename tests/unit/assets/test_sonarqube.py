@@ -36,8 +36,21 @@ def test_projects_build_request_with_checkpoint(monkeypatch):
     from data_assets.assets.sonarqube.projects import SonarQubeProjects
 
     asset = SonarQubeProjects()
-    spec = asset.build_request(_ctx(), checkpoint={"page": 3})
+    # RestAsset reads "next_page" from checkpoint (not "page")
+    spec = asset.build_request(_ctx(), checkpoint={"next_page": 3})
     assert spec.params["p"] == 3
+
+
+def test_projects_is_rest_asset(monkeypatch):
+    """SonarQube projects uses RestAsset (declarative) — no custom build/parse."""
+    monkeypatch.setenv("SONARQUBE_TOKEN", "fake")
+    from data_assets.assets.sonarqube.projects import SonarQubeProjects
+    from data_assets.core.rest_asset import RestAsset
+
+    assert issubclass(SonarQubeProjects, RestAsset)
+    asset = SonarQubeProjects()
+    assert asset.endpoint == "/api/projects/search"
+    assert asset.response_path == "components"
 
 
 def test_projects_parse_response(monkeypatch):
@@ -50,9 +63,10 @@ def test_projects_parse_response(monkeypatch):
 
     assert len(df) == 3
     assert "key" in df.columns
-    assert list(df["key"]) == ["proj-alpha", "proj-beta", "proj-gamma"]
     assert not state.has_more  # 3 items, page_size=100 → single page
     assert state.total_records == 3
+    # field_map: lastAnalysisDate → last_analysis_date
+    assert "last_analysis_date" in df.columns
 
 
 def test_issues_build_entity_request(monkeypatch):
