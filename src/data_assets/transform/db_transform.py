@@ -8,7 +8,7 @@ import pandas as pd
 from sqlalchemy.engine import Engine
 
 from data_assets.core.run_context import RunContext
-from data_assets.load.temp_table import write_to_temp
+from data_assets.load.loader import write_to_temp
 
 logger = logging.getLogger(__name__)
 

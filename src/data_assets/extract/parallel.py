@@ -16,7 +16,7 @@ from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationState, RequestSpec
 from data_assets.extract.api_client import APIClient
 from data_assets.extract.pagination import next_request_params
-from data_assets.load.temp_table import write_to_temp
+from data_assets.load.loader import write_to_temp
 
 logger = logging.getLogger(__name__)
 

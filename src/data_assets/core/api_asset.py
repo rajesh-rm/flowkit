@@ -34,8 +34,10 @@ class APIAsset(Asset):
     # --- Token management ---
     token_manager_class: type[TokenManager] | None = None
 
-    # --- Rate limiting ---
+    # --- Rate limiting & HTTP ---
     rate_limit_per_second: float = 10.0
+    request_timeout: float = 60.0
+    max_retries: int = 3
 
     # --- Pagination ---
     pagination_config: PaginationConfig = PaginationConfig(strategy="none")

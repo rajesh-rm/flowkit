@@ -11,20 +11,18 @@ import uuid
 from datetime import datetime, timezone
 
 import pandas as pd
-from sqlalchemy import select, text
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import Session
 
 from data_assets.checkpoint.manager import (
     acquire_lock,
     clear_checkpoints,
     get_checkpoints,
     release_lock,
-    save_checkpoint,
 )
 from data_assets.core.api_asset import APIAsset
-from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
-from data_assets.core.registry import discover, get, sync_to_db
+from data_assets.core.asset import Asset
+from data_assets.core.enums import ParallelMode, RunMode
+from data_assets.core.registry import discover, get
 from data_assets.core.run_context import RunContext
 from data_assets.core.transform_asset import TransformAsset
 from data_assets.db.engine import get_engine
@@ -36,17 +34,18 @@ from data_assets.extract.parallel import (
     extract_sequential,
 )
 from data_assets.extract.rate_limiter import RateLimiter
-from data_assets.load.promoter import promote
-from data_assets.load.temp_table import (
+from data_assets.load.loader import (
     create_temp_table,
+    drop_table,
     drop_temp_table,
+    promote,
     read_temp_table,
     temp_table_exists,
     temp_table_name,
     write_to_temp,
 )
 from data_assets.observability.logging import setup_logging
-from data_assets.observability.metrics import (
+from data_assets.observability.run_tracker import (
     get_coverage,
     record_run_failure,
     record_run_start,
@@ -57,6 +56,18 @@ from data_assets.observability.metrics import (
 from data_assets.transform.db_transform import execute_transform
 
 logger = logging.getLogger(__name__)
+
+_initialized = False
+
+
+def _ensure_initialized(engine: Engine) -> None:
+    """One-time initialization: create schemas/tables, discover assets."""
+    global _initialized
+    if _initialized:
+        return
+    create_all_tables(engine)
+    discover()
+    _initialized = True
 
 
 def run_asset(
@@ -83,9 +94,7 @@ def run_asset(
 
     # --- Phase 1: Initialize ---
     engine = get_engine()
-    create_all_tables(engine)
-    discover()
-    sync_to_db(engine)
+    _ensure_initialized(engine)
 
     asset_cls = get(asset_name)
     asset = asset_cls()
@@ -98,10 +107,8 @@ def run_asset(
 
     rows_extracted = 0
     rows_loaded = 0
-    temp_tbl: str | None = None
 
     try:
-        # Read coverage for date window computation
         coverage = get_coverage(engine, asset_name)
         start_date, end_date = _compute_date_window(mode, coverage, overrides)
 
@@ -151,14 +158,14 @@ def run_asset(
         # --- Phase 3: Transform & Validate ---
         df = read_temp_table(engine, temp_tbl)
 
-        df = asset.transform(df)
-        if len(df) > 0:
-            # Rewrite transformed data if transform modified it
-            from data_assets.load.schema_manager import drop_table
-
-            drop_table(engine, "temp_store", temp_tbl)
-            temp_tbl = create_temp_table(engine, asset_name, run_id, asset.columns)
-            write_to_temp(engine, temp_tbl, df)
+        # Only rewrite temp table if the asset overrides transform()
+        has_custom_transform = type(asset).transform is not Asset.transform
+        if has_custom_transform:
+            df = asset.transform(df)
+            if len(df) > 0:
+                drop_table(engine, "temp_store", temp_tbl)
+                temp_tbl = create_temp_table(engine, asset_name, run_id, asset.columns)
+                write_to_temp(engine, temp_tbl, df)
 
         validation_result = asset.validate(df, context)
         if not validation_result.passed:
@@ -189,10 +196,7 @@ def run_asset(
         duration = time.monotonic() - start_time
         logger.info(
             "Run complete: asset=%s rows_extracted=%d rows_loaded=%d duration=%.1fs",
-            asset_name,
-            rows_extracted,
-            rows_loaded,
-            duration,
+            asset_name, rows_extracted, rows_loaded, duration,
         )
 
         return {
@@ -205,12 +209,10 @@ def run_asset(
         }
 
     except Exception as exc:
-        duration = time.monotonic() - start_time
         error_msg = str(exc)
         logger.exception("Run failed: asset=%s error=%s", asset_name, error_msg)
         record_run_failure(engine, run_id, error_msg)
         release_lock(engine, asset_name)
-        # Checkpoint and temp table are PRESERVED for retry/debugging
         raise
 
 
@@ -224,20 +226,19 @@ def _extract_api(
 ) -> int:
     """Handle API extraction with rate limiting, token management, and parallelism."""
     rate = overrides.get("rate_limit_per_second", asset.rate_limit_per_second)
-    max_workers = overrides.get("max_workers", asset.max_workers)
+    timeout = overrides.get("request_timeout", asset.request_timeout)
+    retries = overrides.get("max_retries", asset.max_retries)
 
     token_mgr = asset.token_manager_class()
     rate_limiter = RateLimiter(rate)
-    client = APIClient(token_mgr, rate_limiter)
+    client = APIClient(token_mgr, rate_limiter, timeout=timeout, max_retries=retries)
 
     try:
-        parallel_mode = asset.parallel_mode
-
-        if parallel_mode == ParallelMode.PAGE_PARALLEL:
+        if asset.parallel_mode == ParallelMode.PAGE_PARALLEL:
             return extract_page_parallel(
                 asset, client, engine, temp_tbl, context, existing_cp_map
             )
-        elif parallel_mode == ParallelMode.ENTITY_PARALLEL:
+        elif asset.parallel_mode == ParallelMode.ENTITY_PARALLEL:
             entity_keys = _load_entity_keys(engine, asset)
             return extract_entity_parallel(
                 asset, client, engine, temp_tbl, context, entity_keys, existing_cp_map
@@ -278,25 +279,18 @@ def _compute_date_window(
 
     if mode == RunMode.FULL:
         return None, None
-
     if mode == RunMode.FORWARD:
         start = coverage.forward_watermark if coverage else None
         return start, now
-
     if mode == RunMode.BACKFILL:
         end = coverage.backward_watermark if coverage else now
         return None, end
-
-    # TRANSFORM mode
     return None, None
 
 
 def _update_watermarks(
-    engine: Engine,
-    asset,
-    mode: RunMode,
-    start_date: datetime | None,
-    end_date: datetime | None,
+    engine: Engine, asset, mode: RunMode,
+    start_date: datetime | None, end_date: datetime | None,
     df: pd.DataFrame,
 ) -> None:
     """Update coverage tracker after a successful run."""
@@ -305,8 +299,7 @@ def _update_watermarks(
     if asset.date_column not in df.columns:
         return
 
-    col = pd.to_datetime(df[asset.date_column], utc=True, errors="coerce")
-    col = col.dropna()
+    col = pd.to_datetime(df[asset.date_column], utc=True, errors="coerce").dropna()
     if col.empty:
         return
 

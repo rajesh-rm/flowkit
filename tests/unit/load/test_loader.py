@@ -1,7 +1,7 @@
-"""Tests for schema_manager DDL generation (string logic, no DB)."""
+"""Tests for loader DDL generation (string logic, no DB)."""
 
 from data_assets.core.column import Column
-from data_assets.load.schema_manager import _column_ddl
+from data_assets.load.loader import _column_ddl
 
 
 def test_column_ddl_basic():

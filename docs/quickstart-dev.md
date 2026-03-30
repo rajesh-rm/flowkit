@@ -104,9 +104,9 @@ flowkit/
 ├── src/data_assets/          # Package source (installed editable)
 │   ├── core/                 # Asset classes, enums, types, registry
 │   ├── extract/              # API client, rate limiter, tokens, parallel
-│   ├── load/                 # Schema mgmt, temp tables, promotion
+│   ├── load/                 # DDL, temp tables, promotion (loader.py)
 │   ├── checkpoint/           # Locks, checkpoints
-│   ├── observability/        # Logging, run metrics
+│   ├── observability/        # Logging, run tracking
 │   ├── db/                   # SQLAlchemy engine + ORM models
 │   ├── validation/           # Composable validators
 │   ├── transform/            # SQL transforms

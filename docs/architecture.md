@@ -15,11 +15,11 @@
 ├─────────┬──────────┬───────────┬──────────┬────────────────────┤
 │ extract/│  load/   │checkpoint/│transform/│   observability/   │
 │         │          │           │          │                     │
-│ API     │ temp     │ locks     │ SQL      │ logging            │
-│ client  │ tables   │ checkpts  │ transforms│ run_history       │
-│ rate    │ schema   │           │          │ coverage           │
-│ limiter │ promote  │           │          │                     │
-│ tokens  │ strategy │           │          │                     │
+│ API     │ loader:  │ locks     │ SQL      │ logging            │
+│ client  │  DDL     │ checkpts  │ transforms│ run_tracker       │
+│ rate    │  temp    │           │          │                     │
+│ limiter │  promote │           │          │                     │
+│ tokens  │          │           │          │                     │
 │ parallel│          │           │          │                     │
 ├─────────┴──────────┴───────────┴──────────┴────────────────────┤
 │                     core/ + db/                                  │
