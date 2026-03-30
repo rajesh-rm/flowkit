@@ -86,7 +86,7 @@ class GitHubRepos(APIAsset):
         """
         orgs = self._get_orgs()
         org_idx = checkpoint.get("org_idx", 0) if checkpoint else 0
-        page = checkpoint.get("next_page", 1) if checkpoint else 1
+        page = (checkpoint.get("next_page") or 1) if checkpoint else 1
 
         org = orgs[min(org_idx, len(orgs) - 1)]
         base = os.environ.get("GITHUB_API_URL", self.base_url)

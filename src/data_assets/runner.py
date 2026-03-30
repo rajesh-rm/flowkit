@@ -6,8 +6,9 @@ See architecture doc Section 9 for the complete lifecycle specification.
 from __future__ import annotations
 
 import logging
+import os
+import threading
 import time
-import uuid
 from datetime import UTC, datetime
 
 import pandas as pd
@@ -16,14 +17,16 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from data_assets.checkpoint.manager import (
-    acquire_lock,
+    acquire_or_takeover,
     clear_checkpoints,
     get_checkpoints,
     release_lock,
+    update_lock_temp_table,
 )
 from data_assets.core.api_asset import APIAsset
 from data_assets.core.asset import Asset
 from data_assets.core.enums import ParallelMode, RunMode
+from data_assets.core.identifiers import uuid7
 from data_assets.core.registry import discover, get
 from data_assets.core.run_context import RunContext
 from data_assets.core.transform_asset import TransformAsset
@@ -60,6 +63,7 @@ from data_assets.transform.db_transform import execute_transform
 logger = logging.getLogger(__name__)
 
 _initialized = False
+_init_lock = threading.Lock()
 
 
 def _ensure_initialized(engine: Engine) -> None:
@@ -67,14 +71,18 @@ def _ensure_initialized(engine: Engine) -> None:
     global _initialized
     if _initialized:
         return
-    create_all_tables(engine)
-    discover()
-    _initialized = True
+    with _init_lock:
+        if _initialized:  # double-check after acquiring lock
+            return
+        create_all_tables(engine)
+        discover()
+        _initialized = True
 
 
 def run_asset(
     asset_name: str,
     run_mode: str = "full",
+    secrets: dict[str, str] | None = None,
     **overrides,
 ) -> dict:
     """Execute a complete ETL run for the named asset.
@@ -82,6 +90,11 @@ def run_asset(
     Args:
         asset_name: Name matching a registered asset class.
         run_mode: One of "full", "forward", "backfill", "transform".
+        secrets: Credentials to inject as environment variables for this run.
+            Keys are env var names, values are the secret strings. Injected
+            before token managers initialize and cleaned up after the run.
+            This is the primary way for Airflow DAGs to pass secrets from
+            Connections, Variables, or secret backends.
         **overrides: Runtime overrides including:
             - rate_limit_per_second, max_workers, request_timeout, max_retries
             - start_date, end_date (override computed date window)
@@ -90,12 +103,37 @@ def run_asset(
 
     Returns:
         Dict with run metrics.
+
+    Example (Airflow DAG)::
+
+        from airflow.hooks.base import BaseHook
+
+        def _run_github(**kwargs):
+            conn = BaseHook.get_connection("github_app")
+            run_asset(
+                "github_repos",
+                run_mode="full",
+                secrets={
+                    "GITHUB_APP_ID": conn.login,
+                    "GITHUB_PRIVATE_KEY": conn.password,
+                    "GITHUB_INSTALLATION_ID": conn.extra_dejson["installation_id"],
+                    "GITHUB_ORGS": conn.extra_dejson["orgs"],
+                },
+                airflow_run_id=kwargs["run_id"],
+            )
     """
     setup_logging()
     start_time = time.monotonic()
-    run_id = uuid.uuid4()
+    run_id = uuid7()
     mode = RunMode(run_mode)
     dry_run = overrides.pop("dry_run", False)
+
+    # Inject secrets as env vars for this run
+    _injected_secrets: list[str] = []
+    if secrets:
+        for key, value in secrets.items():
+            os.environ[key] = value
+            _injected_secrets.append(key)
 
     engine = get_engine()
     _ensure_initialized(engine)
@@ -108,13 +146,26 @@ def run_asset(
         asset_name, mode.value, run_id, dry_run,
     )
 
-    acquire_lock(engine, asset_name, run_id)
+    # --- Phase 1: Acquire lock (or take over abandoned run) ---
+    stale_minutes = getattr(asset, "stale_heartbeat_minutes", 20)
+    max_hours = getattr(asset, "max_run_hours", 5)
+    new_temp = temp_table_name(asset_name, run_id)
+
+    inherited_temp, abandoned_run_id = acquire_or_takeover(
+        engine, asset_name, run_id, new_temp,
+        stale_heartbeat_minutes=stale_minutes,
+        max_run_hours=max_hours,
+    )
 
     rows_extracted = 0
     rows_loaded = 0
     client_stats: dict = {}
 
     try:
+        # Mark abandoned run in history if we took over
+        if abandoned_run_id:
+            record_run_failure(engine, abandoned_run_id, "Abandoned — taken over by new worker")
+
         coverage = get_coverage(engine, asset_name)
         start_date, end_date = _compute_date_window(mode, coverage, overrides)
 
@@ -141,9 +192,18 @@ def run_asset(
         # --- Phase 2: Extract ---
         extract_start = time.monotonic()
 
-        temp_tbl = temp_table_name(asset_name, run_id)
-        if not temp_table_exists(engine, temp_tbl):
+        # Reuse inherited temp table from abandoned run if it still exists
+        if inherited_temp and temp_table_exists(engine, inherited_temp):
+            temp_tbl = inherited_temp
+            logger.info(
+                "Reusing temp table '%s' from abandoned run %s",
+                temp_tbl, abandoned_run_id,
+            )
+        else:
             temp_tbl = create_temp_table(engine, asset_name, run_id, asset.columns)
+            if inherited_temp:
+                # Inherited table was gone (e.g., Postgres crash); update lock
+                update_lock_temp_table(engine, asset_name, temp_tbl)
 
         if isinstance(asset, APIAsset):
             rows_extracted, client_stats = _extract_api(
@@ -244,6 +304,11 @@ def run_asset(
         record_run_failure(engine, run_id, error_msg)
         release_lock(engine, asset_name)
         raise
+    finally:
+        # Clean up injected secrets so they don't leak to other tasks
+        # in the same worker process
+        for key in _injected_secrets:
+            os.environ.pop(key, None)
 
 
 def _extract_api(
@@ -259,6 +324,11 @@ def _extract_api(
     timeout = overrides.get("request_timeout", asset.request_timeout)
     retries = overrides.get("max_retries", asset.max_retries)
 
+    if not asset.token_manager_class:
+        raise ValueError(
+            f"Asset '{asset.name}' has no token_manager_class set. "
+            "All API assets must configure a TokenManager."
+        )
     token_mgr = asset.token_manager_class()
     rate_limiter = RateLimiter(rate)
     client = APIClient(
@@ -369,7 +439,7 @@ def _check_source_freshness(
                         asset.name, table, hours_ago, max_stale_hours,
                     )
     except Exception:
-        pass  # Non-critical
+        logger.debug("Source freshness check failed for '%s'", asset.name, exc_info=True)
 
 
 def _check_row_count_anomaly(
@@ -391,4 +461,4 @@ def _check_row_count_anomaly(
                     asset_name, rows_extracted, result,
                 )
     except Exception:
-        pass  # Non-critical — don't fail the run for a warning query
+        logger.debug("Row count anomaly check failed for '%s'", asset_name, exc_info=True)

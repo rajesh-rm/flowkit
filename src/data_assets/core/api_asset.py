@@ -45,14 +45,17 @@ class APIAsset(Asset):
     # --- Parallel extraction ---
     parallel_mode: ParallelMode = ParallelMode.NONE
     max_workers: int = 1
-    total_pages_field: str | None = None
     parent_asset_name: str | None = None
 
     # --- Incremental support ---
     date_column: str | None = None
     api_date_param: str | None = None
-    date_format: str = "%Y-%m-%dT%H:%M:%S"
-    earliest_date: str | None = None
+
+    # --- Run resilience ---
+    # A run is considered abandoned when EITHER threshold is exceeded.
+    # Override per asset for slow APIs or long-running extractions.
+    stale_heartbeat_minutes: int = 20  # no checkpoint update in this many minutes
+    max_run_hours: int = 5  # total wall-clock time since run started
 
     # --- Error handling ---
 

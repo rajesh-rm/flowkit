@@ -61,6 +61,23 @@ from example_dags.dag_factory import create_dags
 globals().update(create_dags())
 ```
 
+**Passing secrets:** For production with remote workers (Airflow 3.1+, KubernetesExecutor),
+pass credentials from Airflow Connections via the `secrets` parameter. Workers fetch
+secrets at execution time — no pre-configured env vars needed:
+
+```python
+from airflow.hooks.base import BaseHook
+from data_assets import run_asset
+
+conn = BaseHook.get_connection("sonarqube")
+run_asset("sonarqube_projects", secrets={
+    "SONARQUBE_URL": f"https://{conn.host}",
+    "SONARQUBE_TOKEN": conn.password,
+})
+```
+
+See [configuration.md](configuration.md) for connection setup commands.
+
 ## Run Modes
 
 | Mode | When to use |

@@ -61,7 +61,7 @@ class RestAsset(APIAsset):
     def __init_subclass__(cls, **kwargs: Any) -> None:
         """Convert the pagination dict shorthand to PaginationConfig."""
         super().__init_subclass__(**kwargs)
-        if cls.pagination and not hasattr(cls, "_pagination_set"):
+        if "pagination" in cls.__dict__ and cls.pagination is not None:
             p = cls.pagination
             cls.pagination_config = PaginationConfig(
                 strategy=p.get("strategy", "none"),
@@ -69,7 +69,6 @@ class RestAsset(APIAsset):
                 cursor_field=p.get("cursor_field"),
                 total_field=p.get("total_path"),
             )
-            cls._pagination_set = True
 
     def build_request(
         self, context: RunContext, checkpoint: dict | None = None
@@ -86,7 +85,7 @@ class RestAsset(APIAsset):
             params["p"] = checkpoint.get("next_page", 1) if checkpoint else 1
         elif strategy == "offset":
             params["limit"] = page_size
-            params["offset"] = checkpoint.get("next_offset", 0) if checkpoint else 0
+            params["offset"] = (checkpoint.get("next_offset") or 0) if checkpoint else 0
         elif strategy == "cursor":
             if checkpoint and checkpoint.get("cursor"):
                 params[self.pagination_config.cursor_field or "cursor"] = checkpoint["cursor"]
@@ -117,14 +116,8 @@ class RestAsset(APIAsset):
         for raw in records_raw:
             row: dict[str, Any] = {}
             for col_name in column_names:
-                if col_name in self.field_map.values():
-                    # This column is a renamed field — find the API field name
-                    api_field = reverse_map[col_name]
-                    row[col_name] = _get_nested(raw, api_field)
-                elif col_name in raw:
-                    row[col_name] = raw[col_name]
-                else:
-                    row[col_name] = _get_nested(raw, col_name)
+                api_field = reverse_map.get(col_name, col_name)
+                row[col_name] = _get_nested(raw, api_field)
             records.append(row)
 
         df = pd.DataFrame(records, columns=[c.name for c in self.columns])
@@ -170,5 +163,10 @@ class RestAsset(APIAsset):
                 cursor=cursor,
             )
 
-        # strategy == "none"
-        return PaginationState(has_more=False)
+        if strategy == "none":
+            return PaginationState(has_more=False)
+
+        raise ValueError(
+            f"Unknown pagination strategy '{strategy}'. "
+            "Expected: page_number, offset, cursor, or none."
+        )

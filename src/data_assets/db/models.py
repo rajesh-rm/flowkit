@@ -20,7 +20,9 @@ class Base(DeclarativeBase):
 class RunLock(Base):
     """Mutex preventing concurrent runs of the same asset.
 
-    A row exists only while a run is active.
+    A row exists only while a run is active.  Also tracks the temp table
+    and heartbeat so a retry worker can detect abandoned runs and take
+    over their partial work.
     """
 
     __tablename__ = "run_locks"
@@ -34,6 +36,12 @@ class RunLock(Base):
         server_default=text("now()"),
     )
     locked_by: Mapped[str] = mapped_column(Text, nullable=False)
+    temp_table: Mapped[str | None] = mapped_column(Text, nullable=True)
+    heartbeat_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )
 
 
 class RunHistory(Base):

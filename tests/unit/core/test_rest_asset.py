@@ -158,3 +158,99 @@ def test_pagination_config_auto_set():
     asset = ItemsAsset()
     assert asset.pagination_config.strategy == "offset"
     assert asset.pagination_config.page_size == 50
+
+
+# --- Cursor pagination ---
+
+class CursorAsset(RestAsset):
+    name = "test_cursor"
+    source_name = "test_api"
+    target_table = "test_cursor"
+    endpoint = "/api/cursor"
+    base_url_env = "TEST_API_URL"
+    token_manager_class = FakeTokenManager
+    response_path = "items"
+    pagination = {"strategy": "cursor", "cursor_field": "next_cursor"}
+    columns = [Column("id", "TEXT", nullable=False)]
+    primary_key = ["id"]
+
+
+def test_cursor_pagination_first_request(monkeypatch):
+    monkeypatch.setenv("TEST_API_URL", "https://api.test")
+    spec = CursorAsset().build_request(_ctx())
+    assert "next_cursor" not in spec.params  # no cursor on first request
+
+
+def test_cursor_pagination_with_checkpoint(monkeypatch):
+    monkeypatch.setenv("TEST_API_URL", "https://api.test")
+    spec = CursorAsset().build_request(_ctx(), checkpoint={"cursor": "abc123"})
+    assert spec.params["next_cursor"] == "abc123"
+
+
+def test_cursor_pagination_has_more():
+    """has_more requires cursor present AND result_count >= page_size."""
+    asset = CursorAsset()
+    # page_size defaults to 100 in CursorAsset's pagination config
+    items = [{"id": str(i)} for i in range(100)]
+    response = {"items": items, "next_cursor": "page2"}
+    _, state = asset.parse_response(response)
+    assert state.has_more is True
+    assert state.cursor == "page2"
+
+
+def test_cursor_pagination_exhausted_no_cursor():
+    asset = CursorAsset()
+    response = {"items": [{"id": "1"}]}  # no cursor in response
+    _, state = asset.parse_response(response)
+    assert state.has_more is False
+
+
+def test_cursor_pagination_exhausted_partial_page():
+    """Cursor present but fewer results than page_size → last page."""
+    asset = CursorAsset()
+    response = {"items": [{"id": "1"}], "next_cursor": "page2"}
+    _, state = asset.parse_response(response)
+    assert state.has_more is False  # 1 < page_size 100
+    assert state.cursor == "page2"  # cursor still captured
+
+
+# --- Date filtering ---
+
+class IncrementalAsset(RestAsset):
+    name = "test_incr"
+    source_name = "test_api"
+    target_table = "test_incr"
+    endpoint = "/api/data"
+    base_url_env = "TEST_API_URL"
+    token_manager_class = FakeTokenManager
+    response_path = "items"
+    pagination = {"strategy": "none"}
+    api_date_param = "updated_since"
+    columns = [Column("id", "TEXT", nullable=False)]
+    primary_key = ["id"]
+
+
+def test_date_param_added_when_start_date_set(monkeypatch):
+    from datetime import UTC, datetime
+    monkeypatch.setenv("TEST_API_URL", "https://api.test")
+    ctx = _ctx(start_date=datetime(2025, 6, 1, tzinfo=UTC))
+    spec = IncrementalAsset().build_request(ctx)
+    assert "updated_since" in spec.params
+
+
+def test_date_param_absent_when_no_start_date(monkeypatch):
+    monkeypatch.setenv("TEST_API_URL", "https://api.test")
+    spec = IncrementalAsset().build_request(_ctx())
+    assert "updated_since" not in spec.params
+
+
+# --- Missing fields in response ---
+
+def test_missing_fields_default_to_none():
+    """If a column is not in the API response, it should be None."""
+    asset = ItemsAsset()
+    response = {"data": {"items": [{"id": 1}]}}  # missing "name" and "created_at"
+    df, _ = asset.parse_response(response)
+    assert len(df) == 1
+    assert df.iloc[0]["item_name"] is None
+    assert df.iloc[0]["created_at"] is None

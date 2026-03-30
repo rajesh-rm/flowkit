@@ -1,106 +1,91 @@
-"""Unit tests for SonarQube asset build_request/parse_response."""
+"""Unit tests for SonarQube assets: projects (RestAsset) and issues (APIAsset)."""
 
 from __future__ import annotations
 
 import json
-import uuid
 from pathlib import Path
 
-from data_assets.core.enums import RunMode
-from data_assets.core.run_context import RunContext
+from tests.unit.conftest import make_ctx
 
 FIXTURES = Path(__file__).parent.parent.parent / "fixtures" / "sonarqube"
 
 
-def _ctx(**kwargs):
-    return RunContext(
-        run_id=uuid.uuid4(), mode=RunMode.FULL, asset_name="test", **kwargs
-    )
+# ---------------------------------------------------------------------------
+# SonarQubeProjects (RestAsset — declarative)
+# ---------------------------------------------------------------------------
 
 
-def test_projects_build_request(monkeypatch):
-    monkeypatch.setenv("SONARQUBE_URL", "https://sonar.test")
-    monkeypatch.setenv("SONARQUBE_TOKEN", "fake")
-    from data_assets.assets.sonarqube.projects import SonarQubeProjects
+class TestSonarQubeProjects:
+    def test_is_rest_asset(self, sonarqube_env):
+        from data_assets.assets.sonarqube.projects import SonarQubeProjects
+        from data_assets.core.rest_asset import RestAsset
 
-    asset = SonarQubeProjects()
-    spec = asset.build_request(_ctx())
-    assert spec.url == "https://sonar.test/api/projects/search"
-    assert spec.params["ps"] == 100
-    assert spec.params["p"] == 1
+        assert issubclass(SonarQubeProjects, RestAsset)
+        asset = SonarQubeProjects()
+        assert asset.endpoint == "/api/projects/search"
+        assert asset.response_path == "components"
 
+    def test_build_request(self, sonarqube_env):
+        from data_assets.assets.sonarqube.projects import SonarQubeProjects
 
-def test_projects_build_request_with_checkpoint(monkeypatch):
-    monkeypatch.setenv("SONARQUBE_URL", "https://sonar.test")
-    monkeypatch.setenv("SONARQUBE_TOKEN", "fake")
-    from data_assets.assets.sonarqube.projects import SonarQubeProjects
+        spec = SonarQubeProjects().build_request(make_ctx())
+        assert spec.url == "https://sonar.test/api/projects/search"
+        assert spec.params["ps"] == 100
+        assert spec.params["p"] == 1
 
-    asset = SonarQubeProjects()
-    # RestAsset reads "next_page" from checkpoint (not "page")
-    spec = asset.build_request(_ctx(), checkpoint={"next_page": 3})
-    assert spec.params["p"] == 3
+    def test_build_request_with_checkpoint(self, sonarqube_env):
+        from data_assets.assets.sonarqube.projects import SonarQubeProjects
 
+        spec = SonarQubeProjects().build_request(
+            make_ctx(), checkpoint={"next_page": 3}
+        )
+        assert spec.params["p"] == 3
 
-def test_projects_is_rest_asset(monkeypatch):
-    """SonarQube projects uses RestAsset (declarative) — no custom build/parse."""
-    monkeypatch.setenv("SONARQUBE_TOKEN", "fake")
-    from data_assets.assets.sonarqube.projects import SonarQubeProjects
-    from data_assets.core.rest_asset import RestAsset
+    def test_parse_response(self, sonarqube_env):
+        from data_assets.assets.sonarqube.projects import SonarQubeProjects
 
-    assert issubclass(SonarQubeProjects, RestAsset)
-    asset = SonarQubeProjects()
-    assert asset.endpoint == "/api/projects/search"
-    assert asset.response_path == "components"
-
-
-def test_projects_parse_response(monkeypatch):
-    monkeypatch.setenv("SONARQUBE_TOKEN", "fake")
-    from data_assets.assets.sonarqube.projects import SonarQubeProjects
-
-    data = json.loads((FIXTURES / "projects_page1.json").read_text())
-    asset = SonarQubeProjects()
-    df, state = asset.parse_response(data)
-
-    assert len(df) == 3
-    assert "key" in df.columns
-    assert not state.has_more  # 3 items, page_size=100 → single page
-    assert state.total_records == 3
-    # field_map: lastAnalysisDate → last_analysis_date
-    assert "last_analysis_date" in df.columns
+        data = json.loads((FIXTURES / "projects_page1.json").read_text())
+        df, state = SonarQubeProjects().parse_response(data)
+        assert len(df) == 3
+        assert "key" in df.columns
+        assert "last_analysis_date" in df.columns  # field_map applied
+        assert not state.has_more
+        assert state.total_records == 3
 
 
-def test_issues_build_entity_request(monkeypatch):
-    monkeypatch.setenv("SONARQUBE_URL", "https://sonar.test")
-    monkeypatch.setenv("SONARQUBE_TOKEN", "fake")
-    from data_assets.assets.sonarqube.issues import SonarQubeIssues
-
-    asset = SonarQubeIssues()
-    spec = asset.build_entity_request("proj-alpha", _ctx(), checkpoint=None)
-    assert spec.url == "https://sonar.test/api/issues/search"
-    assert spec.params["componentKeys"] == "proj-alpha"
-    # Must sort by UPDATE_DATE ascending for reliable incremental
-    assert spec.params["s"] == "UPDATE_DATE"
-    assert spec.params["asc"] == "true"
+# ---------------------------------------------------------------------------
+# SonarQubeIssues (APIAsset — custom, entity-parallel)
+# ---------------------------------------------------------------------------
 
 
-def test_issues_tracks_watermark_on_update_date(monkeypatch):
-    """date_column must be update_date (not creation_date) to catch all changes."""
-    monkeypatch.setenv("SONARQUBE_TOKEN", "fake")
-    from data_assets.assets.sonarqube.issues import SonarQubeIssues
+class TestSonarQubeIssues:
+    def test_build_entity_request(self, sonarqube_env):
+        from data_assets.assets.sonarqube.issues import SonarQubeIssues
 
-    asset = SonarQubeIssues()
-    assert asset.date_column == "update_date"
+        spec = SonarQubeIssues().build_entity_request("proj-alpha", make_ctx())
+        assert spec.url == "https://sonar.test/api/issues/search"
+        assert spec.params["componentKeys"] == "proj-alpha"
+        assert spec.params["s"] == "UPDATE_DATE"
+        assert spec.params["asc"] == "true"
 
+    def test_tracks_watermark_on_update_date(self, sonarqube_env):
+        from data_assets.assets.sonarqube.issues import SonarQubeIssues
 
-def test_issues_parse_response(monkeypatch):
-    monkeypatch.setenv("SONARQUBE_TOKEN", "fake")
-    from data_assets.assets.sonarqube.issues import SonarQubeIssues
+        assert SonarQubeIssues().date_column == "update_date"
 
-    data = json.loads((FIXTURES / "issues_proj_alpha.json").read_text())
-    asset = SonarQubeIssues()
-    df, state = asset.parse_response(data)
+    def test_parse_response(self, sonarqube_env):
+        from data_assets.assets.sonarqube.issues import SonarQubeIssues
 
-    assert len(df) == 2
-    assert "creation_date" in df.columns  # renamed from creationDate
-    assert "update_date" in df.columns  # renamed from updateDate
-    assert not state.has_more
+        data = json.loads((FIXTURES / "issues_proj_alpha.json").read_text())
+        df, state = SonarQubeIssues().parse_response(data)
+        assert len(df) == 2
+        assert "creation_date" in df.columns
+        assert "update_date" in df.columns
+        assert not state.has_more
+
+    def test_build_request_delegates_to_entity(self, sonarqube_env):
+        """build_request (abstract method) delegates to build_entity_request."""
+        from data_assets.assets.sonarqube.issues import SonarQubeIssues
+
+        spec = SonarQubeIssues().build_request(make_ctx())
+        assert "componentKeys" in spec.params  # delegates, not a different code path

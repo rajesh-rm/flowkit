@@ -75,7 +75,7 @@ class SonarQubeIssues(APIAsset):
         context: RunContext,
         checkpoint: dict | None = None,
     ) -> RequestSpec:
-        page = checkpoint.get("next_page", 1) if checkpoint else 1
+        page = (checkpoint.get("next_page") or 1) if checkpoint else 1
         params: dict = {
             "componentKeys": entity_key,
             "ps": 100,
@@ -96,20 +96,9 @@ class SonarQubeIssues(APIAsset):
         context: RunContext,
         checkpoint: dict | None = None,
     ) -> RequestSpec:
-        page = checkpoint.get("next_page", 1) if checkpoint else 1
-        params: dict = {
-            "ps": 100,
-            "p": page,
-            "s": "UPDATE_DATE",
-            "asc": "true",
-        }
-
-        base = os.environ.get("SONARQUBE_URL", self.base_url)
-        return RequestSpec(
-            url=f"{base}/api/issues/search",
-            method="GET",
-            params=params,
-        )
+        # Entity-parallel asset — build_entity_request is the real entry point.
+        # This satisfies the abstract method contract.
+        return self.build_entity_request("_all", context, checkpoint)
 
     def parse_response(
         self,

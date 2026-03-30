@@ -53,9 +53,8 @@ Unit tests cover:
 - Asset base class (default transform, validation)
 - Asset registry (register, lookup, decorator)
 - API client (mocked HTTP via respx)
-- Rate limiter (token bucket, thread safety)
-- Pagination helpers
-- Schema manager DDL generation
+- Rate limiter (sliding-window, thread safety)
+- Loader DDL generation
 - Composable validators
 
 ## 5. Run integration tests (Docker required)
@@ -150,7 +149,7 @@ See [docs/extending.md](extending.md) for the comprehensive step-by-step guide. 
 | API returns errors | `base_url` is empty — make sure env var is set and read at runtime in `build_request` |
 | Data missing from table | Column names in `parse_response` DataFrame don't match `columns` list |
 | Duplicate rows | Check `primary_key` is set correctly, use `UPSERT` load strategy |
-| Lock error on retry | Previous run's lock wasn't released — check if stale (auto-clears after 6 hours) |
+| Lock error on retry | Previous run's lock wasn't released — auto-clears after 20 min without heartbeat or 5 hours max |
 
 ### Running a single asset locally
 

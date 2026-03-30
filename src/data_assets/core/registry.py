@@ -5,13 +5,8 @@ from __future__ import annotations
 import importlib
 import logging
 import pkgutil
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING
 
 from data_assets.core.asset import Asset
-
-if TYPE_CHECKING:
-    from sqlalchemy.engine import Engine
 
 logger = logging.getLogger(__name__)
 
@@ -78,10 +73,9 @@ def _validate_dependencies() -> None:
         # Check parent_asset_name (entity-parallel)
         parent = getattr(asset, "parent_asset_name", None)
         if parent and parent not in known_names:
-            logger.error(
-                "Asset '%s' declares parent_asset_name='%s' which is not registered. "
-                "Known assets: %s",
-                name, parent, sorted(known_names),
+            raise ValueError(
+                f"Asset '{name}' declares parent_asset_name='{parent}' which is "
+                f"not registered. Known assets: {sorted(known_names)}"
             )
 
         # Check source_tables (transform assets)
@@ -95,39 +89,3 @@ def _validate_dependencies() -> None:
                 )
 
 
-def sync_to_db(engine: Engine) -> None:
-    """Write/update asset_registry rows in data_ops for all registered assets."""
-    from sqlalchemy.dialects.postgresql import insert as pg_insert
-    from sqlalchemy.orm import Session
-
-    from data_assets.db.models import AssetRegistry
-
-    now = datetime.now(UTC)
-    with Session(engine) as session:
-        for name, cls in _registry.items():
-            asset = cls()
-            values = {
-                "asset_name": name,
-                "asset_type": getattr(asset, "asset_type", "api").value
-                if hasattr(getattr(asset, "asset_type", None), "value")
-                else str(getattr(asset, "asset_type", "api")),
-                "source_name": getattr(asset, "source_name", None),
-                "target_schema": asset.target_schema,
-                "target_table": asset.target_table,
-                "load_strategy": asset.load_strategy.value,
-                "registered_at": now,
-                "config": {},
-            }
-            stmt = pg_insert(AssetRegistry).values(**values).on_conflict_do_update(
-                index_elements=["asset_name"],
-                set_={
-                    "asset_type": values["asset_type"],
-                    "source_name": values["source_name"],
-                    "target_schema": values["target_schema"],
-                    "target_table": values["target_table"],
-                    "load_strategy": values["load_strategy"],
-                    "config": values["config"],
-                },
-            )
-            session.execute(stmt)
-        session.commit()

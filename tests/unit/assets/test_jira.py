@@ -1,73 +1,98 @@
-"""Unit tests for Jira asset build_request/parse_response."""
+"""Unit tests for Jira assets: projects and issues."""
 
 from __future__ import annotations
 
 import json
-import uuid
 from pathlib import Path
 
-from data_assets.core.enums import RunMode
-from data_assets.core.run_context import RunContext
+from tests.unit.conftest import make_ctx
 
 FIXTURES = Path(__file__).parent.parent.parent / "fixtures" / "jira"
 
 
-def _ctx(**kwargs):
-    return RunContext(
-        run_id=uuid.uuid4(), mode=RunMode.FULL, asset_name="test", **kwargs
-    )
+# ---------------------------------------------------------------------------
+# JiraProjects
+# ---------------------------------------------------------------------------
 
 
-def test_projects_build_request(monkeypatch):
-    monkeypatch.setenv("JIRA_URL", "https://jira.test")
-    monkeypatch.setenv("JIRA_EMAIL", "a@b.com")
-    monkeypatch.setenv("JIRA_API_TOKEN", "tok")
-    from data_assets.assets.jira.projects import JiraProjects
+class TestJiraProjectsBuildRequest:
+    def test_basic(self, jira_env):
+        from data_assets.assets.jira.projects import JiraProjects
 
-    asset = JiraProjects()
-    spec = asset.build_request(_ctx(), checkpoint=None)
-    assert spec.url == "https://jira.test/rest/api/3/project/search"
-    assert spec.params["startAt"] == 0
-    assert spec.params["maxResults"] == 50
+        spec = JiraProjects().build_request(make_ctx(), checkpoint=None)
+        assert spec.url == "https://jira.test/rest/api/3/project/search"
+        assert spec.params["startAt"] == 0
+        assert spec.params["maxResults"] == 50
 
+    def test_with_offset_checkpoint(self, jira_env):
+        from data_assets.assets.jira.projects import JiraProjects
 
-def test_projects_parse_response(monkeypatch):
-    monkeypatch.setenv("JIRA_EMAIL", "a@b.com")
-    monkeypatch.setenv("JIRA_API_TOKEN", "tok")
-    from data_assets.assets.jira.projects import JiraProjects
-
-    data = json.loads((FIXTURES / "projects.json").read_text())
-    asset = JiraProjects()
-    df, state = asset.parse_response(data)
-
-    assert len(df) == 2
-    assert list(df["key"]) == ["ENG", "OPS"]
-    assert not state.has_more  # isLast=True
+        spec = JiraProjects().build_request(make_ctx(), checkpoint={"next_offset": 50})
+        assert spec.params["startAt"] == 50
 
 
-def test_issues_build_entity_request(monkeypatch):
-    monkeypatch.setenv("JIRA_URL", "https://jira.test")
-    monkeypatch.setenv("JIRA_EMAIL", "a@b.com")
-    monkeypatch.setenv("JIRA_API_TOKEN", "tok")
-    from data_assets.assets.jira.issues import JiraIssues
+class TestJiraProjectsParseResponse:
+    def test_happy_path(self, jira_env):
+        from data_assets.assets.jira.projects import JiraProjects
 
-    asset = JiraIssues()
-    spec = asset.build_entity_request("ENG", _ctx(), checkpoint=None)
-    assert spec.url == "https://jira.test/rest/api/3/search"
-    assert 'project = "ENG"' in spec.params["jql"]
+        data = json.loads((FIXTURES / "projects.json").read_text())
+        df, state = JiraProjects().parse_response(data)
+        assert len(df) == 2
+        assert list(df["key"]) == ["ENG", "OPS"]
+        assert not state.has_more
 
 
-def test_issues_parse_response(monkeypatch):
-    monkeypatch.setenv("JIRA_EMAIL", "a@b.com")
-    monkeypatch.setenv("JIRA_API_TOKEN", "tok")
-    from data_assets.assets.jira.issues import JiraIssues
+# ---------------------------------------------------------------------------
+# JiraIssues — JQL building
+# ---------------------------------------------------------------------------
 
-    data = json.loads((FIXTURES / "issues_eng.json").read_text())
-    asset = JiraIssues()
-    df, state = asset.parse_response(data)
 
-    assert len(df) == 2
-    assert "ENG-101" in df["key"].values
-    assert "Alice Chen" in df["assignee"].values
-    assert not state.has_more  # 2 issues, total=2
-    assert state.next_offset == 2
+class TestJiraIssuesJQL:
+    def test_with_project_and_date(self, jira_env):
+        from data_assets.assets.jira.issues import JiraIssues
+
+        jql = JiraIssues._build_jql(project_key="ENG", start_date="2025-01-01")
+        assert 'project = "ENG"' in jql
+        assert 'updated >= "2025-01-01"' in jql
+        assert "ORDER BY updated ASC" in jql
+
+    def test_project_only(self, jira_env):
+        from data_assets.assets.jira.issues import JiraIssues
+
+        jql = JiraIssues._build_jql(project_key="ENG")
+        assert 'project = "ENG"' in jql
+        assert "ORDER BY updated ASC" in jql
+
+    def test_no_clauses(self):
+        from data_assets.assets.jira.issues import JiraIssues
+
+        jql = JiraIssues._build_jql()
+        assert jql == "ORDER BY updated ASC"
+
+
+class TestJiraIssuesBuildRequest:
+    def test_entity_request(self, jira_env):
+        from data_assets.assets.jira.issues import JiraIssues
+
+        spec = JiraIssues().build_entity_request("ENG", make_ctx(), checkpoint=None)
+        assert spec.url == "https://jira.test/rest/api/3/search"
+        assert 'project = "ENG"' in spec.params["jql"]
+        assert spec.params["startAt"] == 0
+
+
+class TestJiraIssuesParseResponse:
+    def test_happy_path(self, jira_env):
+        from data_assets.assets.jira.issues import JiraIssues
+
+        data = json.loads((FIXTURES / "issues_eng.json").read_text())
+        df, state = JiraIssues().parse_response(data)
+        assert len(df) == 2
+        assert "ENG-101" in df["key"].values
+        assert "Alice Chen" in df["assignee"].values
+        assert not state.has_more
+        assert state.next_offset == 2
+
+    def test_tracks_watermark_on_updated(self, jira_env):
+        from data_assets.assets.jira.issues import JiraIssues
+
+        assert JiraIssues().date_column == "updated"

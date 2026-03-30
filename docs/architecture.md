@@ -106,7 +106,7 @@ The limiter is shared. Workers wait their turn.
 | Load strategies | Full replace, upsert, append | Covers all ETL patterns |
 | Failure model | Temp table + checkpoints | Zero wasted API calls on retry |
 | Schema management | Auto-create, additive migration only | Safe evolution, no data loss |
-| Rate limiting | In-process token bucket (thread-safe) | Simple, no external state |
+| Rate limiting | In-process sliding-window counter (thread-safe) | Simple, no external state |
 | Parallelism | Thread pool for page/entity fan-out | Shared rate limiter + token manager |
 | DB layer | SQLAlchemy ORM (metadata) + Core (DDL) | Best of both worlds |
 | In-memory format | pandas DataFrames | Standard, well-supported |
@@ -143,3 +143,15 @@ For child resources (PRs per repo, issues per project). Parent entity keys are l
 - **Token manager**: thread-safe, shared — single token refreshed for all workers
 - **Error handling**: `SkippedRequestError` (e.g., 404) skips the entity, doesn't kill the run
 - **Thread pool**: `_run_workers()` caps pool size at `min(max_workers, work_units)` — no wasted threads
+
+## Asset Definition: Two Paths
+
+- **RestAsset** (declarative) — for standard REST APIs. Declare endpoint, pagination, field_map as class attributes. No `build_request()`/`parse_response()` needed. See `sonarqube/projects.py`.
+- **APIAsset** (custom) — for APIs needing custom logic (JQL construction, keyset pagination, multi-org iteration). Override `build_request()` and `parse_response()`.
+
+## Run Resilience
+
+- **UUIDv7 run IDs** — timestamp-ordered, sortable. Each run gets a unique ID that sorts chronologically.
+- **Stale-run takeover** — if a worker dies, the next retry detects the abandoned run (no heartbeat in 20 min OR exceeded 5 hour max), inherits its temp table and checkpoints, and resumes extraction.
+- **Secrets injection** — `run_asset(secrets={...})` injects credentials as env vars for the run duration. Cleaned up in `finally` block. Airflow DAGs use this to pass secrets from Connections.
+- **Entity-parallel unified checkpoint** — each checkpoint saves completed entities + current entity + pagination position, enabling exact mid-entity resume.

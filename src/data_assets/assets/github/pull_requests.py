@@ -67,7 +67,7 @@ class GitHubPullRequests(APIAsset):
     ) -> RequestSpec:
         page = 1
         if checkpoint:
-            page = checkpoint.get("next_page", 1)
+            page = checkpoint.get("next_page") or 1
 
         base = os.environ.get("GITHUB_API_URL", self.base_url)
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
@@ -125,8 +125,6 @@ def update_last_success(engine: Engine, asset_name: str) -> None:
 
 def get_coverage(engine: Engine, asset_name: str) -> CoverageTracker | None:
     """Read the coverage_tracker row for an asset."""
-    from sqlalchemy import select
-
     with Session(engine) as session:
         return session.execute(
             select(CoverageTracker).where(CoverageTracker.asset_name == asset_name)

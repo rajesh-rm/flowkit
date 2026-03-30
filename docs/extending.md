@@ -21,7 +21,8 @@ Every change to this codebase must follow these five rules:
 ## Table of Contents
 
 1. [Before You Start -- Decision Flowchart](#1-before-you-start--decision-flowchart)
-2. [Step-by-Step: Adding a New API Source](#2-step-by-step-adding-a-new-api-source)
+1.5. [The Easy Path: RestAsset (Declarative)](#15-the-easy-path-restasset-declarative)
+2. [Step-by-Step: Adding a New API Source (APIAsset)](#2-step-by-step-adding-a-new-api-source-apiasset)
    - 2a. [Create a Token Manager](#2a-create-a-token-manager)
    - 2b. [Create the Asset Class -- Every Attribute Explained](#2b-create-the-asset-class--every-attribute-explained)
    - 2c. [Implement build_request()](#2c-implement-build_request)
@@ -44,10 +45,21 @@ Walk through the tree below from top to bottom.
 QUESTION 1: Where does the data come from?
   |
   +-- External HTTP API (PagerDuty, GitHub, Jira, etc.)
-  |     --> You need an APIAsset.  Continue to Question 2.
+  |     --> Continue to Question 1b.
   |
   +-- Existing Postgres tables (aggregate, join, reshape)
         --> You need a TransformAsset.  Skip to Section 3.
+
+
+QUESTION 1b: Is this a standard REST API? (JSON response, pagination, field mapping)
+  |
+  +-- YES, standard pattern (most APIs)
+  |     --> Use RestAsset (declarative, ~25 lines, no code to write).
+  |         See Section 1.5 below.
+  |
+  +-- NO, needs custom request/response logic
+        --> Use APIAsset (custom, full control).
+            Continue to Question 2.
 
 
 QUESTION 2: What kind of API call is it?
@@ -94,7 +106,107 @@ you need. The rest of this guide shows you how to implement them.
 
 ---
 
-## 2. Step-by-Step: Adding a New API Source
+## 1.5. The Easy Path: RestAsset (Declarative)
+
+For the 80% of assets that follow a standard REST API pattern — fetch JSON, paginate,
+map fields to columns — **RestAsset eliminates the need to write `build_request()` and
+`parse_response()` entirely.** You just declare the endpoint, pagination, and field
+mapping as class attributes.
+
+**Use RestAsset when:** the API returns JSON, uses standard pagination (page number,
+offset, or cursor), and you just need to extract fields from the response.
+
+**Use APIAsset instead when:** you need custom request logic (multi-endpoint iteration,
+computed query parameters like JQL, keyset pagination with composite keys).
+
+### Real example: SonarQube Projects (25 lines)
+
+```python
+from data_assets.core.column import Column
+from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
+from data_assets.core.registry import register
+from data_assets.core.rest_asset import RestAsset
+from data_assets.extract.token_manager import SonarQubeTokenManager
+
+
+@register
+class SonarQubeProjects(RestAsset):
+    name = "sonarqube_projects"
+    source_name = "sonarqube"
+    target_schema = "raw"
+    target_table = "sonarqube_projects"
+
+    # Source config — RestAsset reads base URL from this env var at runtime
+    token_manager_class = SonarQubeTokenManager
+    base_url_env = "SONARQUBE_URL"
+    endpoint = "/api/projects/search"
+    rate_limit_per_second = 5.0
+
+    # Response parsing — RestAsset handles this automatically
+    response_path = "components"          # JSON path to the records array
+    pagination = {
+        "strategy": "page_number",        # offset, cursor, or none also supported
+        "page_size": 100,
+        "total_path": "paging.total",     # JSON path to the total count
+    }
+    field_map = {"lastAnalysisDate": "last_analysis_date"}  # API field → column rename
+
+    # Parallelism + load behavior
+    parallel_mode = ParallelMode.PAGE_PARALLEL
+    max_workers = 3
+    load_strategy = LoadStrategy.FULL_REPLACE
+    default_run_mode = RunMode.FULL
+
+    # Schema
+    columns = [
+        Column("key", "TEXT", nullable=False),
+        Column("name", "TEXT"),
+        Column("qualifier", "TEXT"),
+        Column("visibility", "TEXT"),
+        Column("last_analysis_date", "TIMESTAMPTZ"),
+        Column("revision", "TEXT"),
+    ]
+    primary_key = ["key"]
+```
+
+That's it. No `build_request()`. No `parse_response()`. RestAsset generates both
+from the class attributes.
+
+### RestAsset attributes reference
+
+| Attribute | Required | Description |
+|-----------|----------|-------------|
+| `endpoint` | Yes | API path (e.g., `/api/items`) |
+| `base_url_env` | Yes | Env var name for base URL (e.g., `"MY_API_URL"`) |
+| `response_path` | Yes | Dot-path to records in response JSON. Use `""` if response IS the list. |
+| `pagination` | Yes | Dict: `{"strategy": "page_number\|offset\|cursor\|none", "page_size": 100}` |
+| `field_map` | No | Dict mapping API field names → column names. Only for renames. |
+| `api_date_param` | No | Query param name for incremental date filter (e.g., `"updated_since"`) |
+
+### Shared base classes for similar APIs
+
+When multiple assets share the same API pattern (same auth, pagination, response format),
+extract a base class. Example: ServiceNow incidents and changes both use the Table API
+with keyset pagination — `ServiceNowTableAsset` holds the shared logic, subclasses only
+set `table_name` and `columns`:
+
+```python
+# servicenow/base.py — shared build_request() and parse_response()
+class ServiceNowTableAsset(APIAsset):
+    table_name: str = ""  # subclass sets this
+    # ... shared keyset pagination logic ...
+
+# servicenow/incidents.py — just identity + columns
+@register
+class ServiceNowIncidents(ServiceNowTableAsset):
+    name = "servicenow_incidents"
+    table_name = "incident"
+    columns = [...]
+```
+
+---
+
+## 2. Step-by-Step: Adding a New API Source (APIAsset)
 
 We will build a fictional **PagerDuty Incidents** asset as the running example.
 PagerDuty's REST API returns incidents with offset-based pagination and requires
@@ -494,8 +606,7 @@ class PagerDutyIncidents(APIAsset):
     #   fetch pages 2..N concurrently across max_workers threads.
     #   Use when: the first response tells you the total pages/records
     #   (e.g., SonarQube returns paging.total).
-    #   Requires: total_field in PaginationConfig OR total_pages_field
-    #   on the asset.
+    #   Requires: total_field in PaginationConfig (e.g., "paging.total").
     #
     # ParallelMode.ENTITY_PARALLEL:
     #   Fan out one request per entity_key from a parent asset.
@@ -628,14 +739,6 @@ class PagerDutyIncidents(APIAsset):
     # tracker. The actual parameter construction happens in your
     # build_request() code.
 
-    date_format = "%Y-%m-%dT%H:%M:%S"
-    # strftime format for dates sent to the API. Not all APIs want
-    # ISO 8601; some want "YYYY-MM-DD" or Unix timestamps.
-
-    earliest_date = "2020-01-01T00:00:00"
-    # Floor date for BACKFILL mode. The framework will not try to
-    # fetch data older than this.
-
     # ... build_request, parse_response defined below ...
 ```
 
@@ -718,9 +821,7 @@ def build_request(
 
     # For incremental (FORWARD) runs, add a date filter.
     if context.start_date:
-        params["since"] = context.start_date.strftime(self.date_format)
-    if context.end_date:
-        params["until"] = context.end_date.strftime(self.date_format)
+        params["since"] = context.start_date.isoformat()
 
     return RequestSpec(
         method="GET",
@@ -1579,24 +1680,50 @@ run_asset("my_asset", run_mode="full", dry_run=True)
 # Returns status="dry_run" with row counts
 ```
 
-### JSON Flatten Utilities
+### Early Stop (`should_stop`)
 
-Reduce boilerplate in `parse_response()`:
+For APIs without date filters (e.g., GitHub PRs), override `should_stop()` to halt
+pagination when records are older than the watermark:
 
 ```python
-from data_assets.extract.flatten import pick_fields
-
-def parse_response(self, response):
-    records = [
-        pick_fields(item, {
-            "user_login": "user.login",      # nested access
-            "repo_name": "base.repo.name",   # deeply nested
-            "id": "id",                       # top-level
-        })
-        for item in response
-    ]
-    return pd.DataFrame(records), PaginationState(...)
+def should_stop(self, df: pd.DataFrame, context: RunContext) -> bool:
+    """Stop when all PRs on the page are older than the watermark."""
+    if context.mode.value != "forward" or not context.start_date:
+        return False
+    updated = pd.to_datetime(df["updated_at"], utc=True, errors="coerce")
+    return updated.min() < context.start_date
 ```
+
+Called after each page is written to the temp table. Return `True` to stop
+paginating. Default: always `False` (let pagination exhaust naturally).
+
+### Passing Secrets from Airflow
+
+`run_asset()` accepts a `secrets` dict — env var names to values. Secrets are
+injected into `os.environ` for the duration of the run and cleaned up after:
+
+```python
+from airflow.hooks.base import BaseHook
+from data_assets import run_asset
+
+def _run_github(**context):
+    conn = BaseHook.get_connection("github_app")
+    run_asset(
+        "github_repos",
+        run_mode="full",
+        secrets={
+            "GITHUB_APP_ID": conn.login,
+            "GITHUB_PRIVATE_KEY": conn.password,
+            "GITHUB_INSTALLATION_ID": conn.extra_dejson["installation_id"],
+            "GITHUB_ORGS": conn.extra_dejson["orgs"],
+        },
+        airflow_run_id=context["run_id"],
+    )
+```
+
+Secrets are resolved at execution time on the worker, not at DAG parse time.
+With a secret backend (Vault, AWS SSM, GCP Secret Manager), values never touch
+Airflow's metadata DB.
 
 ### Rate Limit Header Extraction
 

@@ -83,6 +83,52 @@ Resolution order:
 
 **How to get Jira Data Center PAT:** Log in → **Profile** → **Personal Access Tokens** → **Create token**.
 
+## Passing Secrets from Airflow
+
+Instead of pre-setting env vars on workers, pass secrets explicitly from Airflow
+Connections via the `secrets` parameter:
+
+```python
+from airflow.hooks.base import BaseHook
+from data_assets import run_asset
+
+conn = BaseHook.get_connection("sonarqube")
+run_asset("sonarqube_projects", secrets={
+    "SONARQUBE_URL": f"https://{conn.host}",
+    "SONARQUBE_TOKEN": conn.password,
+})
+```
+
+### Airflow Connection setup (one-time)
+
+```bash
+airflow connections add sonarqube \
+    --conn-type generic \
+    --conn-host "sonar.company.com" \
+    --conn-password "squ_your_token"
+
+airflow connections add github_app \
+    --conn-type generic \
+    --conn-login "12345" \
+    --conn-password "$(cat github-app-private-key.pem)" \
+    --conn-extra '{"installation_id": "789", "orgs": "my-org"}'
+
+airflow connections add jira \
+    --conn-type generic \
+    --conn-host "company.atlassian.net" \
+    --conn-login "user@company.com" \
+    --conn-password "jira-api-token"
+
+airflow connections add servicenow \
+    --conn-type generic \
+    --conn-host "company.service-now.com" \
+    --conn-login "etl_user" \
+    --conn-password "password"
+```
+
+With a secret backend (Vault, AWS SSM), Airflow resolves these at runtime — values
+never touch the metadata DB.
+
 ## Runtime Overrides
 
 Pass overrides as keyword arguments to `run_asset()`:

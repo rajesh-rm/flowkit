@@ -140,8 +140,6 @@ class APIClient:
 
             return response.json()
 
-        raise RuntimeError("Exhausted all retries")
-
     def _check_rate_limit_headers(self, response: httpx.Response) -> None:
         """If rate limit is nearly exhausted, preemptively pause."""
         remaining = response.headers.get("X-RateLimit-Remaining")

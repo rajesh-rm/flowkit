@@ -74,7 +74,8 @@ class JiraIssues(APIAsset):
             clauses.append(f'project = "{project_key}"')
         if start_date:
             clauses.append(f'updated >= "{start_date}"')
-        return " AND ".join(clauses) if clauses else "ORDER BY updated ASC"
+        jql = " AND ".join(clauses)
+        return f"{jql} ORDER BY updated ASC" if jql else "ORDER BY updated ASC"
 
     # ------------------------------------------------------------------
     # Entity-parallel request (one project at a time)

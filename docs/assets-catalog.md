@@ -9,8 +9,10 @@ This catalog documents every built-in asset. Use it as a reference when building
 
 | Asset | Table | Load | Parallel | Pagination | API Endpoint |
 |-------|-------|------|----------|------------|--------------|
-| `sonarqube_projects` | `raw.sonarqube_projects` | FULL_REPLACE | PAGE_PARALLEL (3 workers) | page_number (`p`, `ps`) | `/api/projects/search` |
+| `sonarqube_projects` | `raw.sonarqube_projects` | FULL_REPLACE | PAGE_PARALLEL (3 workers) | page_number (`p`, `ps`) | `/api/projects/search` | **RestAsset** |
 | `sonarqube_issues` | `raw.sonarqube_issues` | UPSERT | ENTITY_PARALLEL (3 workers) | page_number (`p`, `ps`) | `/api/issues/search` |
+
+**SonarQube projects uses RestAsset** (declarative) — no custom `build_request` or `parse_response`. The endpoint, pagination, and field mapping are all declared as class attributes. This is the simplest asset pattern in the codebase.
 
 **Why PAGE_PARALLEL for projects?** The first response includes `paging.total` so we know how many pages exist upfront and can fan out.
 
@@ -29,6 +31,8 @@ This catalog documents every built-in asset. Use it as a reference when building
 |-------|-------|------|----------|------------|--------------|
 | `servicenow_incidents` | `raw.servicenow_incidents` | UPSERT | Sequential | keyset (`sys_updated_on`, `sys_id`) | `/api/now/table/incident` |
 | `servicenow_changes` | `raw.servicenow_changes` | UPSERT | Sequential | keyset (`sys_updated_on`, `sys_id`) | `/api/now/table/change_request` |
+
+**Both ServiceNow assets share `ServiceNowTableAsset`** base class — `build_request()` and `parse_response()` are defined once. Subclasses only set `table_name` and `columns`.
 
 **Why keyset pagination?** Offset pagination on large ServiceNow tables is unreliable — records inserted/updated during extraction cause rows to be skipped or duplicated. Keyset pagination sorts by `sys_updated_on,sys_id` and filters from the last-seen record, eliminating drift.
 
@@ -52,7 +56,7 @@ This catalog documents every built-in asset. Use it as a reference when building
 
 **Why ENTITY_PARALLEL for PRs?** PRs are per-repository. We load repo `full_name` values from `github_repos` and fetch PRs for each repo in parallel.
 
-**Note:** GitHub PRs endpoint does NOT support a `since` query param. PRs are sorted by `updated desc` and the coverage tracker watermark determines the incremental window.
+**Note:** GitHub PRs endpoint does NOT support a `since` query param. PRs are sorted by `updated desc` and `should_stop()` halts pagination when all PRs on a page are older than the watermark.
 
 ---
 

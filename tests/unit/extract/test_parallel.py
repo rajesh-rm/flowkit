@@ -213,6 +213,116 @@ def test_run_workers_propagates_exception():
 
 
 # ---------------------------------------------------------------------------
+# Pagination auto-increment (Bug fix: next_page=None handling)
+# ---------------------------------------------------------------------------
+
+def test_fetch_pages_auto_increments_page_when_none():
+    """When parse_response returns next_page=None but has_more=True,
+    _fetch_pages should auto-increment the page in the checkpoint."""
+    asset = MagicMock()
+    asset.name = "test_asset"
+    asset.pagination_config = PaginationConfig(strategy="page_number", page_size=100)
+    asset.should_stop.return_value = False
+    # Two pages: first has_more=True with next_page=None, second has_more=False
+    asset.parse_response.side_effect = [
+        (pd.DataFrame({"id": [1, 2]}), PaginationState(has_more=True, next_page=None)),
+        (pd.DataFrame({"id": [3, 4]}), PaginationState(has_more=False)),
+    ]
+
+    client = MagicMock()
+    client.request.side_effect = [{"page": 1}, {"page": 2}]
+
+    builder_calls = []
+
+    def builder(cp):
+        builder_calls.append(cp)
+        return RequestSpec(method="GET", url="http://test")
+
+    with patch("data_assets.extract.parallel.write_to_temp", return_value=2):
+        with patch("data_assets.extract.parallel.save_checkpoint"):
+            rows = _fetch_pages(
+                asset, client, MagicMock(), "temp_tbl", _ctx(),
+                worker_id="main",
+                request_builder=builder,
+            )
+
+    assert rows == 4
+    # The second call to builder should have next_page=2 (auto-incremented from 1)
+    assert builder_calls[1]["next_page"] == 2
+
+
+def test_fetch_pages_auto_increments_offset_when_none():
+    """When parse_response returns next_offset=None but has_more=True,
+    _fetch_pages should auto-increment offset by page_size."""
+    asset = MagicMock()
+    asset.name = "test_asset"
+    asset.pagination_config = PaginationConfig(strategy="offset", page_size=50)
+    asset.should_stop.return_value = False
+    asset.parse_response.side_effect = [
+        (pd.DataFrame({"id": [1]}), PaginationState(has_more=True, next_offset=None)),
+        (pd.DataFrame({"id": [2]}), PaginationState(has_more=False)),
+    ]
+
+    client = MagicMock()
+    client.request.side_effect = [{"page": 1}, {"page": 2}]
+
+    builder_calls = []
+
+    def builder(cp):
+        builder_calls.append(cp)
+        return RequestSpec(method="GET", url="http://test")
+
+    with patch("data_assets.extract.parallel.write_to_temp", return_value=1):
+        with patch("data_assets.extract.parallel.save_checkpoint"):
+            _fetch_pages(
+                asset, client, MagicMock(), "temp_tbl", _ctx(),
+                worker_id="main",
+                request_builder=builder,
+            )
+
+    # Second call should have next_offset=50 (auto-incremented: 0 + page_size 50)
+    assert builder_calls[1]["next_offset"] == 50
+
+
+# ---------------------------------------------------------------------------
+# on_page_complete callback
+# ---------------------------------------------------------------------------
+
+def test_fetch_pages_calls_callback_instead_of_save_checkpoint():
+    """When on_page_complete is provided, _fetch_pages delegates to it."""
+    callback_calls = []
+
+    asset = MagicMock()
+    asset.name = "test_asset"
+    asset.pagination_config = PaginationConfig(strategy="page_number", page_size=100)
+    asset.should_stop.return_value = False
+    asset.parse_response.side_effect = [
+        (pd.DataFrame({"id": [1]}), PaginationState(has_more=True, next_page=2)),
+        (pd.DataFrame({"id": [2]}), PaginationState(has_more=False)),
+    ]
+
+    client = MagicMock()
+    client.request.side_effect = [{"p": 1}, {"p": 2}]
+
+    def on_complete(cp, rows):
+        callback_calls.append({"cp": cp, "rows": rows})
+
+    with patch("data_assets.extract.parallel.write_to_temp", return_value=1):
+        with patch("data_assets.extract.parallel.save_checkpoint") as mock_save:
+            _fetch_pages(
+                asset, client, MagicMock(), "temp_tbl", _ctx(),
+                worker_id="main",
+                request_builder=lambda c: RequestSpec(method="GET", url="http://test"),
+                on_page_complete=on_complete,
+            )
+
+    # Callback was called, save_checkpoint was NOT
+    assert len(callback_calls) == 1
+    assert callback_calls[0]["cp"]["next_page"] == 2
+    mock_save.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # Entity-parallel: entity marked complete only after all pages succeed
 # ---------------------------------------------------------------------------
 

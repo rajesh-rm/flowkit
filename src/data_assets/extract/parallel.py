@@ -39,6 +39,7 @@ def _fetch_pages(
     worker_id: str,
     request_builder,
     initial_checkpoint: dict | None = None,
+    on_page_complete=None,
 ) -> int:
     """Core extraction loop: request → parse → write → checkpoint → repeat.
 
@@ -55,6 +56,10 @@ def _fetch_pages(
             - page-parallel: asset.build_request(context, {"page": N})
             - entity-parallel: asset.build_entity_request(key, context, checkpoint)
         initial_checkpoint: Saved pagination state to resume from, or None.
+        on_page_complete: Optional callback(page_checkpoint, cumulative_rows).
+            Called after each page is written. If provided, _fetch_pages does
+            NOT save checkpoints itself — the caller is responsible (used by
+            entity-parallel to save unified entity + pagination state).
 
     Returns:
         Number of rows written to temp table.
@@ -81,22 +86,33 @@ def _fetch_pages(
             logger.info("Worker %s: should_stop() triggered, ending extraction", worker_id)
             break
 
-        # Build next-page checkpoint from pagination state
+        # Build next-page checkpoint from pagination state.
+        # Auto-increment page/offset when asset's parse_response returns None
+        # (e.g., GitHub assets don't know their current page number).
+        prev_page = (cp or {}).get("next_page") or 1
+        prev_offset = (cp or {}).get("next_offset") or 0
+        next_off = state.next_offset
+        if next_off is None:
+            next_off = prev_offset + asset.pagination_config.page_size
         cp = {
             "cursor": state.cursor,
-            "next_offset": state.next_offset,
-            "next_page": state.next_page,
+            "next_offset": next_off,
+            "next_page": state.next_page if state.next_page is not None else prev_page + 1,
         }
-        save_checkpoint(
-            engine,
-            run_id=context.run_id,
-            asset_name=asset.name,
-            worker_id=worker_id,
-            checkpoint_type=asset.pagination_config.strategy,
-            checkpoint_value=cp,
-            rows_so_far=rows,
-            status="in_progress",
-        )
+
+        if on_page_complete:
+            on_page_complete(cp, rows)
+        else:
+            save_checkpoint(
+                engine,
+                run_id=context.run_id,
+                asset_name=asset.name,
+                worker_id=worker_id,
+                checkpoint_type=asset.pagination_config.strategy,
+                checkpoint_value=cp,
+                rows_so_far=rows,
+                status="in_progress",
+            )
 
     return rows
 
@@ -251,7 +267,7 @@ def extract_page_parallel(
             if page_num < start_page:
                 continue
 
-            spec = asset.build_request(context, checkpoint={"page": page_num})
+            spec = asset.build_request(context, checkpoint={"next_page": page_num})
             data = client.request(spec)
             df, _ = asset.parse_response(data)
             worker_rows += write_to_temp(engine, temp_table, df)
@@ -341,6 +357,26 @@ def extract_entity_parallel(
                 page_cp = resume_pagination
                 resume_entity = None  # Only apply once
 
+            # Callback saves unified checkpoint: entity progress + page position.
+            # This ensures that if the worker dies mid-entity, the next worker
+            # knows both which entities are done AND where within the current
+            # entity to resume.
+            def on_entity_page(page_state, page_rows, _ek=entity_str):
+                save_checkpoint(
+                    engine,
+                    run_id=context.run_id,
+                    asset_name=asset.name,
+                    worker_id=worker_id,
+                    checkpoint_type="entity",
+                    checkpoint_value={
+                        "completed_entities": list(completed),
+                        "current_entity": _ek,
+                        "pagination_state": page_state,
+                    },
+                    rows_so_far=worker_rows + page_rows,
+                    status="in_progress",
+                )
+
             # Fetch all pages for this entity
             entity_rows = _fetch_pages(
                 asset, client, engine, temp_table, context,
@@ -349,6 +385,7 @@ def extract_entity_parallel(
                     asset.build_entity_request(ek, context, checkpoint=c)
                 ),
                 initial_checkpoint=page_cp,
+                on_page_complete=on_entity_page,
             )
             worker_rows += entity_rows
 

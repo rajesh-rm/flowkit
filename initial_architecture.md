@@ -1,5 +1,10 @@
 # Data Assets Package — Architecture Document
 
+> **Note**: This is the original design specification. The implementation follows it closely
+> but differs in some details (e.g., some planned attributes like `date_format` and `earliest_date`
+> were not implemented; the rate limiter uses a sliding-window instead of token bucket).
+> For current, accurate documentation, see the files in `docs/`.
+
 > **Purpose**: This document is the specification for building the `data_assets` Python package.
 > It is designed to be consumed by a developer or AI coding agent implementing the package.
 > It intentionally omits verbose code examples in favor of clear structural and behavioral specifications.

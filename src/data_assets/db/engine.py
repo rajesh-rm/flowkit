@@ -8,12 +8,15 @@ Connection string is resolved via the CredentialResolver order:
 
 from __future__ import annotations
 
+import logging
 import os
 from functools import lru_cache
 
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_database_url(connection_key: str = "data_assets_db") -> str:
@@ -25,7 +28,7 @@ def _resolve_database_url(connection_key: str = "data_assets_db") -> str:
         conn = BaseHook.get_connection(connection_key)
         return conn.get_uri()
     except Exception:
-        pass
+        logger.debug("Airflow connection '%s' not available", connection_key)
 
     # 2. Environment variable
     url = os.environ.get("DATABASE_URL")
