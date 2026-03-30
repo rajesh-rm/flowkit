@@ -90,7 +90,7 @@ def test_retry_on_429(client):
 
 @respx.mock
 def test_post_with_body(client):
-    route = respx.post("https://api.example.com/data").mock(
+    respx.post("https://api.example.com/data").mock(
         return_value=httpx.Response(200, json={"created": True})
     )
     spec = RequestSpec(

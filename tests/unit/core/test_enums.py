@@ -1,6 +1,6 @@
 """Tests for core enum types."""
 
-from data_assets.core.enums import AssetType, LoadStrategy, ParallelMode, RunMode
+from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 
 
 def test_run_mode_values():

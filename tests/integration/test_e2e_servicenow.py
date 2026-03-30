@@ -17,8 +17,7 @@ def _clear_registry():
 
 
 def _register_servicenow_assets():
-    from data_assets.assets.servicenow.incidents import ServiceNowIncidents
-    from data_assets.assets.servicenow.changes import ServiceNowChanges
+    pass
 
 
 SNOW_URL = "https://dev12345.service-now.com"

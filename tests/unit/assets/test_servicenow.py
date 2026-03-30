@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from data_assets.core.enums import RunMode
@@ -39,7 +39,7 @@ def test_incidents_build_request_with_date(monkeypatch):
     from data_assets.assets.servicenow.incidents import ServiceNowIncidents
 
     asset = ServiceNowIncidents()
-    ctx = _ctx(start_date=datetime(2025, 1, 1, tzinfo=timezone.utc))
+    ctx = _ctx(start_date=datetime(2025, 1, 1, tzinfo=UTC))
     spec = asset.build_request(ctx)
     assert "sysparm_query" in spec.params
     assert "sys_updated_on>=" in spec.params["sysparm_query"]

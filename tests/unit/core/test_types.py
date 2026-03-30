@@ -1,7 +1,6 @@
 """Tests for core types: Column, RunContext, PaginationConfig, etc."""
 
 import uuid
-from datetime import datetime, timezone
 
 from data_assets.core.column import Column
 from data_assets.core.enums import RunMode

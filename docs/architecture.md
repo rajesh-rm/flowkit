@@ -122,19 +122,24 @@ The limiter is shared. Workers wait their turn.
 
 ## Parallel Extraction Modes
 
+All three modes use a shared `_fetch_pages()` loop for the core request→parse→write→checkpoint cycle. The difference is how work units are determined and distributed.
+
 ### Sequential (NONE)
-Default mode. The runner calls `build_request()` → API → `parse_response()` in a loop until `has_more=False`. Each iteration gets the latest checkpoint, so the asset controls the full URL and params.
+Default. One thread. The runner calls `_fetch_pages()` with a `request_builder` that delegates to `asset.build_request(context, checkpoint)`. Each iteration gets the latest checkpoint, so the asset controls the URL and params — supporting multi-endpoint assets (e.g., GitHub repos iterating through orgs).
 
 ### Page-Parallel
-For endpoints where the total pages are discoverable from the first response. One discovery call fetches page 1 and reads the total. Remaining pages (2..N) are partitioned across `max_workers` threads. Each worker checkpoints independently. On retry, completed workers are skipped.
+For endpoints where total pages are discoverable from the first response. Discovery call fetches page 1 and reads `total_pages`. Remaining pages are partitioned across `max_workers` threads (pool size capped at actual partition count). Each worker checkpoints independently. On retry, completed workers are skipped.
 
-**Use when:** the API returns a total count/pages in the first response (e.g., SonarQube `paging.total`).
+**Use when:** the API returns a total count/pages in the first response.
 
 ### Entity-Parallel
-For child resources (e.g., PRs per repo, issues per project). The runner loads entity keys from a parent asset's table, partitions them across threads, and each worker paginates through all its assigned entities.
+For child resources (PRs per repo, issues per project). Parent entity keys are loaded from a parent asset's table, partitioned across threads. Each worker calls `_fetch_pages()` per entity with `build_entity_request()`. Entities are marked complete only after all their pages succeed — preventing data loss on partial failure.
 
-**Use when:** you need to fetch sub-resources for each item in a parent asset's table.
+**Use when:** you need to fetch sub-resources for each parent entity. Requires `parent_asset_name` referencing an already-loaded asset.
 
-**Prerequisite:** `parent_asset_name` must reference an already-loaded asset.
+### Shared infrastructure
 
-Both parallel modes share a single rate limiter (thread-safe) ensuring global rate limits are respected.
+- **Rate limiter**: one sliding-window instance shared across all threads — 4 workers at 10/sec = 10/sec total
+- **Token manager**: thread-safe, shared — single token refreshed for all workers
+- **Error handling**: `SkippedRequestError` (e.g., 404) skips the entity, doesn't kill the run
+- **Thread pool**: `_run_workers()` caps pool size at `min(max_workers, work_units)` — no wasted threads

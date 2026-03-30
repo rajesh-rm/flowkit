@@ -6,8 +6,6 @@ import json
 import uuid
 from pathlib import Path
 
-import pandas as pd
-
 from data_assets.core.enums import RunMode
 from data_assets.core.run_context import RunContext
 

@@ -13,6 +13,7 @@ import pytest
 import respx
 
 from data_assets.core.registry import _registry
+from data_assets.extract.token_manager import TokenManager
 
 
 def _clear_registry():
@@ -20,8 +21,7 @@ def _clear_registry():
 
 
 def _register_github_assets():
-    from data_assets.assets.github.repos import GitHubRepos
-    from data_assets.assets.github.pull_requests import GitHubPullRequests
+    pass
 
 
 GH_API = "https://api.github.com"
@@ -82,8 +82,6 @@ def test_github_repos_two_orgs(clean_db, monkeypatch, load_fixture):
     assert "org-two/data-pipeline" in df["full_name"].values
 
 
-# Need to import TokenManager for the patch
-from data_assets.extract.token_manager import TokenManager
 
 
 @pytest.mark.integration

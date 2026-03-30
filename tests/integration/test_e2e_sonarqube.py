@@ -9,8 +9,7 @@ import pandas as pd
 import pytest
 import respx
 
-from data_assets.core.registry import _registry, register
-
+from data_assets.core.registry import _registry
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -22,8 +21,6 @@ def _clear_registry():
 
 def _register_sonarqube_assets():
     """Import to trigger @register decorators."""
-    from data_assets.assets.sonarqube.projects import SonarQubeProjects
-    from data_assets.assets.sonarqube.issues import SonarQubeIssues
 
 
 SONARQUBE_URL = "https://sonar.test.local"

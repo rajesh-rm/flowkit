@@ -2,7 +2,6 @@
 
 from data_assets.extract.flatten import flatten_record, pick_fields
 
-
 # --- flatten_record ---
 
 def test_flat_dict_unchanged():

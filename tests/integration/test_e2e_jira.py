@@ -17,8 +17,7 @@ def _clear_registry():
 
 
 def _register_jira_assets():
-    from data_assets.assets.jira.projects import JiraProjects
-    from data_assets.assets.jira.issues import JiraIssues
+    pass
 
 
 JIRA_URL = "https://mysite.atlassian.net"
