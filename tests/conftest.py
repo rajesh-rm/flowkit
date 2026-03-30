@@ -27,8 +27,9 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 def pg_engine():
     """Create a test Postgres engine via testcontainers.
 
-    Falls back to DATABASE_URL env var if testcontainers is not available.
+    Falls back to DATABASE_URL env var if testcontainers/Docker is not available.
     """
+    # Try testcontainers first (requires Docker to be running)
     try:
         from testcontainers.postgres import PostgresContainer
 
@@ -37,13 +38,20 @@ def pg_engine():
             engine = create_engine(url)
             _setup_schemas(engine)
             yield engine
-    except ImportError:
-        url = os.environ.get("DATABASE_URL")
-        if not url:
-            pytest.skip("No Postgres available (install testcontainers or set DATABASE_URL)")
-        engine = create_engine(url)
-        _setup_schemas(engine)
-        yield engine
+            return
+    except Exception:
+        pass  # Docker not running, testcontainers not installed, etc.
+
+    # Fallback to DATABASE_URL
+    url = os.environ.get("DATABASE_URL")
+    if not url:
+        pytest.skip(
+            "No Postgres available. Either start Docker (for testcontainers) "
+            "or set DATABASE_URL env var."
+        )
+    engine = create_engine(url)
+    _setup_schemas(engine)
+    yield engine
 
 
 def _setup_schemas(engine: Engine) -> None:
