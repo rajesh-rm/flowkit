@@ -55,7 +55,9 @@ class GitHubPullRequests(APIAsset):
 
     primary_key = ["id"]
     date_column = "updated_at"
-    api_date_param = "since"
+    # GitHub PRs endpoint does NOT support a `since` query param.
+    # We sort by updated desc and rely on the coverage tracker watermark
+    # for incremental extraction boundaries.
 
     def build_entity_request(
         self,
@@ -76,8 +78,6 @@ class GitHubPullRequests(APIAsset):
             "sort": "updated",
             "direction": "desc",
         }
-        if context.start_date:
-            params[self.api_date_param] = context.start_date
 
         return RequestSpec(
             method="GET",

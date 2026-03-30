@@ -29,7 +29,7 @@ class JiraIssues(APIAsset):
     target_table = "jira_issues"
 
     token_manager_class = JiraTokenManager
-    base_url: str = os.environ.get("JIRA_URL", "")
+    base_url = ""  # Set from JIRA_URL env var at runtime
     rate_limit_per_second = 5.0
 
     pagination_config = PaginationConfig(strategy="offset", page_size=100)
@@ -97,9 +97,10 @@ class JiraIssues(APIAsset):
 
         start_at = checkpoint.get("next_offset", 0) if checkpoint else 0
 
+        base = os.environ.get("JIRA_URL", self.base_url)
         return RequestSpec(
             method="GET",
-            url=f"{self.base_url}/rest/api/3/search",
+            url=f"{base}/rest/api/3/search",
             params={
                 "jql": jql,
                 "maxResults": 100,
@@ -115,7 +116,7 @@ class JiraIssues(APIAsset):
     def build_request(
         self,
         context: RunContext,
-        checkpoint: dict[str, Any] | None,
+        checkpoint: dict[str, Any] | None = None,
     ) -> RequestSpec:
         start_date_iso: str | None = None
         if context.start_date:
@@ -124,9 +125,10 @@ class JiraIssues(APIAsset):
         jql = self._build_jql(start_date=start_date_iso)
         start_at = checkpoint.get("next_offset", 0) if checkpoint else 0
 
+        base = os.environ.get("JIRA_URL", self.base_url)
         return RequestSpec(
             method="GET",
-            url=f"{self.base_url}/rest/api/3/search",
+            url=f"{base}/rest/api/3/search",
             params={
                 "jql": jql,
                 "maxResults": 100,

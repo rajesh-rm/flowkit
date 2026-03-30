@@ -131,13 +131,26 @@ flowkit/
 
 ### Adding a new asset
 
-1. Create `src/data_assets/assets/my_source/my_asset.py`
-2. Subclass `APIAsset` or `TransformAsset`
-3. Decorate with `@register`
-4. Import in `assets/my_source/__init__.py`
-5. Add test fixtures in `tests/fixtures/my_source/`
-6. Add unit + integration tests
-7. Run `pytest -v` to verify
+See [docs/extending.md](extending.md) for the comprehensive step-by-step guide. Quick summary:
+
+1. Create token manager in `extract/token_manager.py` (if new source)
+2. Create `src/data_assets/assets/my_source/my_asset.py` — subclass `APIAsset`, add `@register`
+3. Create `src/data_assets/assets/my_source/__init__.py` — import your asset class
+4. Add import in `src/data_assets/assets/__init__.py`
+5. Add test fixtures in `tests/fixtures/my_source/` (JSON files matching API responses)
+6. Add unit test in `tests/unit/assets/test_my_source.py`
+7. Run `make test-unit` to verify
+
+### Debugging checklist
+
+| Symptom | Likely cause |
+|---------|-------------|
+| Asset not found in registry | Missing `@register` decorator or missing import in `__init__.py` |
+| `build_request` never called | Check `parallel_mode` — entity-parallel uses `build_entity_request` instead |
+| API returns errors | `base_url` is empty — make sure env var is set and read at runtime in `build_request` |
+| Data missing from table | Column names in `parse_response` DataFrame don't match `columns` list |
+| Duplicate rows | Check `primary_key` is set correctly, use `UPSERT` load strategy |
+| Lock error on retry | Previous run's lock wasn't released — check if stale (auto-clears after 6 hours) |
 
 ### Running a single asset locally
 

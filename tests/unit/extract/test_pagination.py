@@ -1,25 +1,7 @@
 """Tests for pagination helper functions."""
 
 from data_assets.core.types import PaginationConfig, PaginationState
-from data_assets.extract.pagination import initial_params, next_request_params
-
-
-def test_initial_params_offset():
-    cfg = PaginationConfig(strategy="offset", page_size=50)
-    params = initial_params(cfg)
-    assert params == {"offset": 0, "limit": 50}
-
-
-def test_initial_params_page_number():
-    cfg = PaginationConfig(strategy="page_number", page_size=100)
-    params = initial_params(cfg)
-    assert params == {"p": 1, "ps": 100}
-
-
-def test_initial_params_cursor():
-    cfg = PaginationConfig(strategy="cursor", page_size=25)
-    params = initial_params(cfg)
-    assert params == {}
+from data_assets.extract.pagination import next_request_params
 
 
 def test_next_params_cursor():

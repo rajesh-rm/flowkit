@@ -24,12 +24,12 @@ class ServiceNowIncidents(APIAsset):
     target_table = "servicenow_incidents"
 
     token_manager_class = ServiceNowTokenManager
-    base_url = os.environ.get("SERVICENOW_INSTANCE", "")
+    base_url = ""  # Set from SERVICENOW_INSTANCE env var at runtime
     rate_limit_per_second = 10.0
 
     pagination_config = PaginationConfig(strategy="offset", page_size=100)
-    parallel_mode = ParallelMode.PAGE_PARALLEL
-    max_workers = 3
+    parallel_mode = ParallelMode.NONE
+    max_workers = 1
 
     load_strategy = LoadStrategy.UPSERT
     default_run_mode = RunMode.FORWARD
@@ -54,13 +54,18 @@ class ServiceNowIncidents(APIAsset):
     date_column = "sys_updated_on"
     api_date_param = "sysparm_query"
 
+    _current_offset: int = 0  # Tracks the offset sent in the last request
+
     def build_request(
         self,
         context: RunContext,
-        checkpoint: dict[str, Any] | None,
+        checkpoint: dict[str, Any] | None = None,
     ) -> RequestSpec:
-        url = f"{self.base_url}/api/now/table/incident"
-        offset = checkpoint.get("next_offset", 0) if checkpoint else 0
+        base = os.environ.get("SERVICENOW_INSTANCE", self.base_url)
+        url = f"{base}/api/now/table/incident"
+        offset = checkpoint.get("next_offset") if checkpoint else None
+        offset = offset if offset is not None else 0
+        self._current_offset = offset
 
         params: dict[str, Any] = {
             "sysparm_limit": self.pagination_config.page_size,
@@ -82,19 +87,15 @@ class ServiceNowIncidents(APIAsset):
 
         if results:
             df = pd.DataFrame(results)
-            # Keep only the columns defined on this asset.
             column_names = [c.name for c in self.columns]
             df = df[[c for c in column_names if c in df.columns]]
         else:
             df = pd.DataFrame()
 
-        current_offset = len(results)
         has_more = len(results) == page_size
+        next_offset = self._current_offset + len(results)
 
         return df, PaginationState(
             has_more=has_more,
-            next_offset=(
-                (response.get("_pagination_offset", 0) or 0) + current_offset
-            ),
-            total_records=response.get("_total_count"),
+            next_offset=next_offset,
         )

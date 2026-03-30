@@ -261,6 +261,10 @@ def extract_sequential(
 ) -> int:
     """Sequential extraction with pagination and checkpoint support.
 
+    Each iteration calls asset.build_request() with the latest checkpoint,
+    giving the asset full control over URL and params (important for assets
+    like GitHubRepos that iterate through multiple API endpoints).
+
     Returns total rows extracted.
     """
     rows_total = checkpoint.get("rows_so_far", 0) if checkpoint else 0
@@ -272,12 +276,6 @@ def extract_sequential(
     rows_total += write_to_temp(engine, temp_table, df)
 
     while state.has_more:
-        next_params = next_request_params(
-            asset.pagination_config, state, spec.params
-        )
-        if next_params is None:
-            break
-
         cp_value = {
             "cursor": state.cursor,
             "next_offset": state.next_offset,
@@ -293,13 +291,10 @@ def extract_sequential(
             rows_so_far=rows_total,
         )
 
-        spec = RequestSpec(
-            method=spec.method,
-            url=spec.url,
-            params=next_params,
-            headers=spec.headers,
-            body=spec.body,
-        )
+        # Always call build_request() so the asset controls URL + params.
+        # This supports assets that change endpoints mid-extraction (e.g.,
+        # iterating through multiple orgs).
+        spec = asset.build_request(context, checkpoint=cp_value)
         data = client.request(spec)
         df, state = asset.parse_response(data)
         rows_total += write_to_temp(engine, temp_table, df)

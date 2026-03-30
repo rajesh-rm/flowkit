@@ -25,7 +25,7 @@ class SonarQubeIssues(APIAsset):
     target_table = "sonarqube_issues"
 
     token_manager_class = SonarQubeTokenManager
-    base_url: str = os.environ.get("SONARQUBE_URL", "")
+    base_url = ""  # Set from SONARQUBE_URL env var at runtime
 
     rate_limit_per_second = 5.0
 
@@ -81,8 +81,9 @@ class SonarQubeIssues(APIAsset):
         if context.start_date and self.api_date_param:
             params[self.api_date_param] = context.start_date.isoformat()
 
+        base = os.environ.get("SONARQUBE_URL", self.base_url)
         return RequestSpec(
-            url=f"{self.base_url}/api/issues/search",
+            url=f"{base}/api/issues/search",
             method="GET",
             params=params,
         )
@@ -90,7 +91,7 @@ class SonarQubeIssues(APIAsset):
     def build_request(
         self,
         context: RunContext,
-        checkpoint: dict | None,
+        checkpoint: dict | None = None,
     ) -> RequestSpec:
         page = checkpoint.get("next_page", 1) if checkpoint else 1
         params: dict = {
@@ -101,8 +102,9 @@ class SonarQubeIssues(APIAsset):
         if context.start_date and self.api_date_param:
             params[self.api_date_param] = context.start_date.isoformat()
 
+        base = os.environ.get("SONARQUBE_URL", self.base_url)
         return RequestSpec(
-            url=f"{self.base_url}/api/issues/search",
+            url=f"{base}/api/issues/search",
             method="GET",
             params=params,
         )

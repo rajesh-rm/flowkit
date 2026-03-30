@@ -25,7 +25,7 @@ class SonarQubeProjects(APIAsset):
     target_table = "sonarqube_projects"
 
     token_manager_class = SonarQubeTokenManager
-    base_url: str = os.environ.get("SONARQUBE_URL", "")
+    base_url = ""  # Set from SONARQUBE_URL env var at runtime
 
     rate_limit_per_second = 5.0
 
@@ -60,11 +60,12 @@ class SonarQubeProjects(APIAsset):
     def build_request(
         self,
         context: RunContext,
-        checkpoint: dict | None,
+        checkpoint: dict | None = None,
     ) -> RequestSpec:
         page = checkpoint.get("page", 1) if checkpoint else 1
+        base = os.environ.get("SONARQUBE_URL", self.base_url)
         return RequestSpec(
-            url=f"{self.base_url}/api/projects/search",
+            url=f"{base}/api/projects/search",
             method="GET",
             params={"ps": 100, "p": page},
         )

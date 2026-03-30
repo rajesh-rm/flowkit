@@ -42,15 +42,3 @@ def next_request_params(
         return None
 
     return params
-
-
-def initial_params(config: PaginationConfig) -> dict:
-    """Build the initial pagination params for the first request."""
-    params: dict = {}
-    if config.strategy == "offset":
-        params["offset"] = 0
-        params["limit"] = config.page_size
-    elif config.strategy == "page_number":
-        params["p"] = 1
-        params["ps"] = config.page_size
-    return params

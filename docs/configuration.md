@@ -20,7 +20,9 @@ Resolution order:
 | Variable | Description |
 |----------|-------------|
 | `SONARQUBE_URL` | SonarQube server URL (e.g., `https://sonar.example.com`) |
-| `SONARQUBE_TOKEN` | API token (User > My Account > Security) |
+| `SONARQUBE_TOKEN` | API token |
+
+**How to get the token:** Log in to SonarQube → click your avatar (top-right) → **My Account** → **Security** tab → **Generate Tokens**. Choose type "User Token", give it a name, and copy the value.
 
 ### ServiceNow
 
@@ -40,6 +42,8 @@ Resolution order:
 | `SERVICENOW_USERNAME` | Username |
 | `SERVICENOW_PASSWORD` | Password |
 
+**How to set up OAuth2:** In ServiceNow, navigate to **System OAuth > Application Registry** → **Create an OAuth API endpoint for external clients**. Note the Client ID and Client Secret. The token manager uses the `client_credentials` grant type.
+
 ### GitHub
 
 | Variable | Description |
@@ -49,6 +53,14 @@ Resolution order:
 | `GITHUB_INSTALLATION_ID` | Installation ID for the target org(s) |
 | `GITHUB_ORGS` | Comma-separated org names (e.g., `"org1,org2"`) |
 | `GITHUB_API_URL` | Optional API URL override (default: `https://api.github.com`) |
+
+**How to set up a GitHub App:**
+1. Go to **Settings > Developer settings > GitHub Apps > New GitHub App**
+2. Set permissions: Repository (read), Pull requests (read), Actions (read)
+3. After creating, note the **App ID** from the app's settings page
+4. Generate a **private key** (PEM file) — download and store securely
+5. Install the app on your org(s) — note the **Installation ID** from the URL (`/installations/{id}`)
+6. Set `GITHUB_PRIVATE_KEY` to the full PEM content (including `-----BEGIN RSA PRIVATE KEY-----`)
 
 ### Jira
 
@@ -66,6 +78,10 @@ Resolution order:
 |----------|-------------|
 | `JIRA_URL` | Jira Data Center URL |
 | `JIRA_PAT` | Personal access token |
+
+**How to get Jira Cloud API token:** Log in to https://id.atlassian.com/manage-profile/security/api-tokens → **Create API token**. Use your email as `JIRA_EMAIL` and the token as `JIRA_API_TOKEN`.
+
+**How to get Jira Data Center PAT:** Log in → **Profile** → **Personal Access Tokens** → **Create token**.
 
 ## Runtime Overrides
 

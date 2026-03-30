@@ -1,3 +1,13 @@
+"""GitHub repos asset — fetches repositories across configured organizations.
+
+Multi-org support: iterates through orgs from GITHUB_ORGS env var.
+Pagination state (org index + page) is tracked entirely via checkpoints
+so retries resume from the correct org and page.
+
+The sequential extractor calls build_request() on every iteration with the
+latest checkpoint, so this asset can switch orgs by reading org_idx from it.
+"""
+
 from __future__ import annotations
 
 import os
@@ -16,7 +26,12 @@ from data_assets.extract.token_manager import GitHubAppTokenManager
 
 @register
 class GitHubRepos(APIAsset):
-    """Fetches repository metadata across all configured GitHub organizations."""
+    """Fetches repository metadata across all configured GitHub organizations.
+
+    Orgs come from the GITHUB_ORGS env var (comma-separated).
+    Paginates through each org sequentially, tracking {org_idx, page} in
+    checkpoint so retries resume at the correct position.
+    """
 
     name = "github_repos"
     source_name = "github"
@@ -53,26 +68,17 @@ class GitHubRepos(APIAsset):
     primary_key = ["id"]
     date_column = "updated_at"
 
-    def __init__(self) -> None:
-        super().__init__()
-        self._orgs: list[str] = [
-            o.strip()
-            for o in os.environ.get("GITHUB_ORGS", "").split(",")
-            if o.strip()
-        ]
-        self._current_org_idx: int = 0
+    def _get_orgs(self) -> list[str]:
+        return [o.strip() for o in os.environ.get("GITHUB_ORGS", "").split(",") if o.strip()]
 
     def build_request(
         self, context: RunContext, checkpoint: dict[str, Any] | None = None
     ) -> RequestSpec:
-        if checkpoint:
-            self._current_org_idx = checkpoint.get("org_idx", 0)
-            page = checkpoint.get("page", 1)
-        else:
-            self._current_org_idx = 0
-            page = 1
+        orgs = self._get_orgs()
+        org_idx = checkpoint.get("org_idx", 0) if checkpoint else 0
+        page = checkpoint.get("next_page", 1) if checkpoint else 1
 
-        org = self._orgs[self._current_org_idx]
+        org = orgs[min(org_idx, len(orgs) - 1)]
         base = os.environ.get("GITHUB_API_URL", self.base_url)
 
         return RequestSpec(
@@ -85,14 +91,9 @@ class GitHubRepos(APIAsset):
     def parse_response(
         self, response: list[dict[str, Any]]
     ) -> tuple[pd.DataFrame, PaginationState]:
+        orgs = self._get_orgs()
+
         if not response:
-            # No repos returned for this org; try next org
-            self._current_org_idx += 1
-            if self._current_org_idx < len(self._orgs):
-                return (
-                    pd.DataFrame(columns=[c.name for c in self.columns]),
-                    PaginationState(has_more=True, next_page=1),
-                )
             return (
                 pd.DataFrame(columns=[c.name for c in self.columns]),
                 PaginationState(has_more=False),
@@ -100,41 +101,22 @@ class GitHubRepos(APIAsset):
 
         records = []
         for repo in response:
-            records.append(
-                {
-                    "id": repo["id"],
-                    "full_name": repo["full_name"],
-                    "name": repo.get("name"),
-                    "owner_login": repo.get("owner", {}).get("login", ""),
-                    "private": str(repo.get("private", False)).lower(),
-                    "description": repo.get("description"),
-                    "language": repo.get("language"),
-                    "default_branch": repo.get("default_branch", "main"),
-                    "created_at": repo.get("created_at"),
-                    "updated_at": repo.get("updated_at"),
-                    "pushed_at": repo.get("pushed_at"),
-                    "archived": str(repo.get("archived", False)).lower(),
-                    "html_url": repo.get("html_url", ""),
-                }
-            )
+            records.append({
+                "id": repo["id"],
+                "full_name": repo["full_name"],
+                "name": repo.get("name"),
+                "owner_login": repo.get("owner", {}).get("login", ""),
+                "private": str(repo.get("private", False)).lower(),
+                "description": repo.get("description"),
+                "language": repo.get("language"),
+                "default_branch": repo.get("default_branch", "main"),
+                "created_at": repo.get("created_at"),
+                "updated_at": repo.get("updated_at"),
+                "pushed_at": repo.get("pushed_at"),
+                "archived": str(repo.get("archived", False)).lower(),
+                "html_url": repo.get("html_url", ""),
+            })
         df = pd.DataFrame(records)
 
-        has_more_pages = len(response) >= self.pagination_config.page_size
-
-        if not has_more_pages:
-            # Current org exhausted, check for more orgs
-            self._current_org_idx += 1
-            if self._current_org_idx < len(self._orgs):
-                return df, PaginationState(has_more=True, next_page=1)
-            return df, PaginationState(has_more=False)
-
-        return df, PaginationState(has_more=True, next_page=None)
-
-    def transform(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Ensure boolean-origin columns are stored as text strings."""
-        for col in ("private", "archived"):
-            if col in df.columns:
-                df[col] = df[col].astype(str).str.lower()
-        if "owner_login" in df.columns:
-            df["owner_login"] = df["owner_login"].astype(str)
-        return df
+        has_more = len(response) >= self.pagination_config.page_size
+        return df, PaginationState(has_more=has_more, next_page=None)

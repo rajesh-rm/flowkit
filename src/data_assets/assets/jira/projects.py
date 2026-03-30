@@ -24,7 +24,7 @@ class JiraProjects(APIAsset):
     target_table = "jira_projects"
 
     token_manager_class = JiraTokenManager
-    base_url: str = os.environ.get("JIRA_URL", "")
+    base_url = ""  # Set from JIRA_URL env var at runtime
     rate_limit_per_second = 5.0
 
     pagination_config = PaginationConfig(strategy="offset", page_size=50)
@@ -53,9 +53,10 @@ class JiraProjects(APIAsset):
         checkpoint: dict[str, Any] | None,
     ) -> RequestSpec:
         start_at = checkpoint.get("next_offset", 0) if checkpoint else 0
+        base = os.environ.get("JIRA_URL", self.base_url)
         return RequestSpec(
             method="GET",
-            url=f"{self.base_url}/rest/api/3/project/search",
+            url=f"{base}/rest/api/3/project/search",
             params={"maxResults": 50, "startAt": start_at},
         )
 
