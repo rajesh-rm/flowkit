@@ -1,0 +1,34 @@
+{
+  "result": [
+    {
+      "sys_id": "abc123def456",
+      "number": "INC0010001",
+      "short_description": "Email service down",
+      "description": "Users unable to send or receive emails since 8am.",
+      "state": "2",
+      "priority": "1",
+      "severity": "1",
+      "category": "network",
+      "assigned_to": "john.doe",
+      "assignment_group": "Network Team",
+      "opened_at": "2025-12-01T08:00:00Z",
+      "closed_at": null,
+      "sys_updated_on": "2025-12-01T10:30:00Z"
+    },
+    {
+      "sys_id": "def456ghi789",
+      "number": "INC0010002",
+      "short_description": "VPN connectivity issues",
+      "description": "Multiple users reporting VPN drops.",
+      "state": "6",
+      "priority": "2",
+      "severity": "2",
+      "category": "network",
+      "assigned_to": "jane.smith",
+      "assignment_group": "Network Team",
+      "opened_at": "2025-12-01T09:15:00Z",
+      "closed_at": "2025-12-01T14:00:00Z",
+      "sys_updated_on": "2025-12-01T14:00:00Z"
+    }
+  ]
+}
