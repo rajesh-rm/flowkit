@@ -1,0 +1,33 @@
+{
+  "paging": {
+    "pageIndex": 1,
+    "pageSize": 100,
+    "total": 3
+  },
+  "components": [
+    {
+      "key": "proj-alpha",
+      "name": "Project Alpha",
+      "qualifier": "TRK",
+      "visibility": "public",
+      "lastAnalysisDate": "2025-12-01T10:30:00+0000",
+      "revision": "abc123"
+    },
+    {
+      "key": "proj-beta",
+      "name": "Project Beta",
+      "qualifier": "TRK",
+      "visibility": "private",
+      "lastAnalysisDate": "2025-12-02T14:00:00+0000",
+      "revision": "def456"
+    },
+    {
+      "key": "proj-gamma",
+      "name": "Project Gamma",
+      "qualifier": "TRK",
+      "visibility": "public",
+      "lastAnalysisDate": "2025-11-28T08:15:00+0000",
+      "revision": "ghi789"
+    }
+  ]
+}

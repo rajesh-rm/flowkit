@@ -1,0 +1,22 @@
+{
+  "result": [
+    {
+      "sys_id": "chg001abc",
+      "number": "CHG0001001",
+      "short_description": "Upgrade database to v15",
+      "description": "Planned upgrade of production PostgreSQL from v14 to v15.",
+      "state": "3",
+      "type": "normal",
+      "priority": "2",
+      "risk": "moderate",
+      "category": "hardware",
+      "assigned_to": "dba.team",
+      "assignment_group": "Database Team",
+      "opened_at": "2025-11-20T10:00:00Z",
+      "closed_at": null,
+      "start_date": "2025-12-15T02:00:00Z",
+      "end_date": "2025-12-15T06:00:00Z",
+      "sys_updated_on": "2025-12-01T12:00:00Z"
+    }
+  ]
+}

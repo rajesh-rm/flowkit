@@ -1,0 +1,24 @@
+{
+  "values": [
+    {
+      "id": "10001",
+      "key": "ENG",
+      "name": "Engineering",
+      "projectTypeKey": "software",
+      "style": "next-gen",
+      "isPrivate": false
+    },
+    {
+      "id": "10002",
+      "key": "OPS",
+      "name": "Operations",
+      "projectTypeKey": "software",
+      "style": "classic",
+      "isPrivate": true
+    }
+  ],
+  "total": 2,
+  "startAt": 0,
+  "maxResults": 50,
+  "isLast": true
+}

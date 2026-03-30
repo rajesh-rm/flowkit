@@ -1,0 +1,35 @@
+{
+  "paging": {
+    "pageIndex": 1,
+    "pageSize": 100,
+    "total": 2
+  },
+  "issues": [
+    {
+      "key": "AXyz-issue-001",
+      "rule": "java:S1234",
+      "severity": "MAJOR",
+      "component": "proj-alpha:src/Main.java",
+      "project": "proj-alpha",
+      "line": 42,
+      "message": "Remove this unused import.",
+      "status": "OPEN",
+      "type": "CODE_SMELL",
+      "creationDate": "2025-11-15T09:00:00+0000",
+      "updateDate": "2025-11-15T09:00:00+0000"
+    },
+    {
+      "key": "AXyz-issue-002",
+      "rule": "java:S5678",
+      "severity": "CRITICAL",
+      "component": "proj-alpha:src/Service.java",
+      "project": "proj-alpha",
+      "line": 100,
+      "message": "Possible null pointer dereference.",
+      "status": "CONFIRMED",
+      "type": "BUG",
+      "creationDate": "2025-12-01T10:30:00+0000",
+      "updateDate": "2025-12-01T11:00:00+0000"
+    }
+  ]
+}
