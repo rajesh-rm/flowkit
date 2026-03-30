@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
 
@@ -16,7 +17,7 @@ from data_assets.extract.token_manager import ServiceNowTokenManager
 
 @register
 class ServiceNowChanges(APIAsset):
-    """ServiceNow change requests fetched via the Table API."""
+    """ServiceNow change requests via Table API with keyset pagination."""
 
     name = "servicenow_changes"
     source_name = "servicenow"
@@ -24,10 +25,10 @@ class ServiceNowChanges(APIAsset):
     target_table = "servicenow_changes"
 
     token_manager_class = ServiceNowTokenManager
-    base_url = ""  # Set from SERVICENOW_INSTANCE env var at runtime
+    base_url = ""
     rate_limit_per_second = 10.0
 
-    pagination_config = PaginationConfig(strategy="offset", page_size=100)
+    pagination_config = PaginationConfig(strategy="keyset", page_size=100)
     parallel_mode = ParallelMode.NONE
     max_workers = 1
 
@@ -55,38 +56,37 @@ class ServiceNowChanges(APIAsset):
 
     primary_key = ["sys_id"]
     date_column = "sys_updated_on"
-    api_date_param = "sysparm_query"
-
-    _current_offset: int = 0
 
     def build_request(
-        self,
-        context: RunContext,
-        checkpoint: dict[str, Any] | None = None,
+        self, context: RunContext, checkpoint: dict[str, Any] | None = None,
     ) -> RequestSpec:
         base = os.environ.get("SERVICENOW_INSTANCE", self.base_url)
         url = f"{base}/api/now/table/change_request"
-        offset = checkpoint.get("next_offset") if checkpoint else None
-        offset = offset if offset is not None else 0
-        self._current_offset = offset
+
+        query_parts: list[str] = []
+        if checkpoint and checkpoint.get("cursor"):
+            last = json.loads(checkpoint["cursor"]) if isinstance(checkpoint["cursor"], str) else checkpoint["cursor"]
+            query_parts.append(
+                f"sys_updated_on>={last['sys_updated_on']}"
+                f"^sys_id>{last['sys_id']}"
+                f"^ORsys_updated_on>{last['sys_updated_on']}"
+            )
+        elif context.start_date:
+            query_parts.append(f"sys_updated_on>={context.start_date.isoformat()}")
 
         params: dict[str, Any] = {
             "sysparm_limit": self.pagination_config.page_size,
-            "sysparm_offset": offset,
+            "sysparm_orderby": "sys_updated_on,sys_id",
         }
-
-        if context.start_date:
-            start_iso = context.start_date.isoformat()
-            params["sysparm_query"] = f"sys_updated_on>={start_iso}"
+        if query_parts:
+            params["sysparm_query"] = "^".join(query_parts)
 
         return RequestSpec(method="GET", url=url, params=params)
 
     def parse_response(
-        self,
-        response: dict[str, Any],
+        self, response: dict[str, Any],
     ) -> tuple[pd.DataFrame, PaginationState]:
         results: list[dict[str, Any]] = response.get("result", [])
-        page_size = self.pagination_config.page_size
 
         if results:
             df = pd.DataFrame(results)
@@ -95,10 +95,13 @@ class ServiceNowChanges(APIAsset):
         else:
             df = pd.DataFrame()
 
-        has_more = len(results) == page_size
-        next_offset = self._current_offset + len(results)
+        has_more = len(results) == self.pagination_config.page_size
+        cursor = None
+        if results:
+            last = results[-1]
+            cursor = json.dumps({
+                "sys_updated_on": last.get("sys_updated_on", ""),
+                "sys_id": last.get("sys_id", ""),
+            })
 
-        return df, PaginationState(
-            has_more=has_more,
-            next_offset=next_offset,
-        )
+        return df, PaginationState(has_more=has_more, cursor=cursor)

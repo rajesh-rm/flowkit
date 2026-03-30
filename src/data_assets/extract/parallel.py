@@ -13,7 +13,7 @@ from sqlalchemy.engine import Engine
 
 from data_assets.checkpoint.manager import save_checkpoint
 from data_assets.core.run_context import RunContext
-from data_assets.core.types import PaginationState, RequestSpec
+from data_assets.core.types import PaginationState, RequestSpec, SkippedRequestError
 from data_assets.extract.api_client import APIClient
 from data_assets.extract.pagination import next_request_params
 from data_assets.load.loader import write_to_temp
@@ -179,7 +179,11 @@ def extract_entity_parallel(
             page_cp = cp
             while True:
                 spec = asset.build_entity_request(entity_key, context, checkpoint=page_cp)
-                data = client.request(spec)
+                try:
+                    data = client.request(spec)
+                except SkippedRequestError:
+                    logger.warning("Skipped entity %s (e.g., deleted)", entity_str)
+                    break
                 df, state = asset.parse_response(data)
                 worker_rows += write_to_temp(engine, temp_table, df)
 

@@ -11,7 +11,9 @@ import uuid
 from datetime import datetime, timezone
 
 import pandas as pd
+from sqlalchemy import select, func
 from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session
 
 from data_assets.checkpoint.manager import (
     acquire_lock,
@@ -26,7 +28,7 @@ from data_assets.core.registry import discover, get
 from data_assets.core.run_context import RunContext
 from data_assets.core.transform_asset import TransformAsset
 from data_assets.db.engine import get_engine
-from data_assets.db.models import CoverageTracker, create_all_tables
+from data_assets.db.models import CoverageTracker, RunHistory, create_all_tables
 from data_assets.extract.api_client import APIClient
 from data_assets.extract.parallel import (
     extract_entity_parallel,
@@ -80,19 +82,21 @@ def run_asset(
     Args:
         asset_name: Name matching a registered asset class.
         run_mode: One of "full", "forward", "backfill", "transform".
-        **overrides: Runtime overrides — rate_limit_per_second, max_workers,
-                     start_date, end_date, airflow_run_id, etc.
+        **overrides: Runtime overrides including:
+            - rate_limit_per_second, max_workers, request_timeout, max_retries
+            - start_date, end_date (override computed date window)
+            - airflow_run_id (links to Airflow)
+            - dry_run=True (extract + validate, skip promotion)
 
     Returns:
-        Dict with run metrics: run_id, rows_extracted, rows_loaded,
-        duration_seconds, status.
+        Dict with run metrics.
     """
     setup_logging()
     start_time = time.monotonic()
     run_id = uuid.uuid4()
     mode = RunMode(run_mode)
+    dry_run = overrides.pop("dry_run", False)
 
-    # --- Phase 1: Initialize ---
     engine = get_engine()
     _ensure_initialized(engine)
 
@@ -100,19 +104,20 @@ def run_asset(
     asset = asset_cls()
 
     logger.info(
-        "Starting run: asset=%s mode=%s run_id=%s", asset_name, mode.value, run_id
+        "Starting run: asset=%s mode=%s run_id=%s dry_run=%s",
+        asset_name, mode.value, run_id, dry_run,
     )
 
     acquire_lock(engine, asset_name, run_id)
 
     rows_extracted = 0
     rows_loaded = 0
+    client_stats: dict = {}
 
     try:
         coverage = get_coverage(engine, asset_name)
         start_date, end_date = _compute_date_window(mode, coverage, overrides)
 
-        # Check for existing checkpoints (retry scenario)
         existing_cps = get_checkpoints(engine, asset_name)
         existing_cp_map: dict[str, dict] = {}
         for cp in existing_cps:
@@ -123,30 +128,25 @@ def run_asset(
             }
 
         context = RunContext(
-            run_id=run_id,
-            mode=mode,
-            asset_name=asset_name,
-            start_date=start_date,
-            end_date=end_date,
-            params=overrides,
+            run_id=run_id, mode=mode, asset_name=asset_name,
+            start_date=start_date, end_date=end_date, params=overrides,
         )
 
         record_run_start(
-            engine,
-            run_id=run_id,
-            asset_name=asset_name,
-            run_mode=mode.value,
+            engine, run_id=run_id, asset_name=asset_name, run_mode=mode.value,
             airflow_run_id=overrides.get("airflow_run_id"),
             metadata={"start_date": str(start_date), "end_date": str(end_date)},
         )
 
         # --- Phase 2: Extract ---
+        extract_start = time.monotonic()
+
         temp_tbl = temp_table_name(asset_name, run_id)
         if not temp_table_exists(engine, temp_tbl):
             temp_tbl = create_temp_table(engine, asset_name, run_id, asset.columns)
 
         if isinstance(asset, APIAsset):
-            rows_extracted = _extract_api(
+            rows_extracted, client_stats = _extract_api(
                 asset, engine, temp_tbl, context, existing_cp_map, overrides
             )
         elif isinstance(asset, TransformAsset):
@@ -155,10 +155,14 @@ def run_asset(
         else:
             raise TypeError(f"Unknown asset type: {type(asset)}")
 
+        extract_seconds = round(time.monotonic() - extract_start, 2)
+
+        # Row count anomaly warning
+        _check_row_count_anomaly(engine, asset_name, rows_extracted)
+
         # --- Phase 3: Transform & Validate ---
         df = read_temp_table(engine, temp_tbl)
 
-        # Only rewrite temp table if the asset overrides transform()
         has_custom_transform = type(asset).transform is not Asset.transform
         if has_custom_transform:
             df = asset.transform(df)
@@ -174,29 +178,53 @@ def run_asset(
                 + "; ".join(validation_result.failures)
             )
 
-        # --- Phase 4: Promote ---
-        rows_loaded = promote(
-            engine=engine,
-            temp_table=temp_tbl,
-            target_schema=asset.target_schema,
-            target_table=asset.target_table,
-            columns=asset.columns,
-            primary_key=asset.primary_key,
-            load_strategy=asset.load_strategy,
-        )
+        # Collect non-blocking warnings
+        warnings = asset.validate_warnings(df, context)
+        if warnings:
+            for w in warnings:
+                logger.warning("Validation warning for '%s': %s", asset_name, w)
+
+        # --- Phase 4: Promote (skip if dry_run) ---
+        promote_start = time.monotonic()
+
+        if dry_run:
+            logger.info("Dry run — skipping promotion for '%s'", asset_name)
+            rows_loaded = 0
+        else:
+            rows_loaded = promote(
+                engine=engine, temp_table=temp_tbl,
+                target_schema=asset.target_schema, target_table=asset.target_table,
+                columns=asset.columns, primary_key=asset.primary_key,
+                load_strategy=asset.load_strategy,
+                schema_contract=asset.schema_contract,
+            )
+
+        promote_seconds = round(time.monotonic() - promote_start, 2)
 
         # --- Phase 5: Finalize ---
-        _update_watermarks(engine, asset, mode, start_date, end_date, df)
-        record_run_success(engine, run_id, rows_extracted, rows_loaded)
-        update_last_success(engine, asset_name)
+        if not dry_run:
+            _update_watermarks(engine, asset, mode, start_date, end_date, df)
+            update_last_success(engine, asset_name)
+
+        # Build run metadata
+        run_metadata = {
+            "extraction_seconds": extract_seconds,
+            "promotion_seconds": promote_seconds,
+            "warnings": warnings,
+            **client_stats,
+        }
+
+        record_run_success(engine, run_id, rows_extracted, rows_loaded,
+                           metadata=run_metadata)
         clear_checkpoints(engine, asset_name)
         drop_temp_table(engine, temp_tbl)
         release_lock(engine, asset_name)
 
         duration = time.monotonic() - start_time
+        status = "dry_run" if dry_run else "success"
         logger.info(
-            "Run complete: asset=%s rows_extracted=%d rows_loaded=%d duration=%.1fs",
-            asset_name, rows_extracted, rows_loaded, duration,
+            "Run complete: asset=%s rows_extracted=%d rows_loaded=%d duration=%.1fs status=%s",
+            asset_name, rows_extracted, rows_loaded, duration, status,
         )
 
         return {
@@ -205,7 +233,8 @@ def run_asset(
             "rows_extracted": rows_extracted,
             "rows_loaded": rows_loaded,
             "duration_seconds": round(duration, 2),
-            "status": "success",
+            "status": status,
+            "metadata": run_metadata,
         }
 
     except Exception as exc:
@@ -223,31 +252,35 @@ def _extract_api(
     context: RunContext,
     existing_cp_map: dict[str, dict],
     overrides: dict,
-) -> int:
-    """Handle API extraction with rate limiting, token management, and parallelism."""
+) -> tuple[int, dict]:
+    """Handle API extraction. Returns (rows_extracted, client_stats)."""
     rate = overrides.get("rate_limit_per_second", asset.rate_limit_per_second)
     timeout = overrides.get("request_timeout", asset.request_timeout)
     retries = overrides.get("max_retries", asset.max_retries)
 
     token_mgr = asset.token_manager_class()
     rate_limiter = RateLimiter(rate)
-    client = APIClient(token_mgr, rate_limiter, timeout=timeout, max_retries=retries)
+    client = APIClient(
+        token_mgr, rate_limiter, timeout=timeout, max_retries=retries,
+        error_classifier=asset.classify_error,
+    )
 
     try:
         if asset.parallel_mode == ParallelMode.PAGE_PARALLEL:
-            return extract_page_parallel(
+            rows = extract_page_parallel(
                 asset, client, engine, temp_tbl, context, existing_cp_map
             )
         elif asset.parallel_mode == ParallelMode.ENTITY_PARALLEL:
             entity_keys = _load_entity_keys(engine, asset)
-            return extract_entity_parallel(
+            rows = extract_entity_parallel(
                 asset, client, engine, temp_tbl, context, entity_keys, existing_cp_map
             )
         else:
             main_cp = existing_cp_map.get("main")
-            return extract_sequential(
+            rows = extract_sequential(
                 asset, client, engine, temp_tbl, context, main_cp
             )
+        return rows, client.stats
     finally:
         client.close()
 
@@ -267,24 +300,17 @@ def _load_entity_keys(engine: Engine, asset: APIAsset) -> list:
 
 
 def _compute_date_window(
-    mode: RunMode,
-    coverage: CoverageTracker | None,
-    overrides: dict,
+    mode: RunMode, coverage: CoverageTracker | None, overrides: dict,
 ) -> tuple[datetime | None, datetime | None]:
-    """Compute start_date and end_date based on run mode and coverage."""
     now = datetime.now(timezone.utc)
-
     if "start_date" in overrides and "end_date" in overrides:
         return overrides["start_date"], overrides["end_date"]
-
     if mode == RunMode.FULL:
         return None, None
     if mode == RunMode.FORWARD:
-        start = coverage.forward_watermark if coverage else None
-        return start, now
+        return (coverage.forward_watermark if coverage else None), now
     if mode == RunMode.BACKFILL:
-        end = coverage.backward_watermark if coverage else now
-        return None, end
+        return None, (coverage.backward_watermark if coverage else now)
     return None, None
 
 
@@ -293,7 +319,6 @@ def _update_watermarks(
     start_date: datetime | None, end_date: datetime | None,
     df: pd.DataFrame,
 ) -> None:
-    """Update coverage tracker after a successful run."""
     if not hasattr(asset, "date_column") or not asset.date_column:
         return
     if asset.date_column not in df.columns:
@@ -310,3 +335,25 @@ def _update_watermarks(
         update_coverage(engine, asset.name, forward_watermark=max_date)
     if mode in (RunMode.FULL, RunMode.BACKFILL):
         update_coverage(engine, asset.name, backward_watermark=min_date)
+
+
+def _check_row_count_anomaly(
+    engine: Engine, asset_name: str, rows_extracted: int
+) -> None:
+    """Warn if row count is significantly below recent average."""
+    try:
+        with Session(engine) as session:
+            result = session.execute(
+                select(func.avg(RunHistory.rows_extracted))
+                .where(RunHistory.asset_name == asset_name)
+                .where(RunHistory.status == "success")
+                .order_by(RunHistory.completed_at.desc())
+                .limit(5)
+            ).scalar()
+            if result and rows_extracted < result * 0.5:
+                logger.warning(
+                    "Row count anomaly for '%s': got %d, recent average is %.0f",
+                    asset_name, rows_extracted, result,
+                )
+    except Exception:
+        pass  # Non-critical — don't fail the run for a warning query

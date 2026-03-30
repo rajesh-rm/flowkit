@@ -1527,3 +1527,76 @@ export ITEMS_API_URL="https://items.example.com"
   returns what you expect.
 - **Check column name alignment.** The SQL `SELECT ... AS column_name` aliases
   must match the `columns` definition names exactly.
+
+---
+
+## 7. Advanced Features Reference
+
+### Error Classification (`classify_error`)
+
+Override on your asset to control how HTTP errors are handled:
+
+```python
+def classify_error(self, status_code: int, headers: dict) -> str:
+    if status_code == 404:
+        return "skip"   # Entity deleted — skip, don't fail
+    if status_code == 429 or status_code >= 500:
+        return "retry"  # Transient — retry with backoff
+    return "fail"       # Client error — fail immediately
+```
+
+Default: 404→skip, 429/5xx→retry, other 4xx→fail.
+
+### Schema Contracts (`schema_contract`)
+
+Control what happens when your asset definition has columns not yet in the table:
+
+```python
+schema_contract = "evolve"   # Default: auto ALTER TABLE ADD COLUMN
+schema_contract = "freeze"   # Raise error — no automatic schema changes
+schema_contract = "discard"  # Silently ignore new columns
+```
+
+### Dry Run Mode
+
+Test your asset without writing to the main table:
+
+```python
+run_asset("my_asset", run_mode="full", dry_run=True)
+# Extracts to temp table, validates, but skips promotion
+# Returns status="dry_run" with row counts
+```
+
+### JSON Flatten Utilities
+
+Reduce boilerplate in `parse_response()`:
+
+```python
+from data_assets.extract.flatten import pick_fields
+
+def parse_response(self, response):
+    records = [
+        pick_fields(item, {
+            "user_login": "user.login",      # nested access
+            "repo_name": "base.repo.name",   # deeply nested
+            "id": "id",                       # top-level
+        })
+        for item in response
+    ]
+    return pd.DataFrame(records), PaginationState(...)
+```
+
+### Rate Limit Header Extraction
+
+The API client automatically checks `X-RateLimit-Remaining` and
+`X-RateLimit-Limit` headers. If remaining drops below 10% of the limit,
+it preemptively pauses to avoid 429 errors. No configuration needed.
+
+### Run Metadata
+
+Every run records operational metrics in `run_history.metadata`:
+- `api_calls`, `retries`, `skips`, `rate_limit_pauses`
+- `extraction_seconds`, `promotion_seconds`
+- `warnings` (non-blocking validation warnings)
+
+Query with: `SELECT metadata FROM data_ops.run_history WHERE asset_name = 'my_asset'`

@@ -7,9 +7,17 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class PaginationConfig:
-    """Declares how an API endpoint is paginated."""
+    """Declares how an API endpoint is paginated.
 
-    strategy: str  # "cursor", "offset", "page_number", "date_window", "none"
+    Strategies:
+        "page_number" — ?page=N&per_page=M (GitHub, SonarQube)
+        "offset"      — ?offset=N&limit=M (Jira, ServiceNow legacy)
+        "keyset"      — filter by last-seen sort key (ServiceNow best practice)
+        "cursor"      — opaque cursor token from previous response
+        "none"        — single request, no pagination
+    """
+
+    strategy: str
     page_size: int = 100
     cursor_field: str | None = None
     total_field: str | None = None
@@ -44,3 +52,10 @@ class ValidationResult:
 
     passed: bool
     failures: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+
+class SkippedRequestError(Exception):
+    """Raised when an API request should be skipped (e.g., 404 for deleted entity)."""
+
+    pass

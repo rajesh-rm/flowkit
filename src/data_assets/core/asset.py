@@ -16,7 +16,7 @@ class Asset(ABC):
     """Base class for all data assets.
 
     Subclasses must set class-level attributes for identity and target,
-    and may override transform() and validate() hooks.
+    and may override transform(), validate(), and validate_warnings() hooks.
     """
 
     # --- Identity ---
@@ -33,14 +33,21 @@ class Asset(ABC):
     default_run_mode: RunMode = RunMode.FULL
     load_strategy: LoadStrategy = LoadStrategy.FULL_REPLACE
 
+    # --- Schema contract ---
+    # "evolve"  — auto-add new columns (default)
+    # "freeze"  — raise error if definition has columns not in table
+    # "discard" — silently ignore extra columns
+    schema_contract: str = "evolve"
+
     def transform(self, df: pd.DataFrame) -> pd.DataFrame:
         """Post-extraction pandas transform. Override for custom logic."""
         return df
 
     def validate(self, df: pd.DataFrame, context: RunContext) -> ValidationResult:
-        """Post-transform validation. Override for custom checks.
+        """Blocking validation — must pass before promotion.
 
         Default: row count > 0 and primary key columns contain no nulls.
+        Override to add custom blocking checks. Call super() to keep defaults.
         """
         failures: list[str] = []
 
@@ -55,3 +62,10 @@ class Asset(ABC):
                 )
 
         return ValidationResult(passed=len(failures) == 0, failures=failures)
+
+    def validate_warnings(self, df: pd.DataFrame, context: RunContext) -> list[str]:
+        """Non-blocking warnings — logged but don't prevent promotion.
+
+        Override to add custom warning checks (e.g., row count below expected).
+        """
+        return []

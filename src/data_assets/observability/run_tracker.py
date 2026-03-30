@@ -41,19 +41,21 @@ def record_run_success(
     run_id: uuid.UUID,
     rows_extracted: int,
     rows_loaded: int,
+    metadata: dict | None = None,
 ) -> None:
     """Update the run_history row on successful completion."""
     now = datetime.now(timezone.utc)
+    values: dict = {
+        "status": "success",
+        "completed_at": now,
+        "rows_extracted": rows_extracted,
+        "rows_loaded": rows_loaded,
+    }
+    if metadata:
+        values["metadata_"] = metadata
     with Session(engine) as session:
         session.execute(
-            update(RunHistory)
-            .where(RunHistory.run_id == run_id)
-            .values(
-                status="success",
-                completed_at=now,
-                rows_extracted=rows_extracted,
-                rows_loaded=rows_loaded,
-            )
+            update(RunHistory).where(RunHistory.run_id == run_id).values(**values)
         )
         session.commit()
 

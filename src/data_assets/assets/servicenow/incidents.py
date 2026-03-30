@@ -16,7 +16,12 @@ from data_assets.extract.token_manager import ServiceNowTokenManager
 
 @register
 class ServiceNowIncidents(APIAsset):
-    """ServiceNow incidents fetched via the Table API."""
+    """ServiceNow incidents fetched via the Table API.
+
+    Uses keyset pagination (sys_updated_on + sys_id) for reliable
+    extraction from large tables. Offset pagination is unreliable
+    when data changes between pages.
+    """
 
     name = "servicenow_incidents"
     source_name = "servicenow"
@@ -24,10 +29,10 @@ class ServiceNowIncidents(APIAsset):
     target_table = "servicenow_incidents"
 
     token_manager_class = ServiceNowTokenManager
-    base_url = ""  # Set from SERVICENOW_INSTANCE env var at runtime
+    base_url = ""
     rate_limit_per_second = 10.0
 
-    pagination_config = PaginationConfig(strategy="offset", page_size=100)
+    pagination_config = PaginationConfig(strategy="keyset", page_size=100)
     parallel_mode = ParallelMode.NONE
     max_workers = 1
 
@@ -52,38 +57,41 @@ class ServiceNowIncidents(APIAsset):
 
     primary_key = ["sys_id"]
     date_column = "sys_updated_on"
-    api_date_param = "sysparm_query"
-
-    _current_offset: int = 0  # Tracks the offset sent in the last request
 
     def build_request(
-        self,
-        context: RunContext,
-        checkpoint: dict[str, Any] | None = None,
+        self, context: RunContext, checkpoint: dict[str, Any] | None = None,
     ) -> RequestSpec:
         base = os.environ.get("SERVICENOW_INSTANCE", self.base_url)
         url = f"{base}/api/now/table/incident"
-        offset = checkpoint.get("next_offset") if checkpoint else None
-        offset = offset if offset is not None else 0
-        self._current_offset = offset
+
+        # Keyset pagination: sort by sys_updated_on,sys_id and filter from last seen
+        query_parts: list[str] = []
+
+        if checkpoint and checkpoint.get("cursor"):
+            import json
+            last = json.loads(checkpoint["cursor"]) if isinstance(checkpoint["cursor"], str) else checkpoint["cursor"]
+            # Records after the last-seen (sys_updated_on, sys_id) pair
+            query_parts.append(
+                f"sys_updated_on>={last['sys_updated_on']}"
+                f"^sys_id>{last['sys_id']}"
+                f"^ORsys_updated_on>{last['sys_updated_on']}"
+            )
+        elif context.start_date:
+            query_parts.append(f"sys_updated_on>={context.start_date.isoformat()}")
 
         params: dict[str, Any] = {
             "sysparm_limit": self.pagination_config.page_size,
-            "sysparm_offset": offset,
+            "sysparm_orderby": "sys_updated_on,sys_id",
         }
-
-        if context.start_date:
-            start_iso = context.start_date.isoformat()
-            params["sysparm_query"] = f"sys_updated_on>={start_iso}"
+        if query_parts:
+            params["sysparm_query"] = "^".join(query_parts)
 
         return RequestSpec(method="GET", url=url, params=params)
 
     def parse_response(
-        self,
-        response: dict[str, Any],
+        self, response: dict[str, Any],
     ) -> tuple[pd.DataFrame, PaginationState]:
         results: list[dict[str, Any]] = response.get("result", [])
-        page_size = self.pagination_config.page_size
 
         if results:
             df = pd.DataFrame(results)
@@ -92,10 +100,16 @@ class ServiceNowIncidents(APIAsset):
         else:
             df = pd.DataFrame()
 
-        has_more = len(results) == page_size
-        next_offset = self._current_offset + len(results)
+        has_more = len(results) == self.pagination_config.page_size
 
-        return df, PaginationState(
-            has_more=has_more,
-            next_offset=next_offset,
-        )
+        # Keyset cursor: encode last record's sort keys as JSON string
+        cursor = None
+        if results:
+            import json
+            last = results[-1]
+            cursor = json.dumps({
+                "sys_updated_on": last.get("sys_updated_on", ""),
+                "sys_id": last.get("sys_id", ""),
+            })
+
+        return df, PaginationState(has_more=has_more, cursor=cursor)

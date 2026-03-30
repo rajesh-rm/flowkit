@@ -27,10 +27,12 @@ This catalog documents every built-in asset. Use it as a reference when building
 
 | Asset | Table | Load | Parallel | Pagination | API Endpoint |
 |-------|-------|------|----------|------------|--------------|
-| `servicenow_incidents` | `raw.servicenow_incidents` | UPSERT | Sequential | offset (`sysparm_offset`, `sysparm_limit`) | `/api/now/table/incident` |
-| `servicenow_changes` | `raw.servicenow_changes` | UPSERT | Sequential | offset (`sysparm_offset`, `sysparm_limit`) | `/api/now/table/change_request` |
+| `servicenow_incidents` | `raw.servicenow_incidents` | UPSERT | Sequential | keyset (`sys_updated_on`, `sys_id`) | `/api/now/table/incident` |
+| `servicenow_changes` | `raw.servicenow_changes` | UPSERT | Sequential | keyset (`sys_updated_on`, `sys_id`) | `/api/now/table/change_request` |
 
-**Why Sequential?** ServiceNow Table API uses offset pagination but doesn't return a total count in the response body, so we can't pre-calculate the number of pages for PAGE_PARALLEL. Sequential extraction paginates until an empty response.
+**Why keyset pagination?** Offset pagination on large ServiceNow tables is unreliable — records inserted/updated during extraction cause rows to be skipped or duplicated. Keyset pagination sorts by `sys_updated_on,sys_id` and filters from the last-seen record, eliminating drift.
+
+**Why Sequential?** Keyset pagination is inherently sequential (each page's filter depends on the previous page's last record).
 
 **Why UPSERT?** In FORWARD mode we filter by `sys_updated_on >= last_watermark`. Records may reappear if updated between runs, so we upsert by `sys_id`.
 

@@ -45,40 +45,44 @@ class APIAsset(Asset):
     # --- Parallel extraction ---
     parallel_mode: ParallelMode = ParallelMode.NONE
     max_workers: int = 1
-    total_pages_field: str | None = None  # JSON path for PAGE_PARALLEL total discovery
-    parent_asset_name: str | None = None  # For ENTITY_PARALLEL: parent asset to fan out
+    total_pages_field: str | None = None
+    parent_asset_name: str | None = None
 
     # --- Incremental support ---
     date_column: str | None = None
     api_date_param: str | None = None
     date_format: str = "%Y-%m-%dT%H:%M:%S"
-    earliest_date: str | None = None  # Backfill floor
+    earliest_date: str | None = None
+
+    # --- Error handling ---
+
+    def classify_error(self, status_code: int, headers: dict) -> str:
+        """Classify an HTTP error response into an action.
+
+        Returns:
+            "retry" — transient error, retry with backoff (429, 5xx)
+            "skip"  — expected error, skip this request (e.g., 404 deleted entity)
+            "fail"  — client error, fail immediately (4xx)
+
+        Override per asset for source-specific behavior. For example, a
+        GitHub asset might skip 404s for deleted repos during entity-parallel.
+        """
+        if status_code == 429 or status_code >= 500:
+            return "retry"
+        if status_code == 404:
+            return "skip"
+        return "fail"
 
     @abstractmethod
     def build_request(
         self, context: RunContext, checkpoint: dict | None = None
     ) -> RequestSpec:
-        """Construct the HTTP request for the current extraction window.
-
-        Args:
-            context: Current run context with date boundaries and params.
-            checkpoint: Saved checkpoint state for resumption, or None.
-
-        Returns:
-            A RequestSpec describing the HTTP request to make.
-        """
+        """Construct the HTTP request for the current extraction window."""
         ...
 
     @abstractmethod
     def parse_response(self, response: Any) -> tuple[pd.DataFrame, PaginationState]:
-        """Parse an API response into rows and pagination state.
-
-        Args:
-            response: The raw HTTP response (dict from JSON).
-
-        Returns:
-            Tuple of (DataFrame of rows, PaginationState for continuation).
-        """
+        """Parse an API response into rows and pagination state."""
         ...
 
     def build_entity_request(

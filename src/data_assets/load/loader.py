@@ -71,8 +71,15 @@ def ensure_columns(
     schema: str,
     table_name: str,
     columns: list[Column],
+    schema_contract: str = "evolve",
 ) -> None:
-    """Add new columns to an existing table (additive only, never drops)."""
+    """Manage column differences between asset definition and table.
+
+    Schema contracts:
+        "evolve"  — auto-add new columns (default)
+        "freeze"  — raise error if definition has columns not in table
+        "discard" — silently ignore new columns
+    """
     insp = inspect(engine)
     if not insp.has_table(table_name, schema=schema):
         return
@@ -82,6 +89,21 @@ def ensure_columns(
     if not new_cols:
         return
 
+    if schema_contract == "freeze":
+        names = [c.name for c in new_cols]
+        raise ValueError(
+            f"Schema contract 'freeze' violated: new columns {names} "
+            f"not in {schema}.{table_name}. Manually add them or change to 'evolve'."
+        )
+
+    if schema_contract == "discard":
+        logger.info(
+            "Schema contract 'discard': ignoring %d new columns for %s.%s",
+            len(new_cols), schema, table_name,
+        )
+        return
+
+    # Default: evolve — auto-add
     with engine.begin() as conn:
         for col in new_cols:
             conn.execute(text(
@@ -162,14 +184,15 @@ def promote(
     columns: list[Column],
     primary_key: list[str],
     load_strategy: LoadStrategy,
+    schema_contract: str = "evolve",
 ) -> int:
     """Promote data from temp table to main table in a single transaction.
 
-    Ensures target table exists (creates if missing, adds new columns).
+    Ensures target table exists (creates if missing, manages columns per schema_contract).
     Returns number of rows loaded.
     """
     create_table(engine, target_schema, target_table, columns, primary_key)
-    ensure_columns(engine, target_schema, target_table, columns)
+    ensure_columns(engine, target_schema, target_table, columns, schema_contract)
 
     column_names = [c.name for c in columns]
     promoter = _PROMOTERS[load_strategy.value]
