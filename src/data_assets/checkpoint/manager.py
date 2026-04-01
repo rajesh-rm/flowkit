@@ -57,8 +57,12 @@ def acquire_or_takeover(
     now = datetime.now(UTC)
 
     with Session(engine) as session:
+        # FOR UPDATE prevents two workers from detecting the same stale
+        # lock simultaneously and both creating new locks.
         existing = session.execute(
-            select(RunLock).where(RunLock.asset_name == asset_name)
+            select(RunLock)
+            .where(RunLock.asset_name == asset_name)
+            .with_for_update()
         ).scalar_one_or_none()
 
         inherited_temp: str | None = None
@@ -103,13 +107,15 @@ def acquire_or_takeover(
                     f"{existing.locked_by})"
                 )
 
-        # Create new lock — on takeover, keep the inherited temp table
+        # Create new lock — on takeover, keep the inherited temp table;
+        # on fresh start, use the new temp table name passed by the caller.
+        lock_temp = inherited_temp if inherited_temp else temp_table
         lock = RunLock(
             asset_name=asset_name,
             run_id=run_id,
             locked_at=now,
             locked_by=worker_id,
-            temp_table=inherited_temp or temp_table,
+            temp_table=lock_temp,
             heartbeat_at=now,
         )
         session.add(lock)
@@ -172,6 +178,18 @@ def get_checkpoints(
         return list(session.execute(stmt).scalars().all())
 
 
+def checkpoints_by_worker(checkpoints: list[Checkpoint]) -> dict[str, dict]:
+    """Convert checkpoint rows to a dict keyed by worker_id."""
+    return {
+        cp.worker_id: {
+            "checkpoint_value": cp.checkpoint_value,
+            "rows_so_far": cp.rows_so_far,
+            "status": cp.status,
+        }
+        for cp in checkpoints
+    }
+
+
 def save_checkpoint(
     engine: Engine,
     run_id: uuid.UUID,
@@ -186,9 +204,22 @@ def save_checkpoint(
 
     Also refreshes the heartbeat on the run lock so stale-run detection
     knows the run is still making progress.
+
+    Raises RuntimeError if this run no longer owns the lock (preempted).
     """
     now = datetime.now(UTC)
     with Session(engine) as session:
+        # Verify this run still owns the lock (prevents zombie workers
+        # from writing after a takeover)
+        lock = session.execute(
+            select(RunLock).where(RunLock.asset_name == asset_name)
+        ).scalar_one_or_none()
+        if not lock or lock.run_id != run_id:
+            raise RuntimeError(
+                f"Checkpoint rejected: run {run_id} no longer owns the lock "
+                f"for '{asset_name}' (preempted by another worker)"
+            )
+
         existing = session.execute(
             select(Checkpoint).where(
                 Checkpoint.run_id == run_id,

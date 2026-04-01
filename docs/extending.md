@@ -179,7 +179,7 @@ from the class attributes.
 | `endpoint` | Yes | API path (e.g., `/api/items`) |
 | `base_url_env` | Yes | Env var name for base URL (e.g., `"MY_API_URL"`) |
 | `response_path` | Yes | Dot-path to records in response JSON. Use `""` if response IS the list. |
-| `pagination` | Yes | Dict: `{"strategy": "page_number\|offset\|cursor\|none", "page_size": 100}` |
+| `pagination` | Yes | Dict: `{"strategy": "page_number\|offset\|cursor\|none", "page_size": 100}`. Param name overrides: `page_size_param`, `page_number_param`, `limit_param`, `offset_param`, `page_index_path`. |
 | `field_map` | No | Dict mapping API field names → column names. Only for renames. |
 | `api_date_param` | No | Query param name for incremental date filter (e.g., `"updated_since"`) |
 
@@ -562,7 +562,7 @@ class PagerDutyIncidents(APIAsset):
     )
     # How this API paginates its responses.
     #
-    # strategy options:
+    # strategy options (also available as PaginationStrategy enum):
     #   "page_number" -- API uses ?page=N&per_page=M
     #                    Example: SonarQube (?p=1&ps=100)
     #                    Good when: API numbers pages starting from 1.
@@ -577,6 +577,10 @@ class PagerDutyIncidents(APIAsset):
     #                    the next-page cursor (e.g., "next_cursor").
     #
     #   "none"        -- Single request, no pagination needed.
+    #
+    # For RestAsset's pagination dict shorthand, you can also override
+    # query param names: page_size_param, page_number_param,
+    # limit_param, offset_param, page_index_path.
     #                    Example: a config endpoint that returns one object.
     #
     # page_size: how many records to request per page (default: 100).
@@ -1662,12 +1666,15 @@ Default: 404→skip, 429/5xx→retry, other 4xx→fail.
 
 ### Schema Contracts (`schema_contract`)
 
-Control what happens when your asset definition has columns not yet in the table:
+Control what happens when your asset definition has columns not yet in the table.
+Uses the `SchemaContract` enum (from `data_assets.core.enums`):
 
 ```python
-schema_contract = "evolve"   # Default: auto ALTER TABLE ADD COLUMN
-schema_contract = "freeze"   # Raise error — no automatic schema changes
-schema_contract = "discard"  # Silently ignore new columns
+from data_assets.core.enums import SchemaContract
+
+schema_contract = SchemaContract.EVOLVE   # Default: auto ALTER TABLE ADD COLUMN
+schema_contract = SchemaContract.FREEZE   # Raise error — no automatic schema changes
+schema_contract = SchemaContract.DISCARD  # Silently ignore new columns
 ```
 
 ### Dry Run Mode

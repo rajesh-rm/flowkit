@@ -89,14 +89,12 @@ def update_coverage(
     """Upsert the coverage_tracker row for an asset after a successful run."""
     now = datetime.now(UTC)
     values: dict = {"asset_name": asset_name, "updated_at": now}
-    update_set: dict = {"updated_at": now}
-
     if forward_watermark is not None:
         values["forward_watermark"] = forward_watermark
-        update_set["forward_watermark"] = forward_watermark
     if backward_watermark is not None:
         values["backward_watermark"] = backward_watermark
-        update_set["backward_watermark"] = backward_watermark
+
+    update_set = {k: v for k, v in values.items() if k != "asset_name"}
 
     with Session(engine) as session:
         stmt = (

@@ -122,7 +122,6 @@ flowkit/
 │   └── fixtures/             # Sample API responses (JSON)
 ├── docs/                     # Documentation
 ├── example_dags/             # Airflow DAG examples
-├── initial_architecture.md   # Architecture specification
 └── pyproject.toml            # Build config + dependencies
 ```
 

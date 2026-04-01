@@ -15,12 +15,25 @@ class PaginationConfig:
         "keyset"      — filter by last-seen sort key (ServiceNow best practice)
         "cursor"      — opaque cursor token from previous response
         "none"        — single request, no pagination
+
+    Param name overrides (for APIs that use non-standard param names):
+        page_size_param:   query param for page size (default "ps")
+        page_number_param: query param for page number (default "p")
+        limit_param:       query param for limit in offset mode (default "limit")
+        offset_param:      query param for offset in offset mode (default "offset")
+        page_index_path:   dot-path to current page index in response JSON
+                           (default None — uses result-count heuristic)
     """
 
     strategy: str
     page_size: int = 100
     cursor_field: str | None = None
-    total_field: str | None = None
+    total_path: str | None = None
+    page_size_param: str = "ps"
+    page_number_param: str = "p"
+    limit_param: str = "limit"
+    offset_param: str = "offset"
+    page_index_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -52,7 +65,6 @@ class ValidationResult:
 
     passed: bool
     failures: list[str] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
 
 
 class SkippedRequestError(Exception):

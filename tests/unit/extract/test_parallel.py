@@ -364,3 +364,98 @@ def test_entity_not_marked_complete_on_partial_failure():
     # Key: _fetch_pages raised BEFORE returning, so the caller
     # (entity_worker) never adds this entity to completed_entities.
     # This is the bug fix — old code would have marked it complete.
+
+
+# ---------------------------------------------------------------------------
+# Progress logging
+# ---------------------------------------------------------------------------
+
+def test_fetch_pages_logs_progress_at_interval():
+    """With log_interval_seconds=0, _fetch_pages should log progress every page."""
+    asset = MagicMock()
+    asset.name = "test_asset"
+    asset.pagination_config = PaginationConfig(strategy="offset", page_size=100)
+    asset.should_stop.return_value = False
+
+    # 3 pages then stop — has_more=True on first two triggers the progress check
+    asset.parse_response.side_effect = [
+        (pd.DataFrame({"id": [1]}), PaginationState(has_more=True, next_offset=100)),
+        (pd.DataFrame({"id": [2]}), PaginationState(has_more=True, next_offset=200)),
+        (pd.DataFrame({"id": [3]}), PaginationState(has_more=False)),
+    ]
+
+    client = MagicMock()
+    client.request.side_effect = [{"p": 1}, {"p": 2}, {"p": 3}]
+
+    # Use interval=0 so every page triggers a log (avoids time mocking complexity)
+    with patch("data_assets.extract.parallel.write_to_temp", return_value=1):
+        with patch("data_assets.extract.parallel.save_checkpoint"):
+            with patch("data_assets.extract.parallel.logger") as mock_logger:
+                _fetch_pages(
+                    asset, client, MagicMock(), "temp_tbl", _ctx(),
+                    worker_id="main",
+                    request_builder=lambda c: RequestSpec(method="GET", url="http://test"),
+                    log_interval_seconds=0,  # log every page
+                )
+
+    # Progress logged on pages 1 and 2 (page 3 has has_more=False, breaks before check)
+    info_calls = [c for c in mock_logger.info.call_args_list if "Progress:" in str(c)]
+    assert len(info_calls) == 2
+
+
+def test_fetch_pages_no_progress_log_without_interval():
+    """Without log_interval_seconds, _fetch_pages should NOT log progress."""
+    asset = MagicMock()
+    asset.name = "test_asset"
+    asset.pagination_config = PaginationConfig(strategy="offset", page_size=100)
+    asset.parse_response.return_value = (
+        pd.DataFrame({"id": [1]}),
+        PaginationState(has_more=False),
+    )
+    client = MagicMock()
+    client.request.return_value = {}
+
+    with patch("data_assets.extract.parallel.write_to_temp", return_value=1):
+        with patch("data_assets.extract.parallel.logger") as mock_logger:
+            _fetch_pages(
+                asset, client, MagicMock(), "temp_tbl", _ctx(),
+                worker_id="main",
+                request_builder=lambda c: RequestSpec(method="GET", url="http://test"),
+            )
+
+    # No "Progress:" log calls
+    info_calls = [c for c in mock_logger.info.call_args_list if "Progress:" in str(c)]
+    assert len(info_calls) == 0
+
+
+# ---------------------------------------------------------------------------
+# max_pages safety limit
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_pages_stops_at_max_pages():
+    """Safety valve: extraction stops at max_pages even if has_more=True."""
+    asset = MagicMock()
+    asset.name = "test_asset"
+    asset.pagination_config = PaginationConfig(strategy="offset", page_size=10)
+    asset.should_stop.return_value = False
+    # Always return has_more=True — infinite pagination
+    asset.parse_response.return_value = (
+        pd.DataFrame({"id": [1]}),
+        PaginationState(has_more=True, next_offset=10),
+    )
+
+    client = MagicMock()
+    client.request.return_value = {}
+
+    with patch("data_assets.extract.parallel.write_to_temp", return_value=1):
+        with patch("data_assets.extract.parallel.save_checkpoint"):
+            rows = _fetch_pages(
+                asset, client, MagicMock(), "temp_tbl", _ctx(),
+                worker_id="main",
+                request_builder=lambda c: RequestSpec(method="GET", url="http://test"),
+                max_pages=5,
+            )
+
+    assert rows == 5
+    assert client.request.call_count == 5

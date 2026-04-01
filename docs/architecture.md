@@ -37,7 +37,7 @@ When Airflow calls `run_asset("my_asset", mode="forward")`:
 4. **Promote** — Move from temp table to main table via FULL_REPLACE, UPSERT, or APPEND (single transaction)
 5. **Finalize** — Update coverage tracker, record metrics, clear checkpoints, drop temp table, release lock
 
-On failure: checkpoints and temp table are preserved for retry. Lock is released.
+On failure: lock is released, temp table is cleaned up, checkpoints are preserved for retry.
 
 ## Extraction Data Flow
 
@@ -105,7 +105,7 @@ The limiter is shared. Workers wait their turn.
 |----------|--------|-----------|
 | Load strategies | Full replace, upsert, append | Covers all ETL patterns |
 | Failure model | Temp table + checkpoints | Zero wasted API calls on retry |
-| Schema management | Auto-create, additive migration only | Safe evolution, no data loss |
+| Schema management | Auto-create, additive migration via SchemaContract enum (EVOLVE/FREEZE/DISCARD) | Safe evolution, no data loss |
 | Rate limiting | In-process sliding-window counter (thread-safe) | Simple, no external state |
 | Parallelism | Thread pool for page/entity fan-out | Shared rate limiter + token manager |
 | DB layer | SQLAlchemy ORM (metadata) + Core (DDL) | Best of both worlds |

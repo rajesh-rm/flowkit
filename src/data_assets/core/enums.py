@@ -25,3 +25,17 @@ class ParallelMode(StrEnum):
     NONE = "none"
     PAGE_PARALLEL = "page_parallel"
     ENTITY_PARALLEL = "entity_parallel"
+
+
+class SchemaContract(StrEnum):
+    EVOLVE = "evolve"
+    FREEZE = "freeze"
+    DISCARD = "discard"
+
+
+class PaginationStrategy(StrEnum):
+    PAGE_NUMBER = "page_number"
+    OFFSET = "offset"
+    CURSOR = "cursor"
+    KEYSET = "keyset"
+    NONE = "none"

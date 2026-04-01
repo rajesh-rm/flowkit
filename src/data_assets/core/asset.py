@@ -7,7 +7,7 @@ from abc import ABC
 import pandas as pd
 
 from data_assets.core.column import Column
-from data_assets.core.enums import LoadStrategy, RunMode
+from data_assets.core.enums import LoadStrategy, RunMode, SchemaContract
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import ValidationResult
 
@@ -34,10 +34,7 @@ class Asset(ABC):
     load_strategy: LoadStrategy = LoadStrategy.FULL_REPLACE
 
     # --- Schema contract ---
-    # "evolve"  — auto-add new columns (default)
-    # "freeze"  — raise error if definition has columns not in table
-    # "discard" — silently ignore extra columns
-    schema_contract: str = "evolve"
+    schema_contract: SchemaContract = SchemaContract.EVOLVE
 
     def transform(self, df: pd.DataFrame) -> pd.DataFrame:
         """Post-extraction pandas transform. Override for custom logic."""
@@ -55,7 +52,9 @@ class Asset(ABC):
             failures.append("Extracted zero rows")
 
         for pk_col in self.primary_key:
-            if pk_col in df.columns and df[pk_col].isnull().any():
+            if pk_col not in df.columns:
+                failures.append(f"Primary key column '{pk_col}' missing from data")
+            elif df[pk_col].isnull().any():
                 null_count = int(df[pk_col].isnull().sum())
                 failures.append(
                     f"Primary key column '{pk_col}' has {null_count} null values"

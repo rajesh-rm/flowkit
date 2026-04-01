@@ -65,11 +65,16 @@ def _validate_dependencies() -> None:
     - source_tables entries on TransformAssets (matched by target_table)
     """
     known_names = set(_registry.keys())
-    known_tables = {cls().target_table for cls in _registry.values()}
 
+    # Instantiate each asset once; build known_tables in the same pass
+    instances: dict[str, Asset] = {}
+    known_tables: set[str] = set()
     for name, cls in _registry.items():
         asset = cls()
+        instances[name] = asset
+        known_tables.add(asset.target_table)
 
+    for name, asset in instances.items():
         # Check parent_asset_name (entity-parallel)
         parent = getattr(asset, "parent_asset_name", None)
         if parent and parent not in known_names:

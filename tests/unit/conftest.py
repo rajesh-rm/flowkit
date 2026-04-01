@@ -7,9 +7,8 @@ import uuid
 import pytest
 
 from data_assets.core.enums import RunMode
-from data_assets.core.registry import _registry
 from data_assets.core.run_context import RunContext
-from data_assets.extract.token_manager import TokenManager
+
 
 # ---------------------------------------------------------------------------
 # RunContext factory
@@ -25,35 +24,6 @@ def make_ctx(**kwargs) -> RunContext:
     }
     defaults.update(kwargs)
     return RunContext(**defaults)
-
-
-# ---------------------------------------------------------------------------
-# Stub token manager for API client tests
-# ---------------------------------------------------------------------------
-
-
-class StubTokenManager(TokenManager):
-    """Minimal token manager for testing — no real credentials needed."""
-
-    def get_token(self) -> str:
-        return "test-token"
-
-    def get_auth_header(self) -> dict[str, str]:
-        return {"Authorization": "Bearer test-token"}
-
-
-# ---------------------------------------------------------------------------
-# Registry cleanup — prevents cross-test pollution
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _clean_registry():
-    """Save and restore the asset registry around each test."""
-    saved = dict(_registry)
-    yield
-    _registry.clear()
-    _registry.update(saved)
 
 
 # ---------------------------------------------------------------------------

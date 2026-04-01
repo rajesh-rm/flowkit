@@ -9,7 +9,7 @@ import respx
 from data_assets.core.types import RequestSpec, SkippedRequestError
 from data_assets.extract.api_client import APIClient
 from data_assets.extract.rate_limiter import RateLimiter
-from tests.unit.conftest import StubTokenManager
+from tests.conftest import StubTokenManager
 
 SPEC = RequestSpec(method="GET", url="https://api.test/data")
 
@@ -118,6 +118,18 @@ class TestRetryBehavior:
         assert route.call_count == 2
 
     @respx.mock
+    def test_retry_on_429_with_date_retry_after(self, client):
+        """Retry-After as HTTP date string should not crash (falls back to 30s default)."""
+        route = respx.get("https://api.test/data").mock(
+            side_effect=[
+                httpx.Response(429, headers={"Retry-After": "Thu, 01 Dec 2025 16:00:00 GMT"}),
+                httpx.Response(200, json={"ok": True}),
+            ]
+        )
+        assert client.request(SPEC) == {"ok": True}
+        assert route.call_count == 2
+
+    @respx.mock
     def test_retries_exhausted_raises(self):
         """After max_retries, the error should propagate."""
         limiter = RateLimiter(rate_per_second=100.0)
@@ -128,7 +140,7 @@ class TestRetryBehavior:
         with pytest.raises(httpx.HTTPStatusError):
             c.request(SPEC)
         assert c.stats["retries"] == 1
-        assert c.stats["api_calls"] == 2
+        assert c.stats["api_calls"] == 0  # no successful calls
         c.close()
 
     @respx.mock
@@ -179,7 +191,7 @@ class TestStatsTracking:
         )
         client.request(SPEC)
         assert client.stats["retries"] == 1
-        assert client.stats["api_calls"] == 2
+        assert client.stats["api_calls"] == 1  # only the successful request
 
 
 # ---------------------------------------------------------------------------
@@ -218,3 +230,16 @@ class TestRateLimitHeaders:
         )
         client.request(SPEC)
         assert client.stats["rate_limit_pauses"] == 0
+
+    @respx.mock
+    def test_non_numeric_reset_header_uses_default(self, client):
+        """Non-numeric X-RateLimit-Reset should not crash (falls back to 30s)."""
+        respx.get("https://api.test/data").mock(
+            return_value=httpx.Response(200, json={}, headers={
+                "X-RateLimit-Remaining": "2",
+                "X-RateLimit-Limit": "100",
+                "X-RateLimit-Reset": "2025-12-01T16:00:00Z",
+            })
+        )
+        client.request(SPEC)
+        assert client.stats["rate_limit_pauses"] == 1

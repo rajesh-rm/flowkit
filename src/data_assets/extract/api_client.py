@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -15,6 +16,9 @@ from data_assets.extract.token_manager import TokenManager
 logger = logging.getLogger(__name__)
 
 BACKOFF_BASE = 2.0
+# Pause preemptively when remaining API calls drop below this fraction of the
+# limit, to avoid hitting 429 under burst variance.
+RATE_LIMIT_PAUSE_THRESHOLD = 0.1
 
 
 class APIClient:
@@ -34,7 +38,7 @@ class APIClient:
         rate_limiter: RateLimiter,
         timeout: float = 60.0,
         max_retries: int = 3,
-        error_classifier: Any = None,  # callable(status_code, headers) -> str
+        error_classifier: Callable[[int, dict], str] | None = None,
     ) -> None:
         self._token_manager = token_manager
         self._rate_limiter = rate_limiter
@@ -68,7 +72,6 @@ class APIClient:
         """
         for attempt in range(self._max_retries + 1):
             self._rate_limiter.acquire()
-            self._stats["api_calls"] += 1
             auth_headers = self._token_manager.get_auth_header()
 
             merged_headers = dict(spec.headers or {})
@@ -113,9 +116,11 @@ class APIClient:
                 if action == "retry" and attempt < self._max_retries:
                     self._stats["retries"] += 1
                     if response.status_code == 429:
-                        retry_after = float(
-                            response.headers.get("Retry-After", "30")
-                        )
+                        raw_retry = response.headers.get("Retry-After", "30")
+                        try:
+                            retry_after = float(raw_retry)
+                        except ValueError:
+                            retry_after = 30.0
                         self._rate_limiter.pause_for(retry_after)
                         self._stats["rate_limit_pauses"] += 1
                         logger.warning(
@@ -135,7 +140,8 @@ class APIClient:
                 # action == "fail" or retries exhausted
                 response.raise_for_status()
 
-            # Success — check rate limit headers for preemptive pause
+            # Success — count and check rate limit headers
+            self._stats["api_calls"] += 1
             self._check_rate_limit_headers(response)
 
             return response.json()
@@ -156,9 +162,12 @@ class APIClient:
             return
 
         # Pause if below 10% of rate limit capacity
-        if limit_int > 0 and remaining_int < limit_int * 0.1:
+        if limit_int > 0 and remaining_int < limit_int * RATE_LIMIT_PAUSE_THRESHOLD:
             if reset:
-                wait = max(1.0, int(reset) - time.time())
+                try:
+                    wait = max(1.0, int(reset) - time.time())
+                except ValueError:
+                    wait = 30.0
             else:
                 wait = 30.0
             self._stats["rate_limit_pauses"] += 1
