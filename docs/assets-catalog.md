@@ -9,16 +9,21 @@ This catalog documents every built-in asset. Use it as a reference when building
 
 | Asset | Table | Load | Parallel | Pagination | API Endpoint |
 |-------|-------|------|----------|------------|--------------|
-| `sonarqube_projects` | `raw.sonarqube_projects` | FULL_REPLACE | PAGE_PARALLEL (3 workers) | page_number (`p`, `ps`) | `/api/projects/search` | **RestAsset** |
+| `sonarqube_projects` | `raw.sonarqube_projects` | FULL_REPLACE | PAGE_PARALLEL (3 workers) | page_number (`p`, `ps`) | `/api/components/search?qualifiers=TRK` | **RestAsset** |
 | `sonarqube_issues` | `raw.sonarqube_issues` | UPSERT | ENTITY_PARALLEL (3 workers) | page_number (`p`, `ps`) | `/api/issues/search` |
+| `sonarqube_measures` | `raw.sonarqube_measures` | FULL_REPLACE | ENTITY_PARALLEL (3 workers) | none (one call per project) | `/api/measures/component` |
 
-**SonarQube projects uses RestAsset** (declarative) — no custom `build_request` or `parse_response`. The endpoint, pagination, and field mapping are all declared as class attributes. This is the simplest asset pattern in the codebase.
+**SonarQube projects uses RestAsset** (declarative) with a `build_request` override to add `qualifiers=TRK`. The endpoint `/api/components/search` returns all component types; the qualifier filter scopes to projects only.
 
 **Why PAGE_PARALLEL for projects?** The first response includes `paging.total` so we know how many pages exist upfront and can fan out.
 
 **Why ENTITY_PARALLEL for issues?** Issues are scoped per project (`componentKeys` param). We load the list of project keys from `sonarqube_projects` and fetch issues for each project in parallel.
 
+**Why ENTITY_PARALLEL for measures?** Each project has its own set of measures. One API call per project returns all requested metrics (`ncloc`, `bugs`, `vulnerabilities`, `code_smells`, `coverage`, `duplicated_lines_density`, `sqale_index`).
+
 **Why UPSERT for issues?** In FORWARD mode we fetch issues created since the last run. The same issue key might appear in multiple runs if it was updated, so we upsert by PK to avoid duplicates.
+
+**Not yet implemented** (from the reference API): `/api/project_branches/list` and `/api/project_analyses/search` — these endpoints don't include the project key in the response body, requiring entity-key injection support to be added to the extraction framework first.
 
 ---
 

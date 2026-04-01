@@ -31,7 +31,7 @@ class TestSonarQubeE2E:
         monkeypatch.setenv("SONARQUBE_URL", SONARQUBE_URL)
         monkeypatch.setenv("SONARQUBE_TOKEN", "fake-token")
 
-        respx.get(f"{SONARQUBE_URL}/api/projects/search").mock(
+        respx.get(f"{SONARQUBE_URL}/api/components/search").mock(
             return_value=httpx.Response(200, json=load_fixture("sonarqube/projects_page1.json"))
         )
 
@@ -64,8 +64,7 @@ class TestSonarQubeE2E:
         monkeypatch.setenv("SONARQUBE_TOKEN", "fake-token")
 
         seed_table(run_engine, "raw", "sonarqube_projects", [
-            {"key": "proj-alpha", "name": "Project Alpha", "qualifier": "TRK",
-             "visibility": "public", "last_analysis_date": "2025-12-01", "revision": "abc"},
+            {"key": "proj-alpha", "name": "Project Alpha", "qualifier": "TRK"},
         ])
 
         respx.get(f"{SONARQUBE_URL}/api/issues/search").mock(
