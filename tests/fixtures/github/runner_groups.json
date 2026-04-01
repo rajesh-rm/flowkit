@@ -1,0 +1,19 @@
+{
+  "total_count": 2,
+  "runner_groups": [
+    {
+      "id": 1,
+      "name": "Default",
+      "visibility": "all",
+      "default": true,
+      "allows_public_repositories": true
+    },
+    {
+      "id": 2,
+      "name": "Production",
+      "visibility": "selected",
+      "default": false,
+      "allows_public_repositories": false
+    }
+  ]
+}

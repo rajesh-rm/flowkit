@@ -1,4 +1,4 @@
-"""Unit tests for GitHub assets: repos and pull requests."""
+"""Unit tests for all GitHub assets."""
 
 from __future__ import annotations
 
@@ -76,6 +76,13 @@ class TestGitHubReposParseResponse:
         assert state.has_more is True
 
 
+class TestGitHubReposPrimaryKey:
+    def test_pk_is_full_name(self, github_env):
+        from data_assets.assets.github.repos import GitHubRepos
+
+        assert GitHubRepos().primary_key == ["full_name"]
+
+
 # ---------------------------------------------------------------------------
 # GitHubPullRequests
 # ---------------------------------------------------------------------------
@@ -101,13 +108,6 @@ class TestGitHubPullRequestsParseResponse:
         df, state = GitHubPullRequests().parse_response(data)
         assert len(df) == 2
         assert df.iloc[0]["user_login"] == "dev-alice"
-
-
-class TestGitHubReposPrimaryKey:
-    def test_pk_is_full_name(self, github_env):
-        from data_assets.assets.github.repos import GitHubRepos
-
-        assert GitHubRepos().primary_key == ["full_name"]
 
 
 class TestGitHubPullRequestsFilterEntityKeys:
@@ -176,3 +176,296 @@ class TestGitHubPullRequestsShouldStop:
 
         empty = pd.DataFrame(columns=["updated_at"])
         assert GitHubPullRequests().should_stop(empty, make_ctx()) is False
+
+
+# ---------------------------------------------------------------------------
+# GitHubMembers
+# ---------------------------------------------------------------------------
+
+
+class TestGitHubMembers:
+    def test_build_request(self, github_env):
+        from data_assets.assets.github.members import GitHubMembers
+
+        spec = GitHubMembers().build_request(make_ctx())
+        assert "/orgs/org-one/members" in spec.url
+        assert spec.params["per_page"] == 100
+
+    def test_parse_response(self, github_env):
+        from data_assets.assets.github.members import GitHubMembers
+
+        data = json.loads((FIXTURES / "members.json").read_text())
+        df, state = GitHubMembers().parse_response(data)
+        assert len(df) == 2
+        assert list(df["login"]) == ["dev-alice", "dev-bob"]
+        assert not state.has_more
+
+    def test_primary_key(self, github_env):
+        from data_assets.assets.github.members import GitHubMembers
+
+        assert GitHubMembers().primary_key == ["login"]
+
+
+# ---------------------------------------------------------------------------
+# GitHubBranches
+# ---------------------------------------------------------------------------
+
+
+class TestGitHubBranches:
+    def test_build_entity_request(self, github_env):
+        from data_assets.assets.github.branches import GitHubBranches
+
+        spec = GitHubBranches().build_entity_request("org-one/service-api", make_ctx())
+        assert "/repos/org-one/service-api/branches" in spec.url
+
+    def test_parse_response(self, github_env):
+        from data_assets.assets.github.branches import GitHubBranches
+
+        data = json.loads((FIXTURES / "branches.json").read_text())
+        df, state = GitHubBranches().parse_response(data)
+        assert len(df) == 2
+        assert df.iloc[0]["name"] == "main"
+        assert df.iloc[0]["commit_sha"] == "abc123def456"
+
+    def test_entity_key_column_set(self, github_env):
+        from data_assets.assets.github.branches import GitHubBranches
+
+        assert GitHubBranches().entity_key_column == "repo_full_name"
+
+    def test_filter_entity_keys(self, github_env):
+        from data_assets.assets.github.branches import GitHubBranches
+
+        keys = ["org-one/repo", "org-two/repo"]
+        assert GitHubBranches().filter_entity_keys(keys) == ["org-one/repo"]
+
+
+# ---------------------------------------------------------------------------
+# GitHubCommits
+# ---------------------------------------------------------------------------
+
+
+class TestGitHubCommits:
+    def test_build_entity_request(self, github_env):
+        from data_assets.assets.github.commits import GitHubCommits
+
+        spec = GitHubCommits().build_entity_request("org-one/service-api", make_ctx())
+        assert "/repos/org-one/service-api/commits" in spec.url
+
+    def test_build_entity_request_with_since(self, github_env):
+        from datetime import UTC, datetime
+
+        from data_assets.assets.github.commits import GitHubCommits
+
+        ctx = make_ctx(start_date=datetime(2025, 12, 1, tzinfo=UTC))
+        spec = GitHubCommits().build_entity_request("org-one/service-api", ctx)
+        assert "since" in spec.params
+
+    def test_parse_response(self, github_env):
+        from data_assets.assets.github.commits import GitHubCommits
+
+        data = json.loads((FIXTURES / "commits.json").read_text())
+        df, state = GitHubCommits().parse_response(data)
+        assert len(df) == 2
+        assert df.iloc[0]["sha"] == "abc123def456789"
+        assert df.iloc[0]["author_login"] == "dev-alice"
+
+    def test_entity_key_column_set(self, github_env):
+        from data_assets.assets.github.commits import GitHubCommits
+
+        assert GitHubCommits().entity_key_column == "repo_full_name"
+        assert GitHubCommits().date_column == "committer_date"
+
+
+# ---------------------------------------------------------------------------
+# GitHubWorkflows
+# ---------------------------------------------------------------------------
+
+
+class TestGitHubWorkflows:
+    def test_build_entity_request(self, github_env):
+        from data_assets.assets.github.workflows import GitHubWorkflows
+
+        spec = GitHubWorkflows().build_entity_request("org-one/service-api", make_ctx())
+        assert "/repos/org-one/service-api/actions/workflows" in spec.url
+
+    def test_parse_response(self, github_env):
+        from data_assets.assets.github.workflows import GitHubWorkflows
+
+        data = json.loads((FIXTURES / "workflows.json").read_text())
+        df, state = GitHubWorkflows().parse_response(data)
+        assert len(df) == 2
+        assert df.iloc[0]["name"] == "CI"
+        assert df.iloc[0]["path"] == ".github/workflows/ci.yml"
+        assert state.total_records == 2
+
+    def test_entity_key_column_set(self, github_env):
+        from data_assets.assets.github.workflows import GitHubWorkflows
+
+        assert GitHubWorkflows().entity_key_column == "repo_full_name"
+
+
+# ---------------------------------------------------------------------------
+# GitHubWorkflowRuns
+# ---------------------------------------------------------------------------
+
+
+class TestGitHubWorkflowRuns:
+    def test_build_entity_request(self, github_env):
+        from data_assets.assets.github.workflow_runs import GitHubWorkflowRuns
+
+        spec = GitHubWorkflowRuns().build_entity_request("org-one/service-api", make_ctx())
+        assert "/repos/org-one/service-api/actions/runs" in spec.url
+
+    def test_parse_response(self, github_env):
+        from data_assets.assets.github.workflow_runs import GitHubWorkflowRuns
+
+        data = json.loads((FIXTURES / "workflow_runs.json").read_text())
+        df, state = GitHubWorkflowRuns().parse_response(data)
+        assert len(df) == 2
+        assert df.iloc[0]["conclusion"] == "success"
+        assert df.iloc[1]["conclusion"] == "failure"
+        assert state.total_records == 2
+
+    def test_date_column(self, github_env):
+        from data_assets.assets.github.workflow_runs import GitHubWorkflowRuns
+
+        assert GitHubWorkflowRuns().date_column == "updated_at"
+
+
+# ---------------------------------------------------------------------------
+# GitHubWorkflowJobs
+# ---------------------------------------------------------------------------
+
+
+class TestGitHubWorkflowJobs:
+    def test_build_entity_request_with_dict_key(self, github_env):
+        from data_assets.assets.github.workflow_jobs import GitHubWorkflowJobs
+
+        spec = GitHubWorkflowJobs().build_entity_request(
+            {"id": 9000001, "repo_full_name": "org-one/service-api"}, make_ctx()
+        )
+        assert "/repos/org-one/service-api/actions/runs/9000001/jobs" in spec.url
+
+    def test_parse_response(self, github_env):
+        from data_assets.assets.github.workflow_jobs import GitHubWorkflowJobs
+
+        data = json.loads((FIXTURES / "workflow_jobs.json").read_text())
+        df, state = GitHubWorkflowJobs().parse_response(data)
+        assert len(df) == 2
+        assert df.iloc[0]["name"] == "build"
+        assert df.iloc[1]["name"] == "test"
+        assert state.total_records == 2
+
+    def test_parent_asset(self, github_env):
+        from data_assets.assets.github.workflow_jobs import GitHubWorkflowJobs
+
+        assert GitHubWorkflowJobs().parent_asset_name == "github_workflow_runs"
+
+
+# ---------------------------------------------------------------------------
+# GitHubUserDetails
+# ---------------------------------------------------------------------------
+
+
+class TestGitHubUserDetails:
+    def test_build_entity_request(self, github_env):
+        from data_assets.assets.github.user_details import GitHubUserDetails
+
+        spec = GitHubUserDetails().build_entity_request("dev-alice", make_ctx())
+        assert "/users/dev-alice" in spec.url
+
+    def test_parse_response(self, github_env):
+        from data_assets.assets.github.user_details import GitHubUserDetails
+
+        data = json.loads((FIXTURES / "user_details.json").read_text())
+        df, state = GitHubUserDetails().parse_response(data)
+        assert len(df) == 1
+        assert df.iloc[0]["login"] == "dev-alice"
+        assert df.iloc[0]["company"] == "Acme Corp"
+        assert not state.has_more
+
+    def test_parent_asset(self, github_env):
+        from data_assets.assets.github.user_details import GitHubUserDetails
+
+        assert GitHubUserDetails().parent_asset_name == "github_members"
+
+
+# ---------------------------------------------------------------------------
+# GitHubRunnerGroups
+# ---------------------------------------------------------------------------
+
+
+class TestGitHubRunnerGroups:
+    def test_build_request(self, github_env):
+        from data_assets.assets.github.runner_groups import GitHubRunnerGroups
+
+        spec = GitHubRunnerGroups().build_request(make_ctx())
+        assert "/orgs/org-one/actions/runner-groups" in spec.url
+
+    def test_parse_response(self, github_env):
+        from data_assets.assets.github.runner_groups import GitHubRunnerGroups
+
+        data = json.loads((FIXTURES / "runner_groups.json").read_text())
+        df, state = GitHubRunnerGroups().parse_response(data)
+        assert len(df) == 2
+        assert df.iloc[0]["name"] == "Default"
+        assert df.iloc[0]["default"] == "true"
+
+    def test_primary_key(self, github_env):
+        from data_assets.assets.github.runner_groups import GitHubRunnerGroups
+
+        assert GitHubRunnerGroups().primary_key == ["id"]
+
+
+# ---------------------------------------------------------------------------
+# GitHubRunnerGroupRepos
+# ---------------------------------------------------------------------------
+
+
+class TestGitHubRunnerGroupRepos:
+    def test_build_entity_request(self, github_env):
+        from data_assets.assets.github.runner_group_repos import GitHubRunnerGroupRepos
+
+        spec = GitHubRunnerGroupRepos().build_entity_request(2, make_ctx())
+        assert "/orgs/org-one/actions/runner-groups/2/repositories" in spec.url
+
+    def test_parse_response(self, github_env):
+        from data_assets.assets.github.runner_group_repos import GitHubRunnerGroupRepos
+
+        data = json.loads((FIXTURES / "runner_group_repos.json").read_text())
+        df, state = GitHubRunnerGroupRepos().parse_response(data)
+        assert len(df) == 2
+        assert df.iloc[0]["repo_full_name"] == "org-one/service-api"
+
+    def test_entity_key_column(self, github_env):
+        from data_assets.assets.github.runner_group_repos import GitHubRunnerGroupRepos
+
+        assert GitHubRunnerGroupRepos().entity_key_column == "runner_group_id"
+
+
+# ---------------------------------------------------------------------------
+# GitHubRepoProperties
+# ---------------------------------------------------------------------------
+
+
+class TestGitHubRepoProperties:
+    def test_build_entity_request(self, github_env):
+        from data_assets.assets.github.repo_properties import GitHubRepoProperties
+
+        spec = GitHubRepoProperties().build_entity_request("org-one/service-api", make_ctx())
+        assert "/repos/org-one/service-api/properties/values" in spec.url
+
+    def test_parse_response(self, github_env):
+        from data_assets.assets.github.repo_properties import GitHubRepoProperties
+
+        data = json.loads((FIXTURES / "repo_properties.json").read_text())
+        df, state = GitHubRepoProperties().parse_response(data)
+        assert len(df) == 3
+        assert df.iloc[0]["property_name"] == "team"
+        assert df.iloc[0]["value"] == "platform"
+        assert not state.has_more
+
+    def test_entity_key_column(self, github_env):
+        from data_assets.assets.github.repo_properties import GitHubRepoProperties
+
+        assert GitHubRepoProperties().entity_key_column == "repo_full_name"

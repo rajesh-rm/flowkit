@@ -46,6 +46,10 @@ class APIAsset(Asset):
     parallel_mode: ParallelMode = ParallelMode.NONE
     max_workers: int = 1
     parent_asset_name: str | None = None
+    # If set, _fetch_pages injects the entity key as this column after parse_response.
+    # Use for APIs whose response doesn't include the parent identifier
+    # (e.g., GitHub branches response has no repo_full_name field).
+    entity_key_column: str | None = None
 
     # --- Incremental support ---
     date_column: str | None = None

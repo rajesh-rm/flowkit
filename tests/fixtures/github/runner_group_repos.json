@@ -1,0 +1,7 @@
+{
+  "total_count": 2,
+  "repositories": [
+    {"id": 100001, "full_name": "org-one/service-api"},
+    {"id": 100002, "full_name": "org-one/web-frontend"}
+  ]
+}

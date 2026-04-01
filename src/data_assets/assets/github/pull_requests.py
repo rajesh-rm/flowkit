@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import os
 from typing import Any
 
 import pandas as pd
 
+from data_assets.assets.github.helpers import filter_to_current_org, get_github_base_url
 from data_assets.core.api_asset import APIAsset
 from data_assets.core.column import Column
 from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
@@ -61,10 +61,7 @@ class GitHubPullRequests(APIAsset):
 
     def filter_entity_keys(self, keys: list) -> list:
         """Only fan out across repos belonging to the current org."""
-        org = os.environ.get("GITHUB_ORGS", "").split(",")[0].strip()
-        if not org:
-            return keys
-        return [k for k in keys if str(k).startswith(f"{org}/")]
+        return filter_to_current_org(keys)
 
     def build_entity_request(
         self,
@@ -74,7 +71,7 @@ class GitHubPullRequests(APIAsset):
     ) -> RequestSpec:
         page = (checkpoint.get("next_page") or 1) if checkpoint else 1
 
-        base = os.environ.get("GITHUB_API_URL", self.base_url)
+        base = get_github_base_url()
 
         params: dict[str, Any] = {
             "per_page": 100,

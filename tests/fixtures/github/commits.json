@@ -1,0 +1,24 @@
+[
+  {
+    "sha": "abc123def456789",
+    "commit": {
+      "author": {"name": "Alice", "email": "alice@example.com", "date": "2025-12-01T10:00:00Z"},
+      "committer": {"name": "Alice", "email": "alice@example.com", "date": "2025-12-01T10:00:00Z"},
+      "message": "Add authentication module"
+    },
+    "author": {"login": "dev-alice"},
+    "committer": {"login": "dev-alice"},
+    "html_url": "https://github.com/org-one/service-api/commit/abc123def456789"
+  },
+  {
+    "sha": "def456789abc123",
+    "commit": {
+      "author": {"name": "Bob", "email": "bob@example.com", "date": "2025-12-02T14:30:00Z"},
+      "committer": {"name": "Bob", "email": "bob@example.com", "date": "2025-12-02T14:30:00Z"},
+      "message": "Fix rate limiter edge case"
+    },
+    "author": {"login": "dev-bob"},
+    "committer": {"login": "dev-bob"},
+    "html_url": "https://github.com/org-one/service-api/commit/def456789abc123"
+  }
+]

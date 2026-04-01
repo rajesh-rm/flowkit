@@ -1,0 +1,12 @@
+[
+  {
+    "name": "main",
+    "commit": {"sha": "abc123def456", "url": "https://api.github.com/repos/org-one/service-api/commits/abc123def456"},
+    "protected": true
+  },
+  {
+    "name": "feature/auth",
+    "commit": {"sha": "789xyz000111", "url": "https://api.github.com/repos/org-one/service-api/commits/789xyz000111"},
+    "protected": false
+  }
+]
