@@ -80,14 +80,14 @@ class TestUpdateWatermarks:
     def test_skips_when_no_date_column(self):
         asset = MagicMock(spec=[])  # no date_column attribute
         with patch("data_assets.runner.update_coverage") as mock:
-            _update_watermarks(MagicMock(), asset, RunMode.FULL, None, None, pd.DataFrame())
+            _update_watermarks(MagicMock(), asset, RunMode.FULL, pd.DataFrame())
         mock.assert_not_called()
 
     def test_skips_when_date_column_is_none(self):
         asset = MagicMock()
         asset.date_column = None
         with patch("data_assets.runner.update_coverage") as mock:
-            _update_watermarks(MagicMock(), asset, RunMode.FULL, None, None, pd.DataFrame())
+            _update_watermarks(MagicMock(), asset, RunMode.FULL, pd.DataFrame())
         mock.assert_not_called()
 
     def test_skips_when_column_not_in_df(self):
@@ -95,7 +95,7 @@ class TestUpdateWatermarks:
         asset.date_column = "updated_at"
         df = pd.DataFrame({"id": [1, 2]})
         with patch("data_assets.runner.update_coverage") as mock:
-            _update_watermarks(MagicMock(), asset, RunMode.FULL, None, None, df)
+            _update_watermarks(MagicMock(), asset, RunMode.FULL, df)
         mock.assert_not_called()
 
     def test_forward_mode_updates_forward_watermark(self):
@@ -104,7 +104,7 @@ class TestUpdateWatermarks:
         asset.name = "test"
         df = pd.DataFrame({"updated_at": ["2025-06-01T00:00:00Z", "2025-06-15T00:00:00Z"]})
         with patch("data_assets.runner.update_coverage") as mock:
-            _update_watermarks(MagicMock(), asset, RunMode.FORWARD, None, None, df)
+            _update_watermarks(MagicMock(), asset, RunMode.FORWARD, df)
         mock.assert_called_once()
         call_kwargs = mock.call_args
         assert call_kwargs[1]["forward_watermark"] is not None
@@ -115,7 +115,7 @@ class TestUpdateWatermarks:
         asset.name = "test"
         df = pd.DataFrame({"updated_at": ["2025-01-01T00:00:00Z", "2025-01-15T00:00:00Z"]})
         with patch("data_assets.runner.update_coverage") as mock:
-            _update_watermarks(MagicMock(), asset, RunMode.BACKFILL, None, None, df)
+            _update_watermarks(MagicMock(), asset, RunMode.BACKFILL, df)
         mock.assert_called_once()
         call_kwargs = mock.call_args
         assert call_kwargs[1]["backward_watermark"] is not None
@@ -126,7 +126,7 @@ class TestUpdateWatermarks:
         asset.name = "test"
         df = pd.DataFrame({"updated_at": ["2025-01-01T00:00:00Z", "2025-06-15T00:00:00Z"]})
         with patch("data_assets.runner.update_coverage") as mock:
-            _update_watermarks(MagicMock(), asset, RunMode.FULL, None, None, df)
+            _update_watermarks(MagicMock(), asset, RunMode.FULL, df)
         assert mock.call_count == 2
 
 
@@ -294,7 +294,7 @@ class TestUpdateWatermarksDateParsing:
         })
         with patch("data_assets.runner.update_coverage"):
             with patch("data_assets.runner.logger") as mock_logger:
-                _update_watermarks(MagicMock(), asset, RunMode.FULL, None, None, df)
+                _update_watermarks(MagicMock(), asset, RunMode.FULL, df)
         # Should warn about 2 unparseable dates
         mock_logger.warning.assert_called_once()
         assert "2 of 3" in mock_logger.warning.call_args[0][1] or \
@@ -309,5 +309,5 @@ class TestUpdateWatermarksDateParsing:
         })
         with patch("data_assets.runner.update_coverage"):
             with patch("data_assets.runner.logger") as mock_logger:
-                _update_watermarks(MagicMock(), asset, RunMode.FULL, None, None, df)
+                _update_watermarks(MagicMock(), asset, RunMode.FULL, df)
         mock_logger.warning.assert_not_called()

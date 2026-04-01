@@ -1,0 +1,14 @@
+[
+  {
+    "login": "dev-alice",
+    "id": 1001,
+    "avatar_url": "https://avatars.githubusercontent.com/u/1001",
+    "type": "User"
+  },
+  {
+    "login": "dev-bob",
+    "id": 1002,
+    "avatar_url": "https://avatars.githubusercontent.com/u/1002",
+    "type": "User"
+  }
+]

@@ -273,7 +273,7 @@ def run_asset(
 
             # --- Phase 5: Finalize ---
             if not dry_run:
-                _update_watermarks(engine, asset, mode, start_date, end_date, df)
+                _update_watermarks(engine, asset, mode, df)
                 update_last_success(engine, asset_name)
 
             run_metadata = {
@@ -421,9 +421,7 @@ def _compute_date_window(
 
 
 def _update_watermarks(
-    engine: Engine, asset, mode: RunMode,
-    start_date: datetime | None, end_date: datetime | None,
-    df: pd.DataFrame,
+    engine: Engine, asset, mode: RunMode, df: pd.DataFrame,
 ) -> None:
     if not hasattr(asset, "date_column") or not asset.date_column:
         return

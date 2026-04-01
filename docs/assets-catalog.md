@@ -52,16 +52,44 @@ This catalog documents every built-in asset. Use it as a reference when building
 **Authentication:** GitHub App installation token (JWT → exchange) — `GitHubAppTokenManager`
 **API docs:** https://docs.github.com/en/rest
 
-| Asset | Table | Load | Parallel | Pagination | API Endpoint |
-|-------|-------|------|----------|------------|--------------|
-| `github_repos` | `raw.github_repos` | FULL_REPLACE | Sequential | page_number (`page`, `per_page`) | `/orgs/{org}/repos` |
-| `github_pull_requests` | `raw.github_pull_requests` | UPSERT | ENTITY_PARALLEL (4 workers) | page_number (`page`, `per_page`) | `/repos/{owner}/{repo}/pulls` |
+### Org-level assets (sequential)
 
-**Why Sequential for repos?** Repos are fetched per-org (from `GITHUB_ORGS` env var). The asset iterates through orgs sequentially, paginating within each. Multi-org state is tracked via checkpoint `{org_idx, page}`.
+| Asset | Table | Load | API Endpoint |
+|-------|-------|------|--------------|
+| `github_repos` | `raw.github_repos` | UPSERT | `/orgs/{org}/repos` |
+| `github_members` | `raw.github_members` | FULL_REPLACE | `/orgs/{org}/members` |
+| `github_runner_groups` | `raw.github_runner_groups` | FULL_REPLACE | `/orgs/{org}/actions/runner-groups` |
 
-**Why ENTITY_PARALLEL for PRs?** PRs are per-repository. We load repo `full_name` values from `github_repos` and fetch PRs for each repo in parallel.
+### Repo-scoped assets (entity-parallel off github_repos)
 
-**Note:** GitHub PRs endpoint does NOT support a `since` query param. PRs are sorted by `updated desc` and `should_stop()` halts pagination when all PRs on a page are older than the watermark.
+| Asset | Table | Load | API Endpoint | Entity Key Injection |
+|-------|-------|------|--------------|---------------------|
+| `github_pull_requests` | `raw.github_pull_requests` | UPSERT | `/repos/{repo}/pulls` | No (in response) |
+| `github_branches` | `raw.github_branches` | FULL_REPLACE | `/repos/{repo}/branches` | Yes (`repo_full_name`) |
+| `github_commits` | `raw.github_commits` | UPSERT | `/repos/{repo}/commits` | Yes (`repo_full_name`) |
+| `github_workflows` | `raw.github_workflows` | FULL_REPLACE | `/repos/{repo}/actions/workflows` | Yes (`repo_full_name`) |
+| `github_workflow_runs` | `raw.github_workflow_runs` | UPSERT | `/repos/{repo}/actions/runs` | Yes (`repo_full_name`) |
+| `github_repo_properties` | `raw.github_repo_properties` | FULL_REPLACE | `/repos/{repo}/properties/values` | Yes (`repo_full_name`) |
+
+### Deeper nested assets
+
+| Asset | Table | Load | Parent | API Endpoint |
+|-------|-------|------|--------|--------------|
+| `github_user_details` | `raw.github_user_details` | FULL_REPLACE | `github_members` | `/users/{login}` |
+| `github_workflow_jobs` | `raw.github_workflow_jobs` | UPSERT | `github_workflow_runs` | `/repos/{repo}/actions/runs/{run_id}/jobs` |
+| `github_runner_group_repos` | `raw.github_runner_group_repos` | FULL_REPLACE | `github_runner_groups` | `/orgs/{org}/actions/runner-groups/{id}/repositories` |
+
+### Architecture: Entity Key Injection
+
+When an API response doesn't include the parent identifier (e.g., branches endpoint doesn't return `repo_full_name`), the `entity_key_column` attribute on the asset tells the extraction framework to inject the entity key as a column after parsing. This is handled automatically by `_fetch_pages()` — no custom code needed in the asset.
+
+### Key design choices
+
+- **Multi-org:** One Airflow DAG per org. Each org can have its own GitHub App installation ID.
+- **Incremental commits:** Uses GitHub's `since` query parameter for efficient forward sync.
+- **Incremental PRs/runs:** Sort by `updated desc` with `should_stop()` watermark detection (no `since` param available).
+- **Workflow jobs:** Composite entity key `(repo_full_name, run_id)` loaded from `github_workflow_runs` table via `_load_entity_keys()`.
+- **Shared helpers:** `get_github_org()`, `get_github_base_url()`, `filter_to_current_org()` in `assets/github/helpers.py`.
 
 ---
 

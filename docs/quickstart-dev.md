@@ -49,11 +49,16 @@ pytest tests/unit/ --cov=data_assets --cov-report=term-missing
 ```
 
 Unit tests cover:
-- Core types, enums, column definitions
+- Core types, enums (RunMode, LoadStrategy, SchemaContract, PaginationStrategy), column definitions
 - Asset base class (default transform, validation)
 - Asset registry (register, lookup, decorator)
-- API client (mocked HTTP via respx)
+- All GitHub assets (repos, PRs, branches, commits, workflows, runs, jobs, members, user details, runner groups, properties)
+- All SonarQube assets (projects, issues, measures)
+- All ServiceNow and Jira assets
+- API client (retries, error classification, rate limit headers — mocked via respx)
 - Rate limiter (sliding-window, thread safety)
+- Parallel extraction (entity key injection, max_pages safety, checkpoint resume)
+- Token manager credential validation
 - Loader DDL generation
 - Composable validators
 

@@ -74,6 +74,7 @@ def _fetch_pages(
     on_page_complete: Callable[[dict, int], None] | None = None,
     log_interval_seconds: float | None = None,
     max_pages: int = 10_000,
+    entity_key: Any = None,
 ) -> int:
     """Core extraction loop: request → parse → write → checkpoint → repeat.
 
@@ -97,6 +98,8 @@ def _fetch_pages(
         log_interval_seconds: If set, log progress every N seconds (used by
             sequential mode where total pages is unknown).
         max_pages: Safety limit to prevent infinite pagination loops.
+        entity_key: If provided and asset has entity_key_column set, this value
+            is injected as a column into the DataFrame after parse_response.
 
     Returns:
         Number of rows written to temp table.
@@ -123,6 +126,8 @@ def _fetch_pages(
             break
 
         df, state = asset.parse_response(data)
+        if entity_key is not None and asset.entity_key_column and not df.empty:
+            df[asset.entity_key_column] = str(entity_key)
         rows += write_to_temp(engine, temp_table, df)
         page_count += 1
 
@@ -455,6 +460,7 @@ def extract_entity_parallel(
                 ),
                 initial_checkpoint=page_cp,
                 on_page_complete=on_entity_page,
+                entity_key=entity_key,
             )
             worker_rows += entity_rows
 

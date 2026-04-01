@@ -459,3 +459,75 @@ def test_fetch_pages_stops_at_max_pages():
 
     assert rows == 5
     assert client.request.call_count == 5
+
+
+# ---------------------------------------------------------------------------
+# Entity key column injection
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_pages_injects_entity_key_column():
+    """When asset has entity_key_column set, the entity key is injected into the DataFrame."""
+    asset = MagicMock()
+    asset.name = "test_branches"
+    asset.pagination_config = PaginationConfig(strategy="page_number")
+    asset.entity_key_column = "repo_full_name"
+    asset.parse_response.return_value = (
+        pd.DataFrame({"name": ["main", "dev"], "protected": ["true", "false"]}),
+        PaginationState(has_more=False),
+    )
+
+    client = MagicMock()
+    client.request.return_value = [{"name": "main"}, {"name": "dev"}]
+
+    written_dfs = []
+
+    def capture_write(engine, table, df):
+        written_dfs.append(df.copy())
+        return len(df)
+
+    with patch("data_assets.extract.parallel.write_to_temp", side_effect=capture_write):
+        rows = _fetch_pages(
+            asset, client, MagicMock(), "temp_tbl", _ctx(),
+            worker_id="main",
+            request_builder=lambda c: RequestSpec(method="GET", url="http://test"),
+            entity_key="org-one/service-api",
+        )
+
+    assert rows == 2
+    assert len(written_dfs) == 1
+    df = written_dfs[0]
+    assert "repo_full_name" in df.columns
+    assert list(df["repo_full_name"]) == ["org-one/service-api", "org-one/service-api"]
+
+
+def test_fetch_pages_no_injection_without_entity_key_column():
+    """When entity_key_column is None (default), no injection happens."""
+    asset = MagicMock()
+    asset.name = "test_prs"
+    asset.pagination_config = PaginationConfig(strategy="page_number")
+    asset.entity_key_column = None
+    asset.parse_response.return_value = (
+        pd.DataFrame({"id": [1], "title": ["fix bug"]}),
+        PaginationState(has_more=False),
+    )
+
+    client = MagicMock()
+    client.request.return_value = {}
+
+    written_dfs = []
+
+    def capture_write(engine, table, df):
+        written_dfs.append(df.copy())
+        return len(df)
+
+    with patch("data_assets.extract.parallel.write_to_temp", side_effect=capture_write):
+        _fetch_pages(
+            asset, client, MagicMock(), "temp_tbl", _ctx(),
+            worker_id="main",
+            request_builder=lambda c: RequestSpec(method="GET", url="http://test"),
+            entity_key="org-one/service-api",
+        )
+
+    df = written_dfs[0]
+    assert "repo_full_name" not in df.columns  # No injection

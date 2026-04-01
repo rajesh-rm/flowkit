@@ -8,11 +8,11 @@ appropriate secrets injected.
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 import pandas as pd
 
+from data_assets.assets.github.helpers import get_github_base_url, get_github_org
 from data_assets.core.api_asset import APIAsset
 from data_assets.core.column import Column
 from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
@@ -64,18 +64,12 @@ class GitHubRepos(APIAsset):
 
     primary_key = ["full_name"]
 
-    def _get_org(self) -> str:
-        orgs = [o.strip() for o in os.environ.get("GITHUB_ORGS", "").split(",") if o.strip()]
-        if not orgs:
-            raise RuntimeError("GITHUB_ORGS env var is not set or empty")
-        return orgs[0]
-
     def build_request(
         self, context: RunContext, checkpoint: dict[str, Any] | None = None
     ) -> RequestSpec:
-        org = self._get_org()
+        org = get_github_org()
         page = (checkpoint.get("next_page") or 1) if checkpoint else 1
-        base = os.environ.get("GITHUB_API_URL", self.base_url)
+        base = get_github_base_url()
 
         return RequestSpec(
             method="GET",

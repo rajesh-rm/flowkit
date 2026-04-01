@@ -101,23 +101,80 @@ for _org_cfg in _gh_orgs:
             },
         )
 
-    with DAG(
-        dag_id=f"github_pull_requests_{_slug}",
-        schedule="0 6 * * *",
-        default_args=default_args,
-        max_active_runs=1,
-        catchup=False,
-        tags=["data_assets", "github", _org],
-    ) as _dag:
-        PythonOperator(
-            task_id="run",
-            python_callable=_run_github,
-            op_kwargs={
-                "asset_name": "github_pull_requests",
-                "run_mode": "forward",
-                "org_config": _org_cfg,
-            },
-        )
+    # All repo-scoped GitHub assets — one DAG per org per asset.
+    # Assets that fan out by repo (entity-parallel) depend on github_repos
+    # being loaded first. Schedule them after repos.
+    _gh_repo_assets = {
+        "github_pull_requests": "forward",
+        "github_branches": "full",
+        "github_commits": "forward",
+        "github_workflows": "full",
+        "github_workflow_runs": "forward",
+        "github_repo_properties": "full",
+    }
+    for _asset_name, _mode in _gh_repo_assets.items():
+        with DAG(
+            dag_id=f"{_asset_name}_{_slug}",
+            schedule="0 6 * * *",
+            default_args=default_args,
+            max_active_runs=1,
+            catchup=False,
+            tags=["data_assets", "github", _org],
+        ) as _dag:
+            PythonOperator(
+                task_id="run",
+                python_callable=_run_github,
+                op_kwargs={
+                    "asset_name": _asset_name,
+                    "run_mode": _mode,
+                    "org_config": _org_cfg,
+                },
+            )
+
+    # Org-level GitHub assets (not repo-scoped)
+    for _asset_name, _mode in [("github_members", "full"), ("github_runner_groups", "full")]:
+        with DAG(
+            dag_id=f"{_asset_name}_{_slug}",
+            schedule="0 5 * * *",
+            default_args=default_args,
+            max_active_runs=1,
+            catchup=False,
+            tags=["data_assets", "github", _org],
+        ) as _dag:
+            PythonOperator(
+                task_id="run",
+                python_callable=_run_github,
+                op_kwargs={
+                    "asset_name": _asset_name,
+                    "run_mode": _mode,
+                    "org_config": _org_cfg,
+                },
+            )
+
+    # Deeper nested GitHub assets (depend on parent assets above)
+    _gh_nested_assets = {
+        "github_user_details": "full",       # depends on github_members
+        "github_workflow_jobs": "forward",    # depends on github_workflow_runs
+        "github_runner_group_repos": "full",  # depends on github_runner_groups
+    }
+    for _asset_name, _mode in _gh_nested_assets.items():
+        with DAG(
+            dag_id=f"{_asset_name}_{_slug}",
+            schedule="0 7 * * *",  # Later schedule — parents must run first
+            default_args=default_args,
+            max_active_runs=1,
+            catchup=False,
+            tags=["data_assets", "github", _org],
+        ) as _dag:
+            PythonOperator(
+                task_id="run",
+                python_callable=_run_github,
+                op_kwargs={
+                    "asset_name": _asset_name,
+                    "run_mode": _mode,
+                    "org_config": _org_cfg,
+                },
+            )
 
 
 # ---------------------------------------------------------------------------

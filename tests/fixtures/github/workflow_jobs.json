@@ -1,0 +1,27 @@
+{
+  "total_count": 2,
+  "jobs": [
+    {
+      "id": 80001,
+      "run_id": 9000001,
+      "name": "build",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2025-12-01T10:05:30Z",
+      "completed_at": "2025-12-01T10:08:00Z",
+      "runner_name": "runner-1",
+      "runner_group_name": "Default"
+    },
+    {
+      "id": 80002,
+      "run_id": 9000001,
+      "name": "test",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2025-12-01T10:08:05Z",
+      "completed_at": "2025-12-01T10:11:30Z",
+      "runner_name": "runner-2",
+      "runner_group_name": "Default"
+    }
+  ]
+}
