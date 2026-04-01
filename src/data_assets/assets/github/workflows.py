@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+import pandas as pd
+
 from data_assets.assets.github.helpers import GitHubRepoAsset
 from data_assets.core.column import Column
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
-from data_assets.core.types import RequestSpec
+from data_assets.core.types import PaginationState, RequestSpec
 
 
 @register
@@ -27,12 +31,12 @@ class GitHubWorkflows(GitHubRepoAsset):
     ]
     primary_key = ["id"]
 
-    def build_entity_request(self, entity_key, context: RunContext, checkpoint=None) -> RequestSpec:
+    def build_entity_request(self, entity_key: str, context: RunContext, checkpoint: dict | None = None) -> RequestSpec:
         return self._paginated_entity_request(
             entity_key, f"/repos/{entity_key}/actions/workflows", checkpoint,
         )
 
-    def parse_response(self, response):
+    def parse_response(self, response: dict[str, Any]) -> tuple[pd.DataFrame, PaginationState]:
         return self._parse_wrapped_response(response, "workflows", lambda w: {
             "id": w["id"],
             "repo_full_name": "",

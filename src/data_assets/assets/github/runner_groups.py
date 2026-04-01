@@ -33,7 +33,7 @@ class GitHubRunnerGroups(APIAsset):
     parallel_mode = ParallelMode.NONE
     max_workers = 1
 
-    load_strategy = LoadStrategy.FULL_REPLACE
+    load_strategy = LoadStrategy.UPSERT  # UPSERT so multi-org runs don't wipe each other
     default_run_mode = RunMode.FULL
 
     columns = [

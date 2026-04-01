@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+import pandas as pd
+
 from data_assets.assets.github.helpers import GitHubRepoAsset
 from data_assets.core.column import Column
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
-from data_assets.core.types import PaginationConfig, RequestSpec
+from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
 
 
 @register
@@ -25,12 +29,12 @@ class GitHubRepoProperties(GitHubRepoAsset):
     ]
     primary_key = ["repo_full_name", "property_name"]
 
-    def build_entity_request(self, entity_key, context: RunContext, checkpoint=None) -> RequestSpec:
+    def build_entity_request(self, entity_key: str, context: RunContext, checkpoint: dict | None = None) -> RequestSpec:
         return self._paginated_entity_request(
             entity_key, f"/repos/{entity_key}/properties/values", checkpoint,
         )
 
-    def parse_response(self, response):
+    def parse_response(self, response: list[dict[str, Any]]) -> tuple[pd.DataFrame, PaginationState]:
         return self._parse_array_response(response, lambda p: {
             "repo_full_name": "",
             "property_name": p.get("property_name", ""),
