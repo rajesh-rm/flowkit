@@ -59,15 +59,20 @@ class GitHubPullRequests(APIAsset):
     # We sort by updated desc and use should_stop() to halt when
     # all PRs on a page are older than the watermark.
 
+    def filter_entity_keys(self, keys: list) -> list:
+        """Only fan out across repos belonging to the current org."""
+        org = os.environ.get("GITHUB_ORGS", "").split(",")[0].strip()
+        if not org:
+            return keys
+        return [k for k in keys if str(k).startswith(f"{org}/")]
+
     def build_entity_request(
         self,
         entity_key: str,
         context: RunContext,
         checkpoint: dict[str, Any] | None = None,
     ) -> RequestSpec:
-        page = 1
-        if checkpoint:
-            page = checkpoint.get("next_page") or 1
+        page = (checkpoint.get("next_page") or 1) if checkpoint else 1
 
         base = os.environ.get("GITHUB_API_URL", self.base_url)
 

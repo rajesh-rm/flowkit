@@ -47,8 +47,12 @@ SOURCE_CONNECTIONS = {
 }
 
 
-def _resolve_secrets(source_name: str) -> dict[str, str]:
-    """Pull secrets from Airflow Connections for the given source."""
+def _resolve_secrets(source_name: str, org_override: dict | None = None) -> dict[str, str]:
+    """Pull secrets from Airflow Connections for the given source.
+
+    For GitHub multi-org, org_override provides per-org installation_id and org name.
+    The GitHub App credentials (app_id, private_key) are shared across orgs.
+    """
     from airflow.hooks.base import BaseHook
 
     conn_id = SOURCE_CONNECTIONS.get(source_name)
@@ -63,12 +67,17 @@ def _resolve_secrets(source_name: str) -> dict[str, str]:
     extra = conn.extra_dejson or {}
 
     if source_name == "github":
-        return {
+        secrets = {
             "GITHUB_APP_ID": conn.login or "",
             "GITHUB_PRIVATE_KEY": conn.password or "",
-            "GITHUB_INSTALLATION_ID": extra.get("installation_id", ""),
-            "GITHUB_ORGS": extra.get("orgs", ""),
         }
+        if org_override:
+            secrets["GITHUB_INSTALLATION_ID"] = org_override["installation_id"]
+            secrets["GITHUB_ORGS"] = org_override["org"]
+        else:
+            secrets["GITHUB_INSTALLATION_ID"] = extra.get("installation_id", "")
+            secrets["GITHUB_ORGS"] = extra.get("orgs", "")
+        return secrets
     if source_name == "jira":
         return {
             "JIRA_URL": f"https://{conn.host}" if conn.host else "",
@@ -89,10 +98,13 @@ def _resolve_secrets(source_name: str) -> dict[str, str]:
     return {}
 
 
-def _run_asset(asset_name: str, run_mode: str, source_name: str, **kwargs):
+def _run_asset(
+    asset_name: str, run_mode: str, source_name: str,
+    org_override: dict | None = None, **kwargs,
+):
     from data_assets import run_asset
 
-    secrets = _resolve_secrets(source_name)
+    secrets = _resolve_secrets(source_name, org_override=org_override)
     return run_asset(
         asset_name=asset_name,
         run_mode=run_mode,
@@ -101,11 +113,44 @@ def _run_asset(asset_name: str, run_mode: str, source_name: str, **kwargs):
     )
 
 
+def _get_github_orgs() -> list[dict]:
+    """Read per-org GitHub config from Airflow Connection extra field.
+
+    Expected Connection extra format:
+        {"orgs": [{"org": "my-org", "installation_id": "12345"}, ...]}
+
+    Falls back to single-org if the legacy format is used:
+        {"orgs": "my-org", "installation_id": "12345"}
+    """
+    from airflow.hooks.base import BaseHook
+
+    try:
+        conn = BaseHook.get_connection("github_app")
+    except Exception:
+        return []
+
+    extra = conn.extra_dejson or {}
+    orgs_config = extra.get("orgs", [])
+
+    # Multi-org format: list of dicts
+    if isinstance(orgs_config, list) and orgs_config and isinstance(orgs_config[0], dict):
+        return orgs_config
+
+    # Legacy single-org format: orgs is a string, installation_id at top level
+    if isinstance(orgs_config, str) and orgs_config:
+        return [{"org": orgs_config, "installation_id": extra.get("installation_id", "")}]
+
+    return []
+
+
 def create_dags(
     schedule_overrides: dict[str, str] | None = None,
     tag_prefix: str = "data_assets",
 ) -> dict[str, DAG]:
     """Generate DAGs for all registered assets.
+
+    For GitHub assets, creates one DAG per org (e.g., github_repos_org_one,
+    github_pull_requests_org_one) so each org uses its own credentials.
 
     Returns a dict of dag_id -> DAG suitable for injection into globals().
     """
@@ -114,6 +159,7 @@ def create_dags(
     discover()
     dags = {}
     overrides = schedule_overrides or {}
+    github_orgs = _get_github_orgs()
 
     for name, asset_cls in all_assets().items():
         asset = asset_cls()
@@ -121,6 +167,38 @@ def create_dags(
         schedule = overrides.get(name, DEFAULT_SCHEDULES.get(mode))
         source = getattr(asset, "source_name", "transform") or "transform"
 
+        # GitHub assets: one DAG per org
+        if source == "github" and github_orgs:
+            for org_cfg in github_orgs:
+                org_slug = org_cfg["org"].replace("/", "_").replace("-", "_")
+                dag_id = f"{name}_{org_slug}"
+
+                dag = DAG(
+                    dag_id=dag_id,
+                    schedule=overrides.get(dag_id, schedule),
+                    default_args=DEFAULT_ARGS,
+                    max_active_runs=1,
+                    catchup=False,
+                    tags=[tag_prefix, source, org_cfg["org"]],
+                    description=f"{asset.description} ({org_cfg['org']})",
+                )
+
+                PythonOperator(
+                    task_id="run",
+                    python_callable=_run_asset,
+                    op_kwargs={
+                        "asset_name": name,
+                        "run_mode": mode,
+                        "source_name": source,
+                        "org_override": org_cfg,
+                    },
+                    dag=dag,
+                )
+
+                dags[dag_id] = dag
+            continue
+
+        # All other assets: one DAG
         dag = DAG(
             dag_id=name,
             schedule=schedule,

@@ -36,8 +36,7 @@ class CredentialResolver:
         if val:
             return val
 
-        # 3. .env file
-        load_dotenv()
+        # 3. .env file (loaded once at module level below)
         return os.environ.get(key)
 
     @staticmethod
@@ -47,10 +46,16 @@ class CredentialResolver:
 
             conn = BaseHook.get_connection(key)
             return conn.password or conn.get_uri()
+        except ImportError:
+            return None
         except Exception:
+            logger.warning(
+                "Airflow connection '%s' lookup failed", key, exc_info=True,
+            )
             return None
 
 
+load_dotenv()
 _resolver = CredentialResolver()
 
 
@@ -111,7 +116,8 @@ class GitHubAppTokenManager(TokenManager):
             if self._token and time.time() < (self._expires_at - self.REFRESH_MARGIN):
                 return self._token
             self._refresh()
-            return self._token  # type: ignore[return-value]
+            assert self._token is not None
+            return self._token
 
     def get_auth_header(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.get_token()}"}
@@ -157,6 +163,10 @@ class ServiceNowTokenManager(TokenManager):
     def __init__(self) -> None:
         super().__init__()
         self._instance = _resolver.resolve("SERVICENOW_INSTANCE") or ""
+        if not self._instance:
+            raise RuntimeError(
+                "ServiceNowTokenManager requires SERVICENOW_INSTANCE"
+            )
         self._client_id = _resolver.resolve("SERVICENOW_CLIENT_ID")
         self._client_secret = _resolver.resolve("SERVICENOW_CLIENT_SECRET")
         self._username = _resolver.resolve("SERVICENOW_USERNAME")
@@ -164,6 +174,13 @@ class ServiceNowTokenManager(TokenManager):
         self._token: str | None = None
         self._expires_at: float = 0.0
         self._use_oauth = bool(self._client_id and self._client_secret)
+
+        if not self._use_oauth and not (self._username and self._password):
+            raise RuntimeError(
+                "ServiceNowTokenManager requires SERVICENOW_CLIENT_ID + "
+                "SERVICENOW_CLIENT_SECRET (OAuth) or SERVICENOW_USERNAME + "
+                "SERVICENOW_PASSWORD (basic auth)"
+            )
 
     def get_token(self) -> str:
         if not self._use_oauth:
@@ -173,7 +190,8 @@ class ServiceNowTokenManager(TokenManager):
             if self._token and time.time() < self._expires_at - 60:
                 return self._token
             self._refresh()
-            return self._token  # type: ignore[return-value]
+            assert self._token is not None
+            return self._token
 
     def get_auth_header(self) -> dict[str, str]:
         if not self._use_oauth:
@@ -252,8 +270,10 @@ class JiraTokenManager(TokenManager):
 
     def get_token(self) -> str:
         if self._use_pat:
-            return self._pat  # type: ignore[return-value]
-        return self._api_token  # type: ignore[return-value]
+            assert self._pat is not None
+            return self._pat
+        assert self._api_token is not None
+        return self._api_token
 
     def get_auth_header(self) -> dict[str, str]:
         if self._use_pat:

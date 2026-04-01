@@ -38,6 +38,7 @@ class SonarQubeProjects(RestAsset):
         "strategy": "page_number",
         "page_size": 100,
         "total_path": "paging.total",
+        "page_index_path": "paging.pageIndex",
     }
     field_map = {
         "lastAnalysisDate": "last_analysis_date",  # API field → column name

@@ -78,8 +78,29 @@ class JiraIssues(APIAsset):
         return f"{jql} ORDER BY updated ASC" if jql else "ORDER BY updated ASC"
 
     # ------------------------------------------------------------------
-    # Entity-parallel request (one project at a time)
+    # Request building
     # ------------------------------------------------------------------
+
+    def _build_search_request(
+        self,
+        context: RunContext,
+        checkpoint: dict[str, Any] | None,
+        project_key: str | None = None,
+    ) -> RequestSpec:
+        start_date_iso = context.start_date.isoformat() if context.start_date else None
+        jql = self._build_jql(project_key=project_key, start_date=start_date_iso)
+        start_at = checkpoint.get("next_offset", 0) if checkpoint else 0
+        base = os.environ.get("JIRA_URL", self.base_url)
+        return RequestSpec(
+            method="GET",
+            url=f"{base}/rest/api/3/search",
+            params={
+                "jql": jql,
+                "maxResults": 100,
+                "startAt": start_at,
+                "fields": _ISSUE_FIELDS,
+            },
+        )
 
     def build_entity_request(
         self,
@@ -87,56 +108,14 @@ class JiraIssues(APIAsset):
         context: RunContext,
         checkpoint: dict[str, Any] | None,
     ) -> RequestSpec:
-        start_date_iso: str | None = None
-        if context.start_date:
-            start_date_iso = context.start_date.isoformat()
-
-        jql = self._build_jql(
-            project_key=entity_key,
-            start_date=start_date_iso,
-        )
-
-        start_at = checkpoint.get("next_offset", 0) if checkpoint else 0
-
-        base = os.environ.get("JIRA_URL", self.base_url)
-        return RequestSpec(
-            method="GET",
-            url=f"{base}/rest/api/3/search",
-            params={
-                "jql": jql,
-                "maxResults": 100,
-                "startAt": start_at,
-                "fields": _ISSUE_FIELDS,
-            },
-        )
-
-    # ------------------------------------------------------------------
-    # Fallback full request (no project scoping)
-    # ------------------------------------------------------------------
+        return self._build_search_request(context, checkpoint, project_key=entity_key)
 
     def build_request(
         self,
         context: RunContext,
         checkpoint: dict[str, Any] | None = None,
     ) -> RequestSpec:
-        start_date_iso: str | None = None
-        if context.start_date:
-            start_date_iso = context.start_date.isoformat()
-
-        jql = self._build_jql(start_date=start_date_iso)
-        start_at = checkpoint.get("next_offset", 0) if checkpoint else 0
-
-        base = os.environ.get("JIRA_URL", self.base_url)
-        return RequestSpec(
-            method="GET",
-            url=f"{base}/rest/api/3/search",
-            params={
-                "jql": jql,
-                "maxResults": 100,
-                "startAt": start_at,
-                "fields": _ISSUE_FIELDS,
-            },
-        )
+        return self._build_search_request(context, checkpoint)
 
     # ------------------------------------------------------------------
     # Response parsing (shared by both modes)

@@ -12,14 +12,17 @@ from __future__ import annotations
 
 import logging
 import math
+import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from sqlalchemy.engine import Engine
 
 from data_assets.checkpoint.manager import save_checkpoint
+from data_assets.core.api_asset import APIAsset
 from data_assets.core.run_context import RunContext
-from data_assets.core.types import SkippedRequestError
+from data_assets.core.types import RequestSpec, SkippedRequestError
 from data_assets.extract.api_client import APIClient
 from data_assets.load.loader import write_to_temp
 
@@ -27,19 +30,50 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+
+def _next_checkpoint(
+    current: dict | None, state: "PaginationState", page_size: int
+) -> dict:
+    """Build next-page checkpoint from pagination state.
+
+    Auto-increments page/offset when the asset's parse_response doesn't
+    provide explicit values (e.g., GitHub returns next_page=None).
+    """
+    prev = current or {}
+    return {
+        "cursor": state.cursor,
+        "next_offset": (
+            state.next_offset
+            if state.next_offset is not None
+            else prev.get("next_offset", 0) + page_size
+        ),
+        "next_page": (
+            state.next_page
+            if state.next_page is not None
+            else prev.get("next_page", 1) + 1
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Shared fetch loop — used by all three modes
 # ---------------------------------------------------------------------------
 
 def _fetch_pages(
-    asset: Any,
+    asset: APIAsset,
     client: APIClient,
     engine: Engine,
     temp_table: str,
     context: RunContext,
     worker_id: str,
-    request_builder,
+    request_builder: Callable[[dict | None], RequestSpec],
     initial_checkpoint: dict | None = None,
-    on_page_complete=None,
+    on_page_complete: Callable[[dict, int], None] | None = None,
+    log_interval_seconds: float | None = None,
+    max_pages: int = 10_000,
 ) -> int:
     """Core extraction loop: request → parse → write → checkpoint → repeat.
 
@@ -60,14 +94,27 @@ def _fetch_pages(
             Called after each page is written. If provided, _fetch_pages does
             NOT save checkpoints itself — the caller is responsible (used by
             entity-parallel to save unified entity + pagination state).
+        log_interval_seconds: If set, log progress every N seconds (used by
+            sequential mode where total pages is unknown).
+        max_pages: Safety limit to prevent infinite pagination loops.
 
     Returns:
         Number of rows written to temp table.
     """
     rows = 0
     cp = initial_checkpoint
+    page_count = 0
+    start_time = time.monotonic()
+    last_log_time = start_time
 
     while True:
+        if page_count >= max_pages:
+            logger.warning(
+                "Worker %s: reached max_pages limit (%d). Stopping extraction.",
+                worker_id, max_pages,
+            )
+            break
+
         spec = request_builder(cp)
         try:
             data = client.request(spec)
@@ -77,28 +124,28 @@ def _fetch_pages(
 
         df, state = asset.parse_response(data)
         rows += write_to_temp(engine, temp_table, df)
+        page_count += 1
 
         if not state.has_more:
             break
+
+        # Time-based progress logging (sequential mode)
+        if log_interval_seconds is not None:
+            now = time.monotonic()
+            if now - last_log_time >= log_interval_seconds:
+                elapsed = now - start_time
+                logger.info(
+                    "Progress: %d rows (%d pages, %.0fs elapsed)",
+                    rows, page_count, elapsed,
+                )
+                last_log_time = now
 
         # Watermark-based early stop (e.g., GitHub PRs sorted by updated desc)
         if asset.should_stop(df, context):
             logger.info("Worker %s: should_stop() triggered, ending extraction", worker_id)
             break
 
-        # Build next-page checkpoint from pagination state.
-        # Auto-increment page/offset when asset's parse_response returns None
-        # (e.g., GitHub assets don't know their current page number).
-        prev_page = (cp or {}).get("next_page") or 1
-        prev_offset = (cp or {}).get("next_offset") or 0
-        next_off = state.next_offset
-        if next_off is None:
-            next_off = prev_offset + asset.pagination_config.page_size
-        cp = {
-            "cursor": state.cursor,
-            "next_offset": next_off,
-            "next_page": state.next_page if state.next_page is not None else prev_page + 1,
-        }
+        cp = _next_checkpoint(cp, state, asset.pagination_config.page_size)
 
         if on_page_complete:
             on_page_complete(cp, rows)
@@ -143,7 +190,7 @@ def _resume_info(
 
 def _run_workers(
     work_units: list[tuple[str, Any]],
-    worker_fn,
+    worker_fn: Callable[[str, Any], int],
     max_workers: int,
 ) -> int:
     """Submit work units to a thread pool and collect results.
@@ -181,7 +228,7 @@ def _run_workers(
 # ---------------------------------------------------------------------------
 
 def extract_sequential(
-    asset: Any,
+    asset: APIAsset,
     client: APIClient,
     engine: Engine,
     temp_table: str,
@@ -202,6 +249,7 @@ def extract_sequential(
         worker_id="main",
         request_builder=lambda c: asset.build_request(context, checkpoint=c),
         initial_checkpoint=cp,
+        log_interval_seconds=30.0,
     )
     return rows_so_far + rows
 
@@ -211,7 +259,7 @@ def extract_sequential(
 # ---------------------------------------------------------------------------
 
 def extract_page_parallel(
-    asset: Any,
+    asset: APIAsset,
     client: APIClient,
     engine: Engine,
     temp_table: str,
@@ -241,6 +289,14 @@ def extract_page_parallel(
     if not total_pages or total_pages <= 1:
         return rows_total
 
+    pool_size = min(asset.max_workers, total_pages - 1)
+    logger.info(
+        "Discovery: %d pages (~%s records), distributing to %d workers",
+        total_pages,
+        str(first_state.total_records) if first_state.total_records else "unknown",
+        pool_size,
+    )
+
     # Partition remaining pages
     remaining = list(range(2, total_pages + 1))
     chunk_size = max(1, math.ceil(len(remaining) / asset.max_workers))
@@ -263,6 +319,8 @@ def extract_page_parallel(
             logger.info("Worker %s resuming from page %d", worker_id, start_page)
 
         worker_rows = prior_rows
+        pages_done = 0
+        total_worker_pages = sum(1 for p in pages if p >= start_page)
         for page_num in pages:
             if page_num < start_page:
                 continue
@@ -271,6 +329,13 @@ def extract_page_parallel(
             data = client.request(spec)
             df, _ = asset.parse_response(data)
             worker_rows += write_to_temp(engine, temp_table, df)
+            pages_done += 1
+
+            if pages_done % 10 == 0 or pages_done == total_worker_pages:
+                logger.info(
+                    "Worker %s: page %d/%d (%d rows)",
+                    worker_id, pages_done, total_worker_pages, worker_rows,
+                )
 
             save_checkpoint(
                 engine,
@@ -307,7 +372,7 @@ def extract_page_parallel(
 # ---------------------------------------------------------------------------
 
 def extract_entity_parallel(
-    asset: Any,
+    asset: APIAsset,
     client: APIClient,
     engine: Engine,
     temp_table: str,
@@ -345,10 +410,14 @@ def extract_entity_parallel(
             resume_pagination = cp_value.get("pagination_state")
 
         worker_rows = prior_rows
+        total_entities = len(entities)
+        entities_done = 0
+        log_interval = max(1, total_entities // 5)
 
         for entity_key in entities:
             entity_str = str(entity_key)
             if entity_str in completed:
+                entities_done += 1
                 continue
 
             # Resume pagination within this entity if applicable
@@ -391,6 +460,14 @@ def extract_entity_parallel(
 
             # Mark entity complete AFTER all its pages succeeded
             completed.add(entity_str)
+            entities_done += 1
+
+            if entities_done % log_interval == 0 or entities_done == total_entities:
+                logger.info(
+                    "Worker %s: %d/%d entities (%d rows)",
+                    worker_id, entities_done, total_entities, worker_rows,
+                )
+
             save_checkpoint(
                 engine,
                 run_id=context.run_id,

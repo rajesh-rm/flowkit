@@ -41,7 +41,7 @@ class SonarQubeIssues(APIAsset):
     pagination_config = PaginationConfig(
         strategy="page_number",
         page_size=100,
-        total_field="paging.total",
+        total_path="paging.total",
     )
 
     parallel_mode = ParallelMode.ENTITY_PARALLEL

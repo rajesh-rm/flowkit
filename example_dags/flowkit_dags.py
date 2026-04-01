@@ -1,19 +1,28 @@
 """Example Airflow DAGs for data_assets.
 
-Each DAG runs a single asset via run_asset(). Place this file in your
-Airflow DAGs folder.
+Each DAG has one task and is responsible for one asset. Place this file
+in your Airflow DAGs folder.
 
-Secrets can be passed in three ways (in priority order):
-1. Explicit `secrets` dict to run_asset() — from Airflow Connections/Variables
-2. Environment variables — set on the worker (e.g., via K8s secrets)
-3. .env file — for local development
+GitHub multi-org: each org gets its own DAG (github_repos_org_one,
+github_pull_requests_org_one, etc.) because each org has its own
+GitHub App credentials (.pem file).
 
-The examples below show option 1 (Airflow Connections) and option 2 (env vars).
+Airflow Connection setup for GitHub multi-org:
+    Connection ID: github_app
+    Login: <GitHub App ID>
+    Password: <Private key PEM contents>
+    Extra (JSON): {
+        "orgs": [
+            {"org": "org-one", "installation_id": "111"},
+            {"org": "org-two", "installation_id": "222"}
+        ]
+    }
 """
 
 from datetime import timedelta
 
 from airflow import DAG
+from airflow.hooks.base import BaseHook
 from airflow.operators.python import PythonOperator
 
 default_args = {
@@ -25,48 +34,7 @@ default_args = {
 
 
 # ---------------------------------------------------------------------------
-# Option A: Pass secrets from Airflow Connection (recommended)
-# ---------------------------------------------------------------------------
-
-
-def _run_github_with_connection(**kwargs):
-    """Fetch GitHub credentials from Airflow Connection 'github_app'."""
-    from airflow.hooks.base import BaseHook
-
-    from data_assets import run_asset
-
-    conn = BaseHook.get_connection("github_app")
-    extra = conn.extra_dejson
-
-    return run_asset(
-        "github_repos",
-        run_mode="full",
-        secrets={
-            "GITHUB_APP_ID": conn.login,
-            "GITHUB_PRIVATE_KEY": conn.password,
-            "GITHUB_INSTALLATION_ID": extra["installation_id"],
-            "GITHUB_ORGS": extra["orgs"],
-        },
-        airflow_run_id=kwargs.get("run_id"),
-    )
-
-
-with DAG(
-    dag_id="github_repos",
-    schedule="0 5 * * *",
-    default_args=default_args,
-    max_active_runs=1,
-    catchup=False,
-    tags=["data_assets", "github"],
-) as dag_gh_repos:
-    PythonOperator(
-        task_id="run",
-        python_callable=_run_github_with_connection,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Option B: Rely on env vars already set on the worker
+# Helpers
 # ---------------------------------------------------------------------------
 
 
@@ -80,6 +48,81 @@ def _run_asset_simple(asset_name: str, run_mode: str, **kwargs):
         airflow_run_id=kwargs.get("run_id"),
     )
 
+
+def _run_github(asset_name: str, run_mode: str, org_config: dict, **kwargs):
+    """Run a GitHub asset with per-org credentials from Airflow Connection."""
+    from data_assets import run_asset
+
+    conn = BaseHook.get_connection("github_app")
+    return run_asset(
+        asset_name=asset_name,
+        run_mode=run_mode,
+        secrets={
+            "GITHUB_APP_ID": conn.login,
+            "GITHUB_PRIVATE_KEY": conn.password,
+            "GITHUB_INSTALLATION_ID": org_config["installation_id"],
+            "GITHUB_ORGS": org_config["org"],
+        },
+        airflow_run_id=kwargs.get("run_id"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# GitHub — one DAG per org per asset
+# ---------------------------------------------------------------------------
+
+# Read org configs from the Airflow Connection.
+# Each org has its own installation_id (GitHub App is installed per org).
+try:
+    _gh_conn = BaseHook.get_connection("github_app")
+    _gh_orgs = _gh_conn.extra_dejson.get("orgs", [])
+except Exception:
+    _gh_orgs = []
+
+for _org_cfg in _gh_orgs:
+    _org = _org_cfg["org"]
+    _slug = _org.replace("-", "_")
+
+    with DAG(
+        dag_id=f"github_repos_{_slug}",
+        schedule="0 5 * * *",
+        default_args=default_args,
+        max_active_runs=1,
+        catchup=False,
+        tags=["data_assets", "github", _org],
+    ) as _dag:
+        PythonOperator(
+            task_id="run",
+            python_callable=_run_github,
+            op_kwargs={
+                "asset_name": "github_repos",
+                "run_mode": "full",
+                "org_config": _org_cfg,
+            },
+        )
+
+    with DAG(
+        dag_id=f"github_pull_requests_{_slug}",
+        schedule="0 6 * * *",
+        default_args=default_args,
+        max_active_runs=1,
+        catchup=False,
+        tags=["data_assets", "github", _org],
+    ) as _dag:
+        PythonOperator(
+            task_id="run",
+            python_callable=_run_github,
+            op_kwargs={
+                "asset_name": "github_pull_requests",
+                "run_mode": "forward",
+                "org_config": _org_cfg,
+            },
+        )
+
+
+# ---------------------------------------------------------------------------
+# SonarQube
+# ---------------------------------------------------------------------------
 
 with DAG(
     dag_id="sonarqube_projects",
@@ -109,6 +152,11 @@ with DAG(
         op_kwargs={"asset_name": "sonarqube_issues", "run_mode": "forward"},
     )
 
+
+# ---------------------------------------------------------------------------
+# ServiceNow
+# ---------------------------------------------------------------------------
+
 with DAG(
     dag_id="servicenow_incidents",
     schedule="@hourly",
@@ -137,19 +185,10 @@ with DAG(
         op_kwargs={"asset_name": "servicenow_changes", "run_mode": "forward"},
     )
 
-with DAG(
-    dag_id="github_pull_requests",
-    schedule="0 6 * * *",
-    default_args=default_args,
-    max_active_runs=1,
-    catchup=False,
-    tags=["data_assets", "github"],
-) as dag_gh_prs:
-    PythonOperator(
-        task_id="run",
-        python_callable=_run_asset_simple,
-        op_kwargs={"asset_name": "github_pull_requests", "run_mode": "forward"},
-    )
+
+# ---------------------------------------------------------------------------
+# Jira
+# ---------------------------------------------------------------------------
 
 with DAG(
     dag_id="jira_projects",
@@ -178,6 +217,11 @@ with DAG(
         python_callable=_run_asset_simple,
         op_kwargs={"asset_name": "jira_issues", "run_mode": "forward"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Transforms
+# ---------------------------------------------------------------------------
 
 with DAG(
     dag_id="incident_summary",

@@ -99,6 +99,14 @@ class APIAsset(Asset):
         """Parse an API response into rows and pagination state."""
         ...
 
+    def filter_entity_keys(self, keys: list) -> list:
+        """Filter parent entity keys before entity-parallel fan-out.
+
+        Override to scope extraction to a subset of parent entities
+        (e.g., filter repos to the current GitHub org).
+        """
+        return keys
+
     def build_entity_request(
         self, entity_key: Any, context: RunContext, checkpoint: dict | None = None
     ) -> RequestSpec:

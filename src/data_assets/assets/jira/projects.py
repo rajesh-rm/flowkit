@@ -75,7 +75,7 @@ class JiraProjects(APIAsset):
                 "name": proj.get("name"),
                 "project_type_key": proj.get("projectTypeKey"),
                 "style": proj.get("style"),
-                "is_private": str(proj.get("isPrivate", "")),
+                "is_private": str(proj.get("isPrivate", False)).lower(),
             }
             for proj in values
         ]

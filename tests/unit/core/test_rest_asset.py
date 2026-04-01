@@ -2,18 +2,10 @@
 
 from __future__ import annotations
 
-import uuid
-
 from data_assets.core.column import Column
-from data_assets.core.enums import LoadStrategy, RunMode
+from data_assets.core.enums import LoadStrategy
 from data_assets.core.rest_asset import RestAsset
-from data_assets.core.run_context import RunContext
-
-
-def _ctx(**kwargs):
-    return RunContext(
-        run_id=uuid.uuid4(), mode=RunMode.FULL, asset_name="test", **kwargs
-    )
+from tests.unit.conftest import make_ctx
 
 
 # --- Define a test asset using RestAsset ---
@@ -85,7 +77,7 @@ class ListResponseAsset(RestAsset):
 def test_build_request_basic(monkeypatch):
     monkeypatch.setenv("TEST_API_URL", "https://api.test")
     asset = ItemsAsset()
-    spec = asset.build_request(_ctx())
+    spec = asset.build_request(make_ctx())
     assert spec.url == "https://api.test/api/items"
     assert spec.params["limit"] == 50
     assert spec.params["offset"] == 0
@@ -94,14 +86,14 @@ def test_build_request_basic(monkeypatch):
 def test_build_request_with_checkpoint(monkeypatch):
     monkeypatch.setenv("TEST_API_URL", "https://api.test")
     asset = ItemsAsset()
-    spec = asset.build_request(_ctx(), checkpoint={"next_offset": 100})
+    spec = asset.build_request(make_ctx(), checkpoint={"next_offset": 100})
     assert spec.params["offset"] == 100
 
 
 def test_build_request_page_number(monkeypatch):
     monkeypatch.setenv("TEST_API_URL", "https://api.test")
     asset = PageNumberAsset()
-    spec = asset.build_request(_ctx(), checkpoint={"next_page": 3})
+    spec = asset.build_request(make_ctx(), checkpoint={"next_page": 3})
     assert spec.params["p"] == 3
     assert spec.params["ps"] == 10
 
@@ -177,13 +169,13 @@ class CursorAsset(RestAsset):
 
 def test_cursor_pagination_first_request(monkeypatch):
     monkeypatch.setenv("TEST_API_URL", "https://api.test")
-    spec = CursorAsset().build_request(_ctx())
+    spec = CursorAsset().build_request(make_ctx())
     assert "next_cursor" not in spec.params  # no cursor on first request
 
 
 def test_cursor_pagination_with_checkpoint(monkeypatch):
     monkeypatch.setenv("TEST_API_URL", "https://api.test")
-    spec = CursorAsset().build_request(_ctx(), checkpoint={"cursor": "abc123"})
+    spec = CursorAsset().build_request(make_ctx(), checkpoint={"cursor": "abc123"})
     assert spec.params["next_cursor"] == "abc123"
 
 
@@ -233,14 +225,14 @@ class IncrementalAsset(RestAsset):
 def test_date_param_added_when_start_date_set(monkeypatch):
     from datetime import UTC, datetime
     monkeypatch.setenv("TEST_API_URL", "https://api.test")
-    ctx = _ctx(start_date=datetime(2025, 6, 1, tzinfo=UTC))
+    ctx = make_ctx(start_date=datetime(2025, 6, 1, tzinfo=UTC))
     spec = IncrementalAsset().build_request(ctx)
     assert "updated_since" in spec.params
 
 
 def test_date_param_absent_when_no_start_date(monkeypatch):
     monkeypatch.setenv("TEST_API_URL", "https://api.test")
-    spec = IncrementalAsset().build_request(_ctx())
+    spec = IncrementalAsset().build_request(make_ctx())
     assert "updated_since" not in spec.params
 
 
@@ -254,3 +246,102 @@ def test_missing_fields_default_to_none():
     assert len(df) == 1
     assert df.iloc[0]["item_name"] is None
     assert df.iloc[0]["created_at"] is None
+
+
+# --- Configurable pagination param names ---
+
+
+class CustomParamAsset(RestAsset):
+    """API that uses 'page'/'per_page' instead of 'p'/'ps'."""
+
+    name = "test_custom_params"
+    source_name = "test_api"
+    target_table = "test_custom_params"
+    endpoint = "/api/v2/items"
+    base_url_env = "TEST_API_URL"
+    token_manager_class = FakeTokenManager
+    response_path = "data"
+    pagination = {
+        "strategy": "page_number",
+        "page_size": 25,
+        "total_path": "total_count",
+        "page_size_param": "per_page",
+        "page_number_param": "page",
+        "page_index_path": "meta.current_page",
+    }
+    columns = [Column("id", "TEXT", nullable=False)]
+    primary_key = ["id"]
+
+
+def test_custom_param_names_in_request(monkeypatch):
+    """Custom param names should appear in the request params."""
+    monkeypatch.setenv("TEST_API_URL", "https://api.test")
+    asset = CustomParamAsset()
+    spec = asset.build_request(make_ctx())
+    assert spec.params["per_page"] == 25
+    assert spec.params["page"] == 1
+    assert "ps" not in spec.params
+    assert "p" not in spec.params
+
+
+def test_custom_param_names_with_checkpoint(monkeypatch):
+    monkeypatch.setenv("TEST_API_URL", "https://api.test")
+    asset = CustomParamAsset()
+    spec = asset.build_request(make_ctx(), checkpoint={"next_page": 4})
+    assert spec.params["page"] == 4
+
+
+def test_custom_page_index_path():
+    """page_index_path should read current page from custom response path."""
+    asset = CustomParamAsset()
+    response = {
+        "data": [{"id": "a"}],
+        "total_count": 75,
+        "meta": {"current_page": 2},
+    }
+    _, state = asset.parse_response(response)
+    assert state.total_pages == 3  # ceil(75 / 25)
+    assert state.next_page == 3
+    assert state.has_more is True
+
+
+def test_no_page_index_path_defaults_to_page_one():
+    """Without page_index_path, page_number pagination assumes page 1."""
+    asset = PageNumberAsset()
+    response = {
+        "results": [{"id": "a", "value": "x"}],
+        "meta": {"total": 25},
+    }
+    _, state = asset.parse_response(response)
+    assert state.next_page == 2  # defaults to page 1 + 1
+    assert state.has_more is True
+
+
+class CustomOffsetAsset(RestAsset):
+    """API that uses 'count'/'skip' instead of 'limit'/'offset'."""
+
+    name = "test_custom_offset"
+    source_name = "test_api"
+    target_table = "test_custom_offset"
+    endpoint = "/api/records"
+    base_url_env = "TEST_API_URL"
+    token_manager_class = FakeTokenManager
+    response_path = "items"
+    pagination = {
+        "strategy": "offset",
+        "page_size": 20,
+        "limit_param": "count",
+        "offset_param": "skip",
+    }
+    columns = [Column("id", "TEXT", nullable=False)]
+    primary_key = ["id"]
+
+
+def test_custom_offset_param_names(monkeypatch):
+    monkeypatch.setenv("TEST_API_URL", "https://api.test")
+    asset = CustomOffsetAsset()
+    spec = asset.build_request(make_ctx())
+    assert spec.params["count"] == 20
+    assert spec.params["skip"] == 0
+    assert "limit" not in spec.params
+    assert "offset" not in spec.params

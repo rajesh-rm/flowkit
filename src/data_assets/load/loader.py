@@ -16,7 +16,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 
 from data_assets.core.column import Column
-from data_assets.core.enums import LoadStrategy
+from data_assets.core.enums import LoadStrategy, SchemaContract
 
 logger = logging.getLogger(__name__)
 
@@ -71,15 +71,9 @@ def ensure_columns(
     schema: str,
     table_name: str,
     columns: list[Column],
-    schema_contract: str = "evolve",
+    schema_contract: str | SchemaContract = "evolve",
 ) -> None:
-    """Manage column differences between asset definition and table.
-
-    Schema contracts:
-        "evolve"  — auto-add new columns (default)
-        "freeze"  — raise error if definition has columns not in table
-        "discard" — silently ignore new columns
-    """
+    """Manage column differences between asset definition and table."""
     insp = inspect(engine)
     if not insp.has_table(table_name, schema=schema):
         return
@@ -201,6 +195,26 @@ def promote(
     promoter = _PROMOTERS[load_strategy.value]
 
     with engine.begin() as conn:
+        # WHY: Resumed or inherited temp tables can contain duplicate PK rows
+        # from retries or partial prior runs. ON CONFLICT in the promoter
+        # handles main↔temp conflicts, but not duplicates WITHIN the temp
+        # table itself. We must dedup here to guarantee idempotent promotion.
+        # Uses ctid (Postgres physical row ID) to keep the last-inserted copy.
+        if primary_key:
+            pk_cols = ", ".join(f'"{c}"' for c in primary_key)
+            result = conn.execute(text(
+                f'DELETE FROM "{TEMP_SCHEMA}"."{temp_table}" a '
+                f"USING (SELECT ctid, ROW_NUMBER() OVER "
+                f"(PARTITION BY {pk_cols} ORDER BY ctid DESC) AS rn "
+                f'FROM "{TEMP_SCHEMA}"."{temp_table}") b '
+                f"WHERE a.ctid = b.ctid AND b.rn > 1"
+            ))
+            if result.rowcount > 0:
+                logger.warning(
+                    "Removed %d duplicate rows from temp table before promotion",
+                    result.rowcount,
+                )
+
         rows_loaded = promoter(conn, TEMP_SCHEMA, temp_table, target_schema, target_table,
                                primary_key, column_names)
 
@@ -209,36 +223,43 @@ def promote(
     return rows_loaded
 
 
-def _promote_full_replace(conn, ts, tt, ms, mt, pk, cols) -> int:
+def _promote_full_replace(conn, temp_schema, temp_table, main_schema, main_table,
+                          primary_key, column_names) -> int:
     """Truncate main table, then INSERT...SELECT from temp."""
-    conn.execute(text(f'TRUNCATE TABLE "{ms}"."{mt}"'))
-    c = ", ".join(f'"{c}"' for c in cols)
+    conn.execute(text(f'TRUNCATE TABLE "{main_schema}"."{main_table}"'))
+    cols = ", ".join(f'"{c}"' for c in column_names)
     result = conn.execute(text(
-        f'INSERT INTO "{ms}"."{mt}" ({c}) SELECT {c} FROM "{ts}"."{tt}"'
+        f'INSERT INTO "{main_schema}"."{main_table}" ({cols}) '
+        f'SELECT {cols} FROM "{temp_schema}"."{temp_table}"'
     ))
     return result.rowcount
 
 
-def _promote_upsert(conn, ts, tt, ms, mt, pk, cols) -> int:
+def _promote_upsert(conn, temp_schema, temp_table, main_schema, main_table,
+                    primary_key, column_names) -> int:
     """INSERT...ON CONFLICT DO UPDATE from temp."""
-    c = ", ".join(f'"{x}"' for x in cols)
-    pk_c = ", ".join(f'"{x}"' for x in pk)
-    non_pk = [x for x in cols if x not in pk]
+    cols = ", ".join(f'"{c}"' for c in column_names)
+    pk_cols = ", ".join(f'"{c}"' for c in primary_key)
+    non_pk = [c for c in column_names if c not in primary_key]
     if non_pk:
-        update = ", ".join(f'"{x}" = EXCLUDED."{x}"' for x in non_pk)
-        sql = (f'INSERT INTO "{ms}"."{mt}" ({c}) SELECT {c} FROM "{ts}"."{tt}" '
-               f"ON CONFLICT ({pk_c}) DO UPDATE SET {update}")
+        update = ", ".join(f'"{c}" = EXCLUDED."{c}"' for c in non_pk)
+        sql = (f'INSERT INTO "{main_schema}"."{main_table}" ({cols}) '
+               f'SELECT {cols} FROM "{temp_schema}"."{temp_table}" '
+               f"ON CONFLICT ({pk_cols}) DO UPDATE SET {update}")
     else:
-        sql = (f'INSERT INTO "{ms}"."{mt}" ({c}) SELECT {c} FROM "{ts}"."{tt}" '
-               f"ON CONFLICT ({pk_c}) DO NOTHING")
+        sql = (f'INSERT INTO "{main_schema}"."{main_table}" ({cols}) '
+               f'SELECT {cols} FROM "{temp_schema}"."{temp_table}" '
+               f"ON CONFLICT ({pk_cols}) DO NOTHING")
     return conn.execute(text(sql)).rowcount
 
 
-def _promote_append(conn, ts, tt, ms, mt, pk, cols) -> int:
+def _promote_append(conn, temp_schema, temp_table, main_schema, main_table,
+                    primary_key, column_names) -> int:
     """INSERT...SELECT from temp (no conflict handling)."""
-    c = ", ".join(f'"{x}"' for x in cols)
+    cols = ", ".join(f'"{c}"' for c in column_names)
     return conn.execute(text(
-        f'INSERT INTO "{ms}"."{mt}" ({c}) SELECT {c} FROM "{ts}"."{tt}"'
+        f'INSERT INTO "{main_schema}"."{main_table}" ({cols}) '
+        f'SELECT {cols} FROM "{temp_schema}"."{temp_table}"'
     )).rowcount
 
 

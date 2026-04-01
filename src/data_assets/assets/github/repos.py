@@ -1,11 +1,9 @@
-"""GitHub repos asset — fetches repositories across configured organizations.
+"""GitHub repos asset — fetches repositories for a GitHub organization.
 
-Multi-org support: iterates through orgs from GITHUB_ORGS env var.
-Pagination state (org index + page) is tracked entirely via checkpoints
-so retries resume from the correct org and page.
-
-The sequential extractor calls build_request() on every iteration with the
-latest checkpoint, so this asset can switch orgs by reading org_idx from it.
+The organization is taken from GITHUB_ORGS env var (first value if
+comma-separated). For multi-org setups where each org has its own
+GitHub App credentials, run one Airflow task per org with the
+appropriate secrets injected.
 """
 
 from __future__ import annotations
@@ -26,11 +24,10 @@ from data_assets.extract.token_manager import GitHubAppTokenManager
 
 @register
 class GitHubRepos(APIAsset):
-    """Fetches repository metadata across all configured GitHub organizations.
+    """Fetches repository metadata for a GitHub organization.
 
-    Orgs come from the GITHUB_ORGS env var (comma-separated).
-    Paginates through each org sequentially, tracking {org_idx, page} in
-    checkpoint so retries resume at the correct position.
+    Org comes from the GITHUB_ORGS env var (first value if comma-separated).
+    Uses UPSERT so multiple orgs can be loaded by separate Airflow tasks.
     """
 
     name = "github_repos"
@@ -46,7 +43,7 @@ class GitHubRepos(APIAsset):
     parallel_mode = ParallelMode.NONE
     max_workers = 1
 
-    load_strategy = LoadStrategy.FULL_REPLACE
+    load_strategy = LoadStrategy.UPSERT
     default_run_mode = RunMode.FULL
 
     columns = [
@@ -65,30 +62,19 @@ class GitHubRepos(APIAsset):
         Column("html_url", "TEXT"),
     ]
 
-    primary_key = ["id"]
-    # No date_column — FULL_REPLACE mode refreshes all repos each run.
-    # Watermark tracking is unnecessary for static-list assets.
+    primary_key = ["full_name"]
 
-    def _get_orgs(self) -> list[str]:
-        return [o.strip() for o in os.environ.get("GITHUB_ORGS", "").split(",") if o.strip()]
+    def _get_org(self) -> str:
+        orgs = [o.strip() for o in os.environ.get("GITHUB_ORGS", "").split(",") if o.strip()]
+        if not orgs:
+            raise RuntimeError("GITHUB_ORGS env var is not set or empty")
+        return orgs[0]
 
     def build_request(
         self, context: RunContext, checkpoint: dict[str, Any] | None = None
     ) -> RequestSpec:
-        """Build request for the current org + page.
-
-        Multi-org iteration: the sequential extractor calls build_request()
-        each page with the latest checkpoint. This asset reads {org_idx, next_page}
-        from the checkpoint to know which org and page to fetch. When a page
-        returns fewer than page_size results, parse_response returns has_more=False,
-        and the extractor stops. For the next org, a new run is needed (or override
-        to advance org_idx — current design does full refresh of all orgs each run).
-        """
-        orgs = self._get_orgs()
-        org_idx = checkpoint.get("org_idx", 0) if checkpoint else 0
+        org = self._get_org()
         page = (checkpoint.get("next_page") or 1) if checkpoint else 1
-
-        org = orgs[min(org_idx, len(orgs) - 1)]
         base = os.environ.get("GITHUB_API_URL", self.base_url)
 
         return RequestSpec(

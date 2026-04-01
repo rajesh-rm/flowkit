@@ -26,13 +26,13 @@ class TestGitHubReposBuildRequest:
         assert "/orgs/org-one/repos" in spec.url
         assert spec.params["page"] == 1
 
-    def test_second_org_via_checkpoint(self, github_env):
+    def test_always_uses_first_org(self, github_env):
         from data_assets.assets.github.repos import GitHubRepos
 
         spec = GitHubRepos().build_request(
-            make_ctx(), checkpoint={"org_idx": 1, "next_page": 1}
+            make_ctx(), checkpoint={"next_page": 1}
         )
-        assert "/orgs/org-two/repos" in spec.url
+        assert "/orgs/org-one/repos" in spec.url
 
     def test_next_page_from_checkpoint(self, github_env):
         from data_assets.assets.github.repos import GitHubRepos
@@ -101,6 +101,37 @@ class TestGitHubPullRequestsParseResponse:
         df, state = GitHubPullRequests().parse_response(data)
         assert len(df) == 2
         assert df.iloc[0]["user_login"] == "dev-alice"
+
+
+class TestGitHubReposPrimaryKey:
+    def test_pk_is_full_name(self, github_env):
+        from data_assets.assets.github.repos import GitHubRepos
+
+        assert GitHubRepos().primary_key == ["full_name"]
+
+
+class TestGitHubPullRequestsFilterEntityKeys:
+    def test_filters_to_current_org(self, github_env):
+        from data_assets.assets.github.pull_requests import GitHubPullRequests
+
+        keys = ["org-one/service-api", "org-one/web-ui", "org-two/data-pipeline"]
+        filtered = GitHubPullRequests().filter_entity_keys(keys)
+        assert filtered == ["org-one/service-api", "org-one/web-ui"]
+
+    def test_no_org_returns_all(self, github_env, monkeypatch):
+        from data_assets.assets.github.pull_requests import GitHubPullRequests
+
+        monkeypatch.setenv("GITHUB_ORGS", "")
+        keys = ["org-one/repo", "org-two/repo"]
+        assert GitHubPullRequests().filter_entity_keys(keys) == keys
+
+    def test_single_org(self, github_env, monkeypatch):
+        from data_assets.assets.github.pull_requests import GitHubPullRequests
+
+        monkeypatch.setenv("GITHUB_ORGS", "org-two")
+        keys = ["org-one/repo-a", "org-two/repo-b", "org-two/repo-c"]
+        filtered = GitHubPullRequests().filter_entity_keys(keys)
+        assert filtered == ["org-two/repo-b", "org-two/repo-c"]
 
 
 class TestGitHubPullRequestsShouldStop:

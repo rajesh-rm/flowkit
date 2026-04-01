@@ -8,14 +8,40 @@ from __future__ import annotations
 
 import json
 import os
-import uuid
 from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
+from data_assets.core.registry import _registry
+from data_assets.extract.token_manager import TokenManager
+
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+
+# ---------------------------------------------------------------------------
+# Shared across unit + integration tests
+# ---------------------------------------------------------------------------
+
+
+class StubTokenManager(TokenManager):
+    """Minimal token manager for testing — no real credentials needed."""
+
+    def get_token(self) -> str:
+        return "test-token"
+
+    def get_auth_header(self) -> dict[str, str]:
+        return {"Authorization": "Bearer test-token"}
+
+
+@pytest.fixture(autouse=True)
+def _clean_registry():
+    """Save and restore the asset registry around each test."""
+    saved = dict(_registry)
+    yield
+    _registry.clear()
+    _registry.update(saved)
 
 
 # ---------------------------------------------------------------------------
@@ -95,36 +121,5 @@ def load_fixture():
     return _load
 
 
-@pytest.fixture
-def run_id():
-    """Generate a fresh UUID for each test."""
-    return uuid.uuid4()
 
 
-@pytest.fixture
-def mock_env(monkeypatch):
-    """Return a helper to set environment variables for testing."""
-    def _set(**kwargs):
-        for key, value in kwargs.items():
-            monkeypatch.setenv(key, value)
-    return _set
-
-
-# ---------------------------------------------------------------------------
-# Unit test fixtures (no DB required)
-# ---------------------------------------------------------------------------
-
-@pytest.fixture
-def sample_run_context(run_id):
-    """A basic RunContext for unit tests."""
-    from data_assets.core.enums import RunMode
-    from data_assets.core.run_context import RunContext
-
-    return RunContext(
-        run_id=run_id,
-        mode=RunMode.FULL,
-        asset_name="test_asset",
-        start_date=None,
-        end_date=None,
-        params={},
-    )

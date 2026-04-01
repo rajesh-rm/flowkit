@@ -28,8 +28,11 @@ result = run_asset("sonarqube_projects", run_mode="full")
 - **Resumable extraction**: checkpoint-based retry without re-fetching
 - **Parallel extraction**: page-parallel and entity-parallel thread pool modes
 - **Self-managing schemas**: auto-create tables, additive column migration
-- **In-process rate limiting**: thread-safe token bucket per DAG
+- **In-process rate limiting**: thread-safe sliding-window per DAG
 - **Token management**: pluggable per-source (GitHub App, ServiceNow OAuth, SonarQube static, Jira Cloud/DC)
+- **RestAsset pattern**: declarative asset definition for standard REST APIs (~25 lines, no custom code)
+- **Dry run mode**: extract and validate without promoting to main table
+- **Stale-run takeover**: automatic recovery from orphaned runs via heartbeat monitoring
 
 ## Documentation
 

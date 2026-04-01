@@ -118,3 +118,27 @@ class TestServiceNowTableAssetBase:
         asset = ServiceNowIncidents()
         assert asset.pagination_config.strategy == "keyset"
         assert asset.date_column == "sys_updated_on"
+
+
+# ---------------------------------------------------------------------------
+# Credential validation
+# ---------------------------------------------------------------------------
+
+
+class TestServiceNowTokenManagerValidation:
+    def test_missing_instance_raises(self):
+        """ServiceNowTokenManager should fail fast if SERVICENOW_INSTANCE is missing."""
+        import pytest
+        from data_assets.extract.token_manager import ServiceNowTokenManager
+
+        with pytest.raises(RuntimeError, match="SERVICENOW_INSTANCE"):
+            ServiceNowTokenManager()
+
+    def test_missing_all_credentials_raises(self, monkeypatch):
+        """Should fail if neither OAuth nor basic auth credentials are set."""
+        import pytest
+        from data_assets.extract.token_manager import ServiceNowTokenManager
+
+        monkeypatch.setenv("SERVICENOW_INSTANCE", "https://test.service-now.com")
+        with pytest.raises(RuntimeError, match="SERVICENOW_CLIENT_ID"):
+            ServiceNowTokenManager()

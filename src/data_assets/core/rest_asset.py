@@ -58,6 +58,8 @@ class RestAsset(APIAsset):
     pagination: dict | None = None
     field_map: dict[str, str] = {}
 
+    _reverse_field_map: dict[str, str] = {}
+
     def __init_subclass__(cls, **kwargs: Any) -> None:
         """Convert the pagination dict shorthand to PaginationConfig."""
         super().__init_subclass__(**kwargs)
@@ -67,8 +69,15 @@ class RestAsset(APIAsset):
                 strategy=p.get("strategy", "none"),
                 page_size=p.get("page_size", 100),
                 cursor_field=p.get("cursor_field"),
-                total_field=p.get("total_path"),
+                total_path=p.get("total_path"),
+                page_size_param=p.get("page_size_param", "ps"),
+                page_number_param=p.get("page_number_param", "p"),
+                limit_param=p.get("limit_param", "limit"),
+                offset_param=p.get("offset_param", "offset"),
+                page_index_path=p.get("page_index_path"),
             )
+        if cls.field_map:
+            cls._reverse_field_map = {v: k for k, v in cls.field_map.items()}
 
     def build_request(
         self, context: RunContext, checkpoint: dict | None = None
@@ -81,11 +90,15 @@ class RestAsset(APIAsset):
         page_size = self.pagination_config.page_size
 
         if strategy == "page_number":
-            params["ps"] = page_size
-            params["p"] = checkpoint.get("next_page", 1) if checkpoint else 1
+            params[self.pagination_config.page_size_param] = page_size
+            params[self.pagination_config.page_number_param] = (
+                checkpoint.get("next_page", 1) if checkpoint else 1
+            )
         elif strategy == "offset":
-            params["limit"] = page_size
-            params["offset"] = (checkpoint.get("next_offset") or 0) if checkpoint else 0
+            params[self.pagination_config.limit_param] = page_size
+            params[self.pagination_config.offset_param] = (
+                (checkpoint.get("next_offset") or 0) if checkpoint else 0
+            )
         elif strategy == "cursor":
             if checkpoint and checkpoint.get("cursor"):
                 params[self.pagination_config.cursor_field or "cursor"] = checkpoint["cursor"]
@@ -101,16 +114,14 @@ class RestAsset(APIAsset):
     ) -> tuple[pd.DataFrame, PaginationState]:
         # Extract records from response
         if self.response_path:
-            records_raw = _get_nested(response, self.response_path)
-            if records_raw is None:
-                records_raw = []
+            records_raw = _get_nested(response, self.response_path) or []
         else:
             # Response IS the list (e.g., GitHub repos returns a list directly)
             records_raw = response if isinstance(response, list) else []
 
         # Map fields: apply field_map renames, keep columns that match by name
         column_names = {c.name for c in self.columns}
-        reverse_map = {v: k for k, v in self.field_map.items()} if self.field_map else {}
+        reverse_map = self._reverse_field_map
 
         records = []
         for raw in records_raw:
@@ -133,13 +144,16 @@ class RestAsset(APIAsset):
         page_size = self.pagination_config.page_size
 
         if strategy == "page_number":
-            total_path = self.pagination_config.total_field
+            total_path = self.pagination_config.total_path
             total = _get_nested(response, total_path) if total_path else None
             if total is not None:
                 total_pages = math.ceil(int(total) / page_size)
-                # Infer current page from response or default
-                paging = _get_nested(response, "paging") or {}
-                page_index = paging.get("pageIndex", 1) if isinstance(paging, dict) else 1
+                # Read current page index from response if path is configured
+                page_index_path = self.pagination_config.page_index_path
+                if page_index_path:
+                    page_index = _get_nested(response, page_index_path) or 1
+                else:
+                    page_index = 1
                 return PaginationState(
                     has_more=page_index < total_pages,
                     next_page=page_index + 1,

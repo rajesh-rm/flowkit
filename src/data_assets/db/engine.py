@@ -27,16 +27,16 @@ def _resolve_database_url(connection_key: str = "data_assets_db") -> str:
 
         conn = BaseHook.get_connection(connection_key)
         return conn.get_uri()
+    except ImportError:
+        logger.debug("Airflow not installed, skipping connection lookup")
     except Exception:
-        logger.debug("Airflow connection '%s' not available", connection_key)
+        logger.warning(
+            "Airflow connection '%s' lookup failed, falling back to env vars",
+            connection_key, exc_info=True,
+        )
 
-    # 2. Environment variable
-    url = os.environ.get("DATABASE_URL")
-    if url:
-        return url
-
-    # 3. .env file
-    load_dotenv()
+    # 2. Environment variable or .env file
+    load_dotenv()  # no-op if vars already set; loads .env otherwise
     url = os.environ.get("DATABASE_URL")
     if url:
         return url

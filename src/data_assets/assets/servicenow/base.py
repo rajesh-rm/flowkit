@@ -55,25 +55,25 @@ class ServiceNowTableAsset(APIAsset):
 
         # Keyset pagination: sort by sys_updated_on,sys_id and filter from last seen.
         # ServiceNow encoded query syntax: ^ = AND, ^OR = OR.
-        query_parts: list[str] = []
+        query: str | None = None
 
         if checkpoint and checkpoint.get("cursor"):
             raw = checkpoint["cursor"]
             last = json.loads(raw) if isinstance(raw, str) else raw
-            query_parts.append(
+            query = (
                 f"sys_updated_on>={last['sys_updated_on']}"
                 f"^sys_id>{last['sys_id']}"
                 f"^ORsys_updated_on>{last['sys_updated_on']}"
             )
         elif context.start_date:
-            query_parts.append(f"sys_updated_on>={context.start_date.isoformat()}")
+            query = f"sys_updated_on>={context.start_date.isoformat()}"
 
         params: dict[str, Any] = {
             "sysparm_limit": self.pagination_config.page_size,
             "sysparm_orderby": "sys_updated_on,sys_id",
         }
-        if query_parts:
-            params["sysparm_query"] = "^".join(query_parts)
+        if query:
+            params["sysparm_query"] = query
 
         return RequestSpec(method="GET", url=url, params=params)
 
