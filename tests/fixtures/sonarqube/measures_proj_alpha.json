@@ -1,0 +1,17 @@
+{
+  "component": {
+    "key": "proj-alpha",
+    "name": "Project Alpha",
+    "description": "Alpha project",
+    "qualifier": "TRK",
+    "measures": [
+      {"metric": "ncloc", "value": "12500"},
+      {"metric": "bugs", "value": "3"},
+      {"metric": "vulnerabilities", "value": "1"},
+      {"metric": "code_smells", "value": "42"},
+      {"metric": "coverage", "value": "87.5"},
+      {"metric": "duplicated_lines_density", "value": "2.3"},
+      {"metric": "sqale_index", "value": "180"}
+    ]
+  }
+}

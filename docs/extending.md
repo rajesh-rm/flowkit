@@ -119,7 +119,7 @@ offset, or cursor), and you just need to extract fields from the response.
 **Use APIAsset instead when:** you need custom request logic (multi-endpoint iteration,
 computed query parameters like JQL, keyset pagination with composite keys).
 
-### Real example: SonarQube Projects (25 lines)
+### Real example: SonarQube Projects
 
 ```python
 from data_assets.core.column import Column
@@ -139,7 +139,7 @@ class SonarQubeProjects(RestAsset):
     # Source config — RestAsset reads base URL from this env var at runtime
     token_manager_class = SonarQubeTokenManager
     base_url_env = "SONARQUBE_URL"
-    endpoint = "/api/projects/search"
+    endpoint = "/api/components/search"
     rate_limit_per_second = 5.0
 
     # Response parsing — RestAsset handles this automatically
@@ -148,8 +148,8 @@ class SonarQubeProjects(RestAsset):
         "strategy": "page_number",        # offset, cursor, or none also supported
         "page_size": 100,
         "total_path": "paging.total",     # JSON path to the total count
+        "page_index_path": "paging.pageIndex",
     }
-    field_map = {"lastAnalysisDate": "last_analysis_date"}  # API field → column rename
 
     # Parallelism + load behavior
     parallel_mode = ParallelMode.PAGE_PARALLEL
@@ -157,16 +157,18 @@ class SonarQubeProjects(RestAsset):
     load_strategy = LoadStrategy.FULL_REPLACE
     default_run_mode = RunMode.FULL
 
-    # Schema
+    # Schema — matches /api/components/search response fields
     columns = [
         Column("key", "TEXT", nullable=False),
         Column("name", "TEXT"),
         Column("qualifier", "TEXT"),
-        Column("visibility", "TEXT"),
-        Column("last_analysis_date", "TIMESTAMPTZ"),
-        Column("revision", "TEXT"),
     ]
     primary_key = ["key"]
+
+    def build_request(self, context, checkpoint=None):
+        spec = super().build_request(context, checkpoint)
+        spec.params["qualifiers"] = "TRK"  # Filter to projects only
+        return spec
 ```
 
 That's it. No `build_request()`. No `parse_response()`. RestAsset generates both
@@ -1764,12 +1766,14 @@ Query with: `SELECT metadata FROM data_ops.run_history WHERE asset_name = 'my_as
 
 ### Adding a SonarQube endpoint
 
-Copy `sonarqube/projects.py` (RestAsset pattern). Key settings:
+Copy `sonarqube/projects.py` (RestAsset pattern) or `sonarqube/measures.py` (APIAsset with entity-parallel). Key settings:
 - `token_manager_class = SonarQubeTokenManager`
 - `base_url_env = "SONARQUBE_URL"`
-- Pagination: `{"strategy": "page_number", "page_size": 100, "total_path": "paging.total"}`
+- Pagination: `{"strategy": "page_number", "page_size": 100, "total_path": "paging.total", "page_index_path": "paging.pageIndex"}`
 - Response path: check API docs for the key containing the records array
+- Add `qualifiers=TRK` for project-scoped endpoints
 - SonarQube API docs: https://next.sonarqube.com/sonarqube/web_api
+- Reference endpoints: `/api/components/search`, `/api/issues/search`, `/api/measures/component`, `/api/project_branches/list`, `/api/project_analyses/search`
 
 ### Adding a ServiceNow endpoint
 

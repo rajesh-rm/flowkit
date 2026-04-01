@@ -1,7 +1,8 @@
-"""SonarQube projects — uses RestAsset for declarative config.
+"""SonarQube projects via /api/components/search — uses RestAsset for declarative config.
 
-This is the simplest example of a RestAsset. Compare with sonarqube/issues.py
-which uses APIAsset (custom) because it needs sort-by-update logic.
+Lists all projects (qualifier=TRK) from the SonarQube instance. This is the
+simplest example of a RestAsset. Compare with sonarqube/issues.py which uses
+APIAsset (custom) because it needs sort-by-update logic.
 
 RestAsset handles build_request() and parse_response() automatically from
 the class attributes. You only need to define: endpoint, response_path,
@@ -29,7 +30,7 @@ class SonarQubeProjects(RestAsset):
     # --- Source config ---
     token_manager_class = SonarQubeTokenManager
     base_url_env = "SONARQUBE_URL"
-    endpoint = "/api/projects/search"
+    endpoint = "/api/components/search"
     rate_limit_per_second = 5.0
 
     # --- Response parsing ---
@@ -39,9 +40,6 @@ class SonarQubeProjects(RestAsset):
         "page_size": 100,
         "total_path": "paging.total",
         "page_index_path": "paging.pageIndex",
-    }
-    field_map = {
-        "lastAnalysisDate": "last_analysis_date",  # API field → column name
     }
 
     # --- Parallelism ---
@@ -53,12 +51,16 @@ class SonarQubeProjects(RestAsset):
     default_run_mode = RunMode.FULL
 
     # --- Schema ---
+    # /api/components/search returns: key, name, qualifier, project
     columns = [
         Column("key", "TEXT", nullable=False),
         Column("name", "TEXT"),
         Column("qualifier", "TEXT"),
-        Column("visibility", "TEXT"),
-        Column("last_analysis_date", "TIMESTAMPTZ"),
-        Column("revision", "TEXT"),
     ]
     primary_key = ["key"]
+
+    def build_request(self, context, checkpoint=None):
+        spec = super().build_request(context, checkpoint)
+        # Filter to projects only (TRK = project qualifier in SonarQube)
+        spec.params["qualifiers"] = "TRK"
+        return spec
