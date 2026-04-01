@@ -6,13 +6,13 @@ from typing import Any
 
 import pandas as pd
 
+from data_assets.assets.github.helpers import get_github_base_url
 from data_assets.core.api_asset import APIAsset
 from data_assets.core.column import Column
 from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
-from data_assets.assets.github.helpers import get_github_base_url
 from data_assets.extract.token_manager import GitHubAppTokenManager
 
 
@@ -50,12 +50,9 @@ class GitHubUserDetails(APIAsset):
         Column("created_at", "TIMESTAMPTZ"),
         Column("updated_at", "TIMESTAMPTZ"),
     ]
-
     primary_key = ["login"]
 
-    def build_entity_request(
-        self, entity_key: str, context: RunContext, checkpoint: dict | None = None
-    ) -> RequestSpec:
+    def build_entity_request(self, entity_key, context: RunContext, checkpoint=None) -> RequestSpec:
         base = get_github_base_url()
         return RequestSpec(
             method="GET",
@@ -64,7 +61,7 @@ class GitHubUserDetails(APIAsset):
             headers={"Accept": "application/vnd.github+json"},
         )
 
-    def build_request(self, context: RunContext, checkpoint: dict | None = None) -> RequestSpec:
+    def build_request(self, context: RunContext, checkpoint=None) -> RequestSpec:
         return self.build_entity_request("_placeholder", context, checkpoint)
 
     def parse_response(self, response: dict[str, Any]) -> tuple[pd.DataFrame, PaginationState]:
@@ -83,5 +80,4 @@ class GitHubUserDetails(APIAsset):
             "created_at": response.get("created_at"),
             "updated_at": response.get("updated_at"),
         }
-        df = pd.DataFrame([row])
-        return df, PaginationState(has_more=False)
+        return pd.DataFrame([row]), PaginationState(has_more=False)

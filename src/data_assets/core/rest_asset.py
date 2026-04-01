@@ -151,7 +151,8 @@ class RestAsset(APIAsset):
                 # Read current page index from response if path is configured
                 page_index_path = self.pagination_config.page_index_path
                 if page_index_path:
-                    page_index = _get_nested(response, page_index_path) or 1
+                    raw = _get_nested(response, page_index_path)
+                    page_index = raw if raw is not None else 1
                 else:
                     page_index = 1
                 return PaginationState(
