@@ -16,9 +16,9 @@ result = run_asset("sonarqube_projects", run_mode="full")
 
 | Source | Assets | Description |
 |--------|--------|-------------|
-| SonarQube | projects, issues | Code quality data |
+| GitHub | repos, pull_requests, branches, commits, workflows, workflow_runs, workflow_jobs, members, user_details, runner_groups, runner_group_repos, repo_properties | Source control, CI/CD, and org data (multi-org) |
+| SonarQube | projects, issues, measures | Code quality data |
 | ServiceNow | incidents, changes | ITSM data |
-| GitHub | repos, pull_requests | Source control data (multi-org) |
 | Jira | projects, issues | Project tracking data |
 | Transforms | incident_summary | Postgres-to-Postgres derived tables |
 
@@ -36,12 +36,14 @@ result = run_asset("sonarqube_projects", run_mode="full")
 
 ## Documentation
 
-- [**Local Dev Quickstart**](docs/quickstart-dev.md) — get running in 5 minutes with uv
-- [Architecture](docs/architecture.md) — design and lifecycle
-- [User Guide](docs/user-guide.md) — installation and setup
-- [Configuration](docs/configuration.md) — credentials and runtime overrides
-- [Assets Catalog](docs/assets-catalog.md) — all built-in assets
-- [Extending](docs/extending.md) — adding new sources and transforms
+Read in this order:
+
+1. [**Local Dev Quickstart**](docs/quickstart-dev.md) — get running in 5 minutes
+2. [**User Guide**](docs/user-guide.md) — run assets, understand run modes
+3. [**Architecture**](docs/architecture.md) — how the ETL lifecycle works
+4. [**Configuration**](docs/configuration.md) — credentials and runtime overrides
+5. [**Assets Catalog**](docs/assets-catalog.md) — all built-in assets and their design choices
+6. [**Extending**](docs/extending.md) — adding new sources, transforms, and token managers
 
 ## Requirements
 

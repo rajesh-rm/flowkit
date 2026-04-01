@@ -188,23 +188,61 @@ from the class attributes.
 ### Shared base classes for similar APIs
 
 When multiple assets share the same API pattern (same auth, pagination, response format),
-extract a base class. Example: ServiceNow incidents and changes both use the Table API
-with keyset pagination — `ServiceNowTableAsset` holds the shared logic, subclasses only
-set `table_name` and `columns`:
+extract a base class. The codebase has two examples:
+
+**ServiceNow** — `ServiceNowTableAsset` holds shared keyset pagination logic.
+Subclasses only set `table_name` and `columns`:
 
 ```python
-# servicenow/base.py — shared build_request() and parse_response()
+# servicenow/base.py
 class ServiceNowTableAsset(APIAsset):
     table_name: str = ""  # subclass sets this
     # ... shared keyset pagination logic ...
 
-# servicenow/incidents.py — just identity + columns
+# servicenow/incidents.py
 @register
 class ServiceNowIncidents(ServiceNowTableAsset):
     name = "servicenow_incidents"
     table_name = "incident"
     columns = [...]
 ```
+
+**GitHub** — `GitHubRepoAsset` (in `assets/github/helpers.py`) provides shared
+config for all entity-parallel assets that fan out by repository. It sets
+`token_manager_class`, `rate_limit_per_second`, `pagination_config`,
+`parent_asset_name = "github_repos"`, `entity_key_column = "repo_full_name"`,
+and provides helper methods for building requests and parsing responses:
+
+```python
+# assets/github/helpers.py
+class GitHubRepoAsset(APIAsset):
+    # Shared: token_manager, rate_limit, pagination, parent_asset, entity_key_column
+    def _paginated_entity_request(self, entity_key, url_path, checkpoint, extra_params=None) -> RequestSpec: ...
+    def _parse_array_response(self, response, record_fn) -> tuple[DataFrame, PaginationState]: ...
+    def _parse_wrapped_response(self, response, items_key, record_fn) -> tuple[DataFrame, PaginationState]: ...
+
+# assets/github/branches.py — 36 lines total
+@register
+class GitHubBranches(GitHubRepoAsset):
+    name = "github_branches"
+    target_table = "github_branches"
+    columns = [...]
+    primary_key = ["repo_full_name", "name"]
+
+    def build_entity_request(self, entity_key, context, checkpoint=None):
+        return self._paginated_entity_request(entity_key, f"/repos/{entity_key}/branches", checkpoint)
+
+    def parse_response(self, response):
+        return self._parse_array_response(response, lambda b: {
+            "repo_full_name": "",  # injected by entity_key_column
+            "name": b["name"],
+            "protected": str(b.get("protected", False)).lower(),
+            "commit_sha": b.get("commit", {}).get("sha", ""),
+        })
+```
+
+Each repo-scoped GitHub asset is ~35 lines. The base class handles all shared
+config, entity key injection, org filtering, and request/response boilerplate.
 
 ---
 
@@ -628,6 +666,20 @@ class PagerDutyIncidents(APIAsset):
     # more requests are in-flight concurrently, which helps when the
     # API has high latency (the next request starts while the previous
     # one is still in transit).
+
+    entity_key_column = None
+    # For ENTITY_PARALLEL assets where the API response does NOT include
+    # the parent entity identifier. When set, the framework automatically
+    # injects the entity key as this column into every DataFrame after
+    # parse_response().
+    #
+    # Example: GitHub branches endpoint (/repos/{owner}/{repo}/branches)
+    # returns [{"name": "main", ...}] — no repo info in the response.
+    # Setting entity_key_column = "repo_full_name" tells the framework
+    # to add repo_full_name = "org/repo" to each row automatically.
+    #
+    # Leave as None if the response already contains the parent identifier
+    # (e.g., GitHub PRs response includes base.repo.full_name).
 
     # ---------------------------------------------------------------
     # Load strategy
