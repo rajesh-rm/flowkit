@@ -30,10 +30,10 @@ class GitHubWorkflowJobs(GitHubRepoAsset):
     load_strategy = LoadStrategy.UPSERT
     default_run_mode = RunMode.FORWARD
 
+    # repo_full_name not included — JOIN to github_workflow_runs via run_id
     columns = [
         Column("id", "BIGINT", nullable=False),
         Column("run_id", "BIGINT"),
-        Column("repo_full_name", "TEXT"),
         Column("name", "TEXT"),
         Column("status", "TEXT"),
         Column("conclusion", "TEXT"),
@@ -66,14 +66,10 @@ class GitHubWorkflowJobs(GitHubRepoAsset):
             headers={"Accept": "application/vnd.github+json"},
         )
 
-    def build_request(self, context: RunContext, checkpoint=None) -> RequestSpec:
-        return self.build_entity_request({"id": 0, "repo_full_name": "_placeholder"}, context, checkpoint)
-
     def parse_response(self, response: dict[str, Any]) -> tuple[pd.DataFrame, PaginationState]:
         return self._parse_wrapped_response(response, "jobs", lambda j: {
             "id": j["id"],
             "run_id": j.get("run_id"),
-            "repo_full_name": "",
             "name": j.get("name"),
             "status": j.get("status"),
             "conclusion": j.get("conclusion"),

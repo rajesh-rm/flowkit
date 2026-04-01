@@ -49,9 +49,6 @@ class GitHubRunnerGroupRepos(GitHubRepoAsset):
             checkpoint,
         )
 
-    def build_request(self, context: RunContext, checkpoint=None) -> RequestSpec:
-        return self.build_entity_request(0, context, checkpoint)
-
     def parse_response(self, response: dict[str, Any]) -> tuple[pd.DataFrame, PaginationState]:
         return self._parse_wrapped_response(response, "repositories", lambda r: {
             "runner_group_id": 0,
