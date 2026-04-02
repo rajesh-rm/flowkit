@@ -147,7 +147,8 @@ For child resources (PRs per repo, issues per project). Parent entity keys are l
 ## Asset Definition: Two Paths
 
 - **RestAsset** (declarative) — for standard REST APIs. Declare endpoint, pagination, field_map as class attributes. No `build_request()`/`parse_response()` needed. See `sonarqube/projects.py`.
-- **APIAsset** (custom) — for APIs needing custom logic (JQL construction, keyset pagination, multi-org iteration). Override `build_request()` and `parse_response()`.
+- **APIAsset** (custom) — for APIs needing custom logic (JQL construction, keyset pagination, multi-org iteration). Override `parse_response()` and either `build_request()` (sequential) or `build_entity_request()` (entity-parallel).
+- **GitHubRepoAsset** (shared base) — for GitHub repo-scoped entity-parallel assets. Provides token manager, pagination, org filtering, and response parsing helpers. See `assets/github/branches.py`.
 
 ## Run Resilience
 

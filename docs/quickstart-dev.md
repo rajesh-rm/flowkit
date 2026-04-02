@@ -149,7 +149,7 @@ See [docs/extending.md](extending.md) for the comprehensive step-by-step guide. 
 | Symptom | Likely cause |
 |---------|-------------|
 | Asset not found in registry | Missing `@register` decorator or missing import in `__init__.py` |
-| `build_request` never called | Check `parallel_mode` — entity-parallel uses `build_entity_request` instead |
+| `build_request` never called | Entity-parallel assets use `build_entity_request` — no need to implement `build_request` |
 | API returns errors | `base_url` is empty — make sure env var is set and read at runtime in `build_request` |
 | Data missing from table | Column names in `parse_response` DataFrame don't match `columns` list |
 | Duplicate rows | Check `primary_key` is set correctly, use `UPSERT` load strategy |

@@ -1073,9 +1073,8 @@ Key details:
 - `entity_key` is a single value (string, int, etc.) from the parent asset's
   primary key column. If the parent has a composite PK, the framework passes
   a tuple.
-- You still need `build_request()` as well -- it serves as the fallback for
-  non-entity-parallel runs (e.g., when someone runs the asset in FULL mode
-  without a parent).
+- Entity-parallel assets do NOT need to implement `build_request()` — the
+  framework provides a default that delegates to `build_entity_request()`.
 - `parse_response()` is shared between entity-parallel and sequential modes.
   It does not know or care which entity it is parsing.
 
@@ -1630,7 +1629,8 @@ export ITEMS_API_URL="https://items.example.com"
 
 - **Check `parallel_mode`.** If you set `ENTITY_PARALLEL`, the framework calls
   `build_entity_request()` instead of `build_request()` for each entity.
-  `build_request()` is still called as a fallback for non-parallel runs.
+  Entity-parallel assets don't need to implement `build_request()` — the
+  default delegates to `build_entity_request()` automatically.
 - **Check the registry.** Verify your asset is registered:
   ```python
   from data_assets.core.registry import all_assets
