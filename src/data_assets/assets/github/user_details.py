@@ -27,7 +27,6 @@ class GitHubUserDetails(APIAsset):
 
     token_manager_class = GitHubAppTokenManager
     base_url = "https://api.github.com"
-    rate_limit_per_second = 10.0
 
     pagination_config = PaginationConfig(strategy="none")
     parallel_mode = ParallelMode.ENTITY_PARALLEL

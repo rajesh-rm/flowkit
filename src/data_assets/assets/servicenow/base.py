@@ -32,7 +32,6 @@ class ServiceNowTableAsset(APIAsset):
 
     token_manager_class = ServiceNowTokenManager
     base_url = ""
-    rate_limit_per_second = 10.0
 
     pagination_config = PaginationConfig(strategy="keyset", page_size=100)
     parallel_mode = ParallelMode.NONE
