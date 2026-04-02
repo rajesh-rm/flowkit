@@ -91,8 +91,6 @@ class SonarQubeIssues(APIAsset):
             params=params,
         )
 
-
-
     def parse_response(
         self,
         response: dict,

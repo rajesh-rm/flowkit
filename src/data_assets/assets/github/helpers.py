@@ -39,8 +39,9 @@ def filter_to_current_org(keys: list) -> list:
 class GitHubRepoAsset(APIAsset):
     """Base class for GitHub assets that fan out by repository.
 
-    Provides all shared config and the build_request→build_entity_request
-    delegation. Subclasses only need to define:
+    Provides shared config (token manager, rate limit, pagination, org
+    filtering, entity key injection) and helper methods for building
+    requests and parsing responses. Subclasses only need to define:
       - name, target_table, columns, primary_key
       - build_entity_request() — the URL and params for this endpoint
       - parse_response() — how to extract records from the API response

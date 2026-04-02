@@ -12,7 +12,6 @@ from data_assets.assets.github.helpers import (
     get_github_org,
 )
 from data_assets.core.column import Column
-from data_assets.core.enums import ParallelMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationState, RequestSpec
@@ -25,7 +24,6 @@ class GitHubRunnerGroupRepos(GitHubRepoAsset):
     name = "github_runner_group_repos"
     target_table = "github_runner_group_repos"
 
-    parallel_mode = ParallelMode.ENTITY_PARALLEL
     max_workers = 3
 
     parent_asset_name = "github_runner_groups"

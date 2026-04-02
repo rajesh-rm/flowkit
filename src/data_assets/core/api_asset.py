@@ -19,8 +19,10 @@ if TYPE_CHECKING:
 class APIAsset(Asset):
     """Base class for assets extracted from external HTTP APIs.
 
-    Subclasses must implement build_request() and parse_response().
-    Entity-parallel assets must also implement build_entity_request().
+    Subclasses must implement parse_response().
+    Sequential assets must also implement build_request().
+    Entity-parallel assets must implement build_entity_request() instead
+    (build_request() has a default that delegates to it).
     """
 
     asset_type = AssetType.API
