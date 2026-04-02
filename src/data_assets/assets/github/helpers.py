@@ -67,11 +67,6 @@ class GitHubRepoAsset(APIAsset):
     def filter_entity_keys(self, keys: list) -> list:
         return filter_to_current_org(keys)
 
-    def build_request(
-        self, context: RunContext, checkpoint: dict | None = None,
-    ) -> RequestSpec:
-        return self.build_entity_request("_placeholder", context, checkpoint)
-
     def _paginated_entity_request(
         self, entity_key: str, url_path: str,
         checkpoint: dict | None = None,

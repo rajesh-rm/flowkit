@@ -103,7 +103,7 @@ class TestSonarQubeIssues:
         assert "update_date" in df.columns
 
     def test_build_request_delegates_to_entity(self, sonarqube_env):
-        """build_request (abstract method) delegates to build_entity_request."""
+        """build_request default delegates to build_entity_request for entity-parallel."""
         from data_assets.assets.sonarqube.issues import SonarQubeIssues
 
         spec = SonarQubeIssues().build_request(make_ctx())

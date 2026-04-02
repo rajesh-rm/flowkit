@@ -91,14 +91,7 @@ class SonarQubeIssues(APIAsset):
             params=params,
         )
 
-    def build_request(
-        self,
-        context: RunContext,
-        checkpoint: dict | None = None,
-    ) -> RequestSpec:
-        # Entity-parallel asset — build_entity_request is the real entry point.
-        # This satisfies the abstract method contract.
-        return self.build_entity_request("_all", context, checkpoint)
+
 
     def parse_response(
         self,

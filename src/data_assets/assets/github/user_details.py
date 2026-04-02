@@ -61,9 +61,6 @@ class GitHubUserDetails(APIAsset):
             headers={"Accept": "application/vnd.github+json"},
         )
 
-    def build_request(self, context: RunContext, checkpoint=None) -> RequestSpec:
-        return self.build_entity_request("_placeholder", context, checkpoint)
-
     def parse_response(self, response: dict[str, Any]) -> tuple[pd.DataFrame, PaginationState]:
         if not response or "login" not in response:
             return pd.DataFrame(columns=[c.name for c in self.columns]), PaginationState(has_more=False)

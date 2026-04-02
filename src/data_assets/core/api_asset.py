@@ -91,12 +91,19 @@ class APIAsset(Asset):
         """
         return False
 
-    @abstractmethod
     def build_request(
         self, context: RunContext, checkpoint: dict | None = None
     ) -> RequestSpec:
-        """Construct the HTTP request for the current extraction window."""
-        ...
+        """Construct the HTTP request for the current extraction window.
+
+        For entity-parallel assets, defaults to delegating to build_entity_request().
+        Sequential assets must override this method.
+        """
+        if self.parallel_mode == ParallelMode.ENTITY_PARALLEL:
+            return self.build_entity_request("_default", context, checkpoint)
+        raise NotImplementedError(
+            f"Asset '{self.name}' must implement build_request()"
+        )
 
     @abstractmethod
     def parse_response(self, response: Any) -> tuple[pd.DataFrame, PaginationState]:

@@ -83,9 +83,6 @@ class SonarQubeMeasures(APIAsset):
             },
         )
 
-    def build_request(self, context: RunContext, checkpoint: dict | None = None) -> RequestSpec:
-        return self.build_entity_request("_all", context, checkpoint)
-
     def parse_response(self, response: Any) -> tuple[pd.DataFrame, PaginationState]:
         component = response.get("component", {})
         project_key = component.get("key", "")
