@@ -28,7 +28,7 @@ from data_assets.core.api_asset import APIAsset
 from data_assets.core.asset import Asset
 from data_assets.core.enums import ParallelMode, RunMode
 from data_assets.core.identifiers import uuid7
-from data_assets.core.registry import discover, get
+from data_assets.core.registry import all_assets, discover, get
 from data_assets.core.run_context import RunContext
 from data_assets.core.transform_asset import TransformAsset
 from data_assets.db.engine import get_engine
@@ -82,7 +82,6 @@ def _ensure_initialized(engine: Engine) -> None:
             return
         create_all_tables(engine)
         discover()
-        from data_assets.core.registry import all_assets
         register_asset_metadata(engine, all_assets())
         _initialized = True
 

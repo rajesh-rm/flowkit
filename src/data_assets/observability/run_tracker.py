@@ -116,31 +116,36 @@ def register_asset_metadata(engine: Engine, assets: dict[str, type]) -> None:
     target_schema, target_table, and load_strategy are queryable for
     ops dashboards — even before the first run completes.
     """
+    if not assets:
+        return
+
     now = datetime.now(UTC)
+    rows = []
+    for name, cls in assets.items():
+        asset = cls()
+        source = getattr(asset, "source_name", "") or None  # normalize "" to None
+        rows.append({
+            "asset_name": name,
+            "asset_type": asset.asset_type,
+            "source_name": source,
+            "target_schema": asset.target_schema,
+            "target_table": asset.target_table,
+            "load_strategy": asset.load_strategy.value,
+            "registered_at": now,
+        })
+
+    # Batch upsert — single INSERT for all assets
+    exclude = {"asset_name", "registered_at"}
+    update_set = {k: rows[0][k] for k in rows[0] if k not in exclude}
+    # Use EXCLUDED references so each row updates with its own values
+    stmt = pg_insert(AssetRegistry).values(rows)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["asset_name"],
+        set_={k: stmt.excluded[k] for k in update_set},
+    )
+
     with Session(engine) as session:
-        for name, cls in assets.items():
-            asset = cls()
-            values = {
-                "asset_name": name,
-                "asset_type": getattr(asset, "asset_type", "unknown"),
-                "source_name": getattr(asset, "source_name", None),
-                "target_schema": asset.target_schema,
-                "target_table": asset.target_table,
-                "load_strategy": asset.load_strategy.value,
-                "registered_at": now,
-            }
-            update_set = {k: v for k, v in values.items() if k != "asset_name"}
-            # Don't overwrite last_success_at or config on re-registration
-            update_set.pop("registered_at", None)
-            stmt = (
-                pg_insert(AssetRegistry)
-                .values(**values)
-                .on_conflict_do_update(
-                    index_elements=["asset_name"],
-                    set_=update_set,
-                )
-            )
-            session.execute(stmt)
+        session.execute(stmt)
         session.commit()
 
 
