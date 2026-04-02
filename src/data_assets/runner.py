@@ -57,6 +57,7 @@ from data_assets.observability.run_tracker import (
     record_run_failure,
     record_run_start,
     record_run_success,
+    register_asset_metadata,
     update_coverage,
     update_last_success,
 )
@@ -72,7 +73,7 @@ _init_lock = threading.Lock()
 
 
 def _ensure_initialized(engine: Engine) -> None:
-    """One-time initialization: create schemas/tables, discover assets."""
+    """One-time initialization: create schemas/tables, discover assets, register metadata."""
     global _initialized
     if _initialized:
         return
@@ -81,6 +82,8 @@ def _ensure_initialized(engine: Engine) -> None:
             return
         create_all_tables(engine)
         discover()
+        from data_assets.core.registry import all_assets
+        register_asset_metadata(engine, all_assets())
         _initialized = True
 
 

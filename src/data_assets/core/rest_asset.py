@@ -182,6 +182,7 @@ class RestAsset(APIAsset):
             return PaginationState(has_more=False)
 
         raise ValueError(
-            f"Unknown pagination strategy '{strategy}'. "
-            "Expected: page_number, offset, cursor, or none."
+            f"Unknown pagination strategy '{strategy}' for RestAsset. "
+            "Supported: page_number, offset, cursor, none. "
+            "For keyset pagination, use APIAsset directly."
         )

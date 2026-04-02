@@ -361,6 +361,14 @@ class TestGitHubWorkflowJobs:
 
         assert GitHubWorkflowJobs().parent_asset_name == "github_workflow_runs"
 
+    def test_rejects_non_dict_entity_key(self, github_env):
+        import pytest
+
+        from data_assets.assets.github.workflow_jobs import GitHubWorkflowJobs
+
+        with pytest.raises(TypeError, match="dict entity_key"):
+            GitHubWorkflowJobs().build_entity_request(12345, make_ctx())
+
 
 # ---------------------------------------------------------------------------
 # GitHubUserDetails

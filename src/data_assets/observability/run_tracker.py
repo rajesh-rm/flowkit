@@ -109,6 +109,41 @@ def update_coverage(
         session.commit()
 
 
+def register_asset_metadata(engine: Engine, assets: dict[str, type]) -> None:
+    """Upsert all registered assets into data_ops.asset_registry.
+
+    Called once during initialization so that source_name, asset_type,
+    target_schema, target_table, and load_strategy are queryable for
+    ops dashboards — even before the first run completes.
+    """
+    now = datetime.now(UTC)
+    with Session(engine) as session:
+        for name, cls in assets.items():
+            asset = cls()
+            values = {
+                "asset_name": name,
+                "asset_type": getattr(asset, "asset_type", "unknown"),
+                "source_name": getattr(asset, "source_name", None),
+                "target_schema": asset.target_schema,
+                "target_table": asset.target_table,
+                "load_strategy": asset.load_strategy.value,
+                "registered_at": now,
+            }
+            update_set = {k: v for k, v in values.items() if k != "asset_name"}
+            # Don't overwrite last_success_at or config on re-registration
+            update_set.pop("registered_at", None)
+            stmt = (
+                pg_insert(AssetRegistry)
+                .values(**values)
+                .on_conflict_do_update(
+                    index_elements=["asset_name"],
+                    set_=update_set,
+                )
+            )
+            session.execute(stmt)
+        session.commit()
+
+
 def update_last_success(engine: Engine, asset_name: str) -> None:
     """Set last_success_at on the asset_registry row."""
     now = datetime.now(UTC)

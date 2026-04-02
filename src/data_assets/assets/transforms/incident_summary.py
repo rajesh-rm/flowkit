@@ -15,7 +15,6 @@ class IncidentSummary(TransformAsset):
     description = "Daily incident summary aggregated from raw ServiceNow incidents"
     target_schema = "mart"
     target_table = "incident_summary"
-    source_schema = "raw"
     source_tables = ["servicenow_incidents"]
     default_run_mode = RunMode.TRANSFORM
     load_strategy = LoadStrategy.FULL_REPLACE
