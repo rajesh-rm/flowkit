@@ -23,7 +23,7 @@ This catalog documents every built-in asset. Use it as a reference when building
 
 **Why UPSERT for issues?** In FORWARD mode we fetch issues created since the last run. The same issue key might appear in multiple runs if it was updated, so we upsert by PK to avoid duplicates.
 
-**Not yet implemented** (from the reference API): `/api/project_branches/list` and `/api/project_analyses/search` — these endpoints don't include the project key in the response body, requiring entity-key injection support to be added to the extraction framework first.
+**Not yet implemented** (from the reference API): `/api/project_branches/list` and `/api/project_analyses/search`. These can be built as entity-parallel assets using `entity_key_column = "project_key"` — the same pattern used by GitHub branches, commits, and workflows.
 
 ---
 
