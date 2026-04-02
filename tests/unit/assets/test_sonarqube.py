@@ -102,12 +102,14 @@ class TestSonarQubeIssues:
         assert "creation_date" in df.columns
         assert "update_date" in df.columns
 
-    def test_build_request_delegates_to_entity(self, sonarqube_env):
-        """build_request default delegates to build_entity_request for entity-parallel."""
+    def test_build_request_raises_for_entity_parallel(self, sonarqube_env):
+        """Entity-parallel assets should use build_entity_request, not build_request."""
+        import pytest
+
         from data_assets.assets.sonarqube.issues import SonarQubeIssues
 
-        spec = SonarQubeIssues().build_request(make_ctx())
-        assert "componentKeys" in spec.params
+        with pytest.raises(NotImplementedError):
+            SonarQubeIssues().build_request(make_ctx())
 
     def test_pagination_state(self, sonarqube_env):
         """Verify pagination math from real-style response."""
