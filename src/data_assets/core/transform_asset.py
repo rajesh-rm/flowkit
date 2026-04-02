@@ -21,7 +21,6 @@ class TransformAsset(Asset):
     target_schema: str = "mart"
 
     # --- Source ---
-    source_schema: str = "raw"
     source_tables: list[str] = []
 
     @abstractmethod

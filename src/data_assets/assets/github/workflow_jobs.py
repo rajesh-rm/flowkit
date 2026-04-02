@@ -50,12 +50,13 @@ class GitHubWorkflowJobs(GitHubRepoAsset):
         return keys
 
     def build_entity_request(self, entity_key: Any, context: RunContext, checkpoint=None) -> RequestSpec:
-        if isinstance(entity_key, dict):
-            run_id = entity_key["id"]
-            repo = entity_key["repo_full_name"]
-        else:
-            run_id = entity_key
-            repo = "_unknown"
+        if not isinstance(entity_key, dict):
+            raise TypeError(
+                f"GitHubWorkflowJobs expects dict entity_key with 'id' and "
+                f"'repo_full_name' keys (got {type(entity_key).__name__})"
+            )
+        run_id = entity_key["id"]
+        repo = entity_key["repo_full_name"]
 
         page = (checkpoint.get("next_page") or 1) if checkpoint else 1
         base = get_github_base_url()

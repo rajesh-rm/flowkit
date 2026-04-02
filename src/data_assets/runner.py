@@ -28,7 +28,7 @@ from data_assets.core.api_asset import APIAsset
 from data_assets.core.asset import Asset
 from data_assets.core.enums import ParallelMode, RunMode
 from data_assets.core.identifiers import uuid7
-from data_assets.core.registry import discover, get
+from data_assets.core.registry import all_assets, discover, get
 from data_assets.core.run_context import RunContext
 from data_assets.core.transform_asset import TransformAsset
 from data_assets.db.engine import get_engine
@@ -57,6 +57,7 @@ from data_assets.observability.run_tracker import (
     record_run_failure,
     record_run_start,
     record_run_success,
+    register_asset_metadata,
     update_coverage,
     update_last_success,
 )
@@ -72,7 +73,7 @@ _init_lock = threading.Lock()
 
 
 def _ensure_initialized(engine: Engine) -> None:
-    """One-time initialization: create schemas/tables, discover assets."""
+    """One-time initialization: create schemas/tables, discover assets, register metadata."""
     global _initialized
     if _initialized:
         return
@@ -81,6 +82,7 @@ def _ensure_initialized(engine: Engine) -> None:
             return
         create_all_tables(engine)
         discover()
+        register_asset_metadata(engine, all_assets())
         _initialized = True
 
 

@@ -109,6 +109,46 @@ def update_coverage(
         session.commit()
 
 
+def register_asset_metadata(engine: Engine, assets: dict[str, type]) -> None:
+    """Upsert all registered assets into data_ops.asset_registry.
+
+    Called once during initialization so that source_name, asset_type,
+    target_schema, target_table, and load_strategy are queryable for
+    ops dashboards — even before the first run completes.
+    """
+    if not assets:
+        return
+
+    now = datetime.now(UTC)
+    rows = []
+    for name, cls in assets.items():
+        asset = cls()
+        source = getattr(asset, "source_name", "") or None  # normalize "" to None
+        rows.append({
+            "asset_name": name,
+            "asset_type": asset.asset_type,
+            "source_name": source,
+            "target_schema": asset.target_schema,
+            "target_table": asset.target_table,
+            "load_strategy": asset.load_strategy.value,
+            "registered_at": now,
+        })
+
+    # Batch upsert — single INSERT for all assets
+    exclude = {"asset_name", "registered_at"}
+    update_set = {k: rows[0][k] for k in rows[0] if k not in exclude}
+    # Use EXCLUDED references so each row updates with its own values
+    stmt = pg_insert(AssetRegistry).values(rows)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["asset_name"],
+        set_={k: stmt.excluded[k] for k in update_set},
+    )
+
+    with Session(engine) as session:
+        session.execute(stmt)
+        session.commit()
+
+
 def update_last_success(engine: Engine, asset_name: str) -> None:
     """Set last_success_at on the asset_registry row."""
     now = datetime.now(UTC)
