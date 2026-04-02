@@ -57,8 +57,8 @@ This catalog documents every built-in asset. Use it as a reference when building
 | Asset | Table | Load | API Endpoint |
 |-------|-------|------|--------------|
 | `github_repos` | `raw.github_repos` | UPSERT | `/orgs/{org}/repos` |
-| `github_members` | `raw.github_members` | FULL_REPLACE | `/orgs/{org}/members` |
-| `github_runner_groups` | `raw.github_runner_groups` | FULL_REPLACE | `/orgs/{org}/actions/runner-groups` |
+| `github_members` | `raw.github_members` | UPSERT | `/orgs/{org}/members` |
+| `github_runner_groups` | `raw.github_runner_groups` | UPSERT | `/orgs/{org}/actions/runner-groups` |
 
 ### Repo-scoped assets (entity-parallel off github_repos)
 
