@@ -86,7 +86,7 @@ When an API response doesn't include the parent identifier (e.g., branches endpo
 - **Multi-org:** One Airflow DAG per org. Each org can have its own GitHub App installation ID.
 - **Incremental commits:** Uses GitHub's `since` query parameter for efficient forward sync.
 - **Incremental PRs/runs:** Sort by `updated desc` with `should_stop()` watermark detection (no `since` param available).
-- **Workflow jobs:** Composite entity key `(repo_full_name, run_id)` loaded from `github_workflow_runs` table via `_load_entity_keys()`.
+- **Workflow jobs:** Composite entity key `(repo_full_name, id)` loaded from `github_workflow_runs` table. The repo and run_id are used to build the URL; join to `github_workflow_runs` via `run_id` for repo context.
 - **Shared helpers:** `get_github_org()`, `get_github_base_url()`, `filter_to_current_org()` in `assets/github/helpers.py`.
 
 ---

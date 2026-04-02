@@ -628,7 +628,7 @@ class PagerDutyIncidents(APIAsset):
     # cursor_field: only used with strategy="cursor". The JSON key in the
     #   API response that contains the cursor for the next page.
     #
-    # total_field: only used with strategy="page_number" + PAGE_PARALLEL.
+    # total_path: only used with strategy="page_number" + PAGE_PARALLEL.
     #   Dot-separated path to the total-records field in the response
     #   (e.g., "paging.total"). The framework uses this to calculate
     #   total pages and fan out parallel fetches.
@@ -650,7 +650,7 @@ class PagerDutyIncidents(APIAsset):
     #   fetch pages 2..N concurrently across max_workers threads.
     #   Use when: the first response tells you the total pages/records
     #   (e.g., SonarQube returns paging.total).
-    #   Requires: total_field in PaginationConfig (e.g., "paging.total").
+    #   Requires: total_path in PaginationConfig (e.g., "paging.total").
     #
     # ParallelMode.ENTITY_PARALLEL:
     #   Fan out one request per entity_key from a parent asset.
@@ -1838,13 +1838,21 @@ Copy `servicenow/incidents.py` (APIAsset with keyset pagination). Key settings:
 
 ### Adding a GitHub endpoint
 
-Copy `github/pull_requests.py` (APIAsset with entity-parallel). Key settings:
-- `token_manager_class = GitHubAppTokenManager`
-- Pagination: `{"strategy": "page_number", "page_size": 100}`
-- GitHub uses `per_page` + `page` params (not `ps`/`p`)
-- Always include `Accept: application/vnd.github+json` header
-- For child data (commits, reviews): use ENTITY_PARALLEL with `parent_asset_name = "github_repos"`
-- **`since` param**: works on `/repos/{o}/{r}/issues` and `/repos/{o}/{r}/commits` but NOT on `/pulls`
+For repo-scoped endpoints, inherit from `GitHubRepoAsset` (in `assets/github/helpers.py`).
+Copy `github/branches.py` as a starting template — it's the simplest at ~40 lines.
+
+Key settings (provided by `GitHubRepoAsset` base class):
+- `token_manager_class`, `rate_limit_per_second`, `pagination_config`, `parallel_mode`, `max_workers`
+- `parent_asset_name = "github_repos"`, `entity_key_column = "repo_full_name"`
+- `filter_entity_keys()` (org filtering), `build_request()` (default delegation)
+
+You only need to define:
+- `name`, `target_table`, `columns`, `primary_key`
+- `build_entity_request()` — use `self._paginated_entity_request(entity_key, url_path, checkpoint)`
+- `parse_response()` — use `self._parse_array_response(response, record_fn)` or `self._parse_wrapped_response(response, items_key, record_fn)`
+
+For org-level endpoints (members, runner groups), inherit from `APIAsset` directly.
+- **`since` param**: works on `/repos/{o}/{r}/commits` but NOT on `/pulls`
 - GitHub REST API docs: https://docs.github.com/en/rest
 
 ### Adding a Jira endpoint

@@ -144,7 +144,7 @@ For child resources (PRs per repo, issues per project). Parent entity keys are l
 - **Error handling**: `SkippedRequestError` (e.g., 404) skips the entity, doesn't kill the run
 - **Thread pool**: `_run_workers()` caps pool size at `min(max_workers, work_units)` — no wasted threads
 
-## Asset Definition: Two Paths
+## Asset Definition: Three Paths
 
 - **RestAsset** (declarative) — for standard REST APIs. Declare endpoint, pagination, field_map as class attributes. No `build_request()`/`parse_response()` needed. See `sonarqube/projects.py`.
 - **APIAsset** (custom) — for APIs needing custom logic (JQL construction, keyset pagination, multi-org iteration). Override `parse_response()` and either `build_request()` (sequential) or `build_entity_request()` (entity-parallel).
