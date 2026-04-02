@@ -1170,7 +1170,6 @@ class TransformAsset(Asset):
     default_run_mode = RunMode.TRANSFORM
     load_strategy = LoadStrategy.FULL_REPLACE
     target_schema = "mart"       # convention: transforms go in "mart" schema
-    source_schema = "raw"
     source_tables: list[str] = []
 
     @abstractmethod
@@ -1203,11 +1202,9 @@ class PagerDutyIncidentSummary(TransformAsset):
     target_schema = "mart"
     target_table = "pagerduty_incident_summary"
 
-    source_schema = "raw"
     source_tables = ["pagerduty_incidents"]
-    # source_tables is informational -- it documents which raw tables
-    # this transform depends on. The framework uses it for dependency
-    # ordering (run raw assets before their transforms).
+    # source_tables documents which raw tables this transform depends on.
+    # The framework uses it for freshness checks and dependency ordering.
 
     default_run_mode = RunMode.TRANSFORM
     load_strategy = LoadStrategy.FULL_REPLACE
