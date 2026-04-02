@@ -37,7 +37,6 @@ class GitHubRepos(APIAsset):
 
     token_manager_class = GitHubAppTokenManager
     base_url = "https://api.github.com"
-    rate_limit_per_second = 10.0
 
     pagination_config = PaginationConfig(strategy="page_number", page_size=100)
     parallel_mode = ParallelMode.NONE
