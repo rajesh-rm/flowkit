@@ -98,11 +98,10 @@ class APIAsset(Asset):
     ) -> RequestSpec:
         """Construct the HTTP request for the current extraction window.
 
-        For entity-parallel assets, defaults to delegating to build_entity_request().
-        Sequential assets must override this method.
+        Sequential and page-parallel assets must override this method.
+        Entity-parallel assets use build_entity_request() instead — the
+        extraction framework calls it directly, bypassing build_request().
         """
-        if self.parallel_mode == ParallelMode.ENTITY_PARALLEL:
-            return self.build_entity_request("_default", context, checkpoint)
         raise NotImplementedError(
             f"Asset '{self.name}' must implement build_request()"
         )

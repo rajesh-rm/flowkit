@@ -6,7 +6,7 @@ from typing import Any
 
 import pandas as pd
 
-from data_assets.assets.github.helpers import GitHubRepoAsset, get_github_base_url
+from data_assets.assets.github.helpers import GitHubRepoAsset
 from data_assets.core.column import Column
 from data_assets.core.enums import LoadStrategy, RunMode
 from data_assets.core.registry import register
@@ -59,19 +59,9 @@ class GitHubPullRequests(GitHubRepoAsset):
         context: RunContext,
         checkpoint: dict[str, Any] | None = None,
     ) -> RequestSpec:
-        page = (checkpoint.get("next_page") or 1) if checkpoint else 1
-        base = get_github_base_url()
-        return RequestSpec(
-            method="GET",
-            url=f"{base}/repos/{entity_key}/pulls",
-            params={
-                "per_page": 100,
-                "page": page,
-                "state": "all",
-                "sort": "updated",
-                "direction": "desc",
-            },
-            headers={"Accept": "application/vnd.github+json"},
+        return self._paginated_entity_request(
+            entity_key, f"/repos/{entity_key}/pulls", checkpoint,
+            extra_params={"state": "all", "sort": "updated", "direction": "desc"},
         )
 
     def parse_response(
