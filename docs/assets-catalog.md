@@ -27,12 +27,13 @@ This catalog documents every built-in asset. Use it as a reference when building
 
 ## ServiceNow
 
-**Authentication:** OAuth2 client_credentials or Basic Auth — `ServiceNowTokenManager`
+**Client:** [pysnc](https://github.com/ServiceNow/PySNC) (GlideRecord interface) — ServiceNow's official Python client
+**Authentication:** OAuth2 password grant (username + password + client_id + client_secret) or Basic Auth (username + password)
 **API docs:** https://docs.servicenow.com/bundle/latest/page/integrate/inbound-rest/concept/c_TableAPI.html
 
-All ServiceNow assets share `ServiceNowTableAsset` base class — `build_request()` and `parse_response()` are defined once. Subclasses only set `table_name` and `columns`.
+All ServiceNow assets share `ServiceNowTableAsset` base class. Extraction uses pysnc's `GlideRecord` with automatic pagination, retry, and auth — bypassing the httpx API pipeline entirely. Subclasses only set `table_name` and `columns`.
 
-**Performance optimizations:** All assets pass `sysparm_fields` (only fetch declared columns), `sysparm_exclude_reference_link=true` (suppress verbose reference link objects), and `sysparm_no_count=true` (skip expensive server-side COUNT). Page size is 1000.
+**Extraction flow:** pysnc handles HTTP, auth, and pagination natively. The `extract()` method on `ServiceNowTableAsset` creates a `GlideRecord`, sets fields from `self.columns`, applies date filters, and iterates results in batches of 1000.
 
 ### ITSM tables
 

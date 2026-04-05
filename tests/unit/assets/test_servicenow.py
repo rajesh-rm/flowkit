@@ -5,6 +5,9 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from data_assets.core.enums import LoadStrategy, RunMode
 from tests.unit.conftest import make_ctx
@@ -131,6 +134,143 @@ class TestServiceNowTableAssetBase:
         assert asset.pagination_config.strategy == "keyset"
         assert asset.pagination_config.page_size == 1000
         assert asset.date_column == "sys_updated_on"
+
+
+# ---------------------------------------------------------------------------
+# pysnc client creation
+# ---------------------------------------------------------------------------
+
+
+class TestPysncClientCreation:
+    def test_basic_auth(self, servicenow_env):
+        from data_assets.assets.servicenow.incidents import ServiceNowIncidents
+
+        with patch("pysnc.ServiceNowClient") as mock_cls:
+            ServiceNowIncidents()._create_pysnc_client()
+            mock_cls.assert_called_once_with(
+                "https://dev.service-now.com", ("admin", "pass"),
+            )
+
+    def test_oauth2_when_all_creds_set(self, servicenow_env, monkeypatch):
+        from data_assets.assets.servicenow.incidents import ServiceNowIncidents
+
+        monkeypatch.setenv("SERVICENOW_CLIENT_ID", "cid")
+        monkeypatch.setenv("SERVICENOW_CLIENT_SECRET", "csec")
+
+        with (
+            patch("pysnc.ServiceNowClient") as mock_cls,
+            patch("pysnc.auth.ServiceNowPasswordGrantFlow") as mock_flow,
+        ):
+            ServiceNowIncidents()._create_pysnc_client()
+            mock_flow.assert_called_once_with("admin", "pass", "cid", "csec")
+            mock_cls.assert_called_once()
+
+    def test_missing_instance_raises(self, monkeypatch):
+        from data_assets.assets.servicenow.incidents import ServiceNowIncidents
+
+        monkeypatch.delenv("SERVICENOW_INSTANCE", raising=False)
+        with pytest.raises(RuntimeError, match="SERVICENOW_INSTANCE"):
+            ServiceNowIncidents()._create_pysnc_client()
+
+    def test_missing_credentials_raises(self, monkeypatch):
+        from data_assets.assets.servicenow.incidents import ServiceNowIncidents
+
+        monkeypatch.setenv("SERVICENOW_INSTANCE", "https://test.service-now.com")
+        with pytest.raises(RuntimeError, match="SERVICENOW_USERNAME"):
+            ServiceNowIncidents()._create_pysnc_client()
+
+
+# ---------------------------------------------------------------------------
+# pysnc extract() method
+# ---------------------------------------------------------------------------
+
+
+class TestPysncExtract:
+    def _make_mock_gr(self, records):
+        """Create a mock GlideRecord that iterates over records."""
+        gr = MagicMock()
+        mock_records = []
+        for rec in records:
+            mock_record = MagicMock()
+            mock_record.serialize.return_value = rec
+            mock_records.append(mock_record)
+        gr.__iter__ = MagicMock(return_value=iter(mock_records))
+        return gr
+
+    def test_extract_writes_to_temp_table(self, servicenow_env):
+        from data_assets.assets.servicenow.incidents import ServiceNowIncidents
+
+        records = [
+            {"sys_id": "a1", "number": "INC001", "state": "1",
+             "sys_updated_on": "2025-12-01T10:00:00Z"},
+            {"sys_id": "a2", "number": "INC002", "state": "2",
+             "sys_updated_on": "2025-12-01T11:00:00Z"},
+        ]
+        mock_gr = self._make_mock_gr(records)
+        mock_client = MagicMock()
+        mock_client.GlideRecord.return_value = mock_gr
+
+        asset = ServiceNowIncidents()
+        engine = MagicMock()
+
+        with (
+            patch.object(asset, "_create_pysnc_client", return_value=mock_client),
+            patch(
+                "data_assets.assets.servicenow.base.write_to_temp", return_value=2,
+            ) as mock_write,
+        ):
+            rows = asset.extract(engine, "temp_incidents", make_ctx())
+
+        assert rows == 2
+        mock_write.assert_called_once()
+        df = mock_write.call_args[0][2]
+        assert len(df) == 2
+        assert list(df["sys_id"]) == ["a1", "a2"]
+
+    def test_extract_applies_date_filter(self, servicenow_env):
+        from data_assets.assets.servicenow.incidents import ServiceNowIncidents
+
+        mock_gr = self._make_mock_gr([])
+        mock_client = MagicMock()
+        mock_client.GlideRecord.return_value = mock_gr
+
+        asset = ServiceNowIncidents()
+        ctx = make_ctx(start_date=datetime(2025, 6, 1, tzinfo=UTC))
+
+        with (
+            patch.object(asset, "_create_pysnc_client", return_value=mock_client),
+            patch("data_assets.assets.servicenow.base.write_to_temp", return_value=0),
+        ):
+            asset.extract(MagicMock(), "temp", ctx)
+
+        mock_gr.add_query.assert_called_once_with(
+            "sys_updated_on", ">=", "2025-06-01 00:00:00",
+        )
+
+    def test_extract_sets_fields(self, servicenow_env):
+        from data_assets.assets.servicenow.incidents import ServiceNowIncidents
+
+        mock_gr = self._make_mock_gr([])
+        mock_client = MagicMock()
+        mock_client.GlideRecord.return_value = mock_gr
+
+        asset = ServiceNowIncidents()
+
+        with (
+            patch.object(asset, "_create_pysnc_client", return_value=mock_client),
+            patch("data_assets.assets.servicenow.base.write_to_temp", return_value=0),
+        ):
+            asset.extract(MagicMock(), "temp", make_ctx())
+
+        expected_fields = [c.name for c in asset.columns]
+        assert mock_gr.fields == expected_fields
+
+    def test_extract_returns_none_not_called_on_base_asset(self):
+        """Base Asset.extract() returns None (standard pipeline)."""
+        from data_assets.core.asset import Asset
+
+        # Can't instantiate ABC, but can test the method exists
+        assert Asset.extract(MagicMock(), MagicMock(), "t", make_ctx()) is None
 
 
 # ---------------------------------------------------------------------------
