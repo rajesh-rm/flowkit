@@ -124,8 +124,10 @@ def register_asset_metadata(engine: Engine, assets: dict[str, type]) -> None:
     for name, cls in assets.items():
         asset = cls()
         source = getattr(asset, "source_name", "") or None  # normalize "" to None
+        desc = asset.description or None  # normalize "" to None
         rows.append({
             "asset_name": name,
+            "description": desc,
             "asset_type": asset.asset_type,
             "source_name": source,
             "target_schema": asset.target_schema,
