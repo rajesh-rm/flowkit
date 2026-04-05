@@ -7,6 +7,7 @@ retry, and auth — bypassing the httpx API pipeline entirely.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -138,17 +139,13 @@ class ServiceNowTableAsset(APIAsset):
         return df[[c for c in column_names if c in df.columns]]
 
     # -----------------------------------------------------------------------
-    # Legacy httpx pipeline methods (kept for parse_response @abstractmethod
-    # contract — not called when extract() is used)
+    # Direct Table API methods (satisfy @abstractmethod, used in unit tests)
     # -----------------------------------------------------------------------
 
     def build_request(
         self, context: RunContext, checkpoint: dict[str, Any] | None = None,
     ) -> RequestSpec:
-        """Build Table API request. Not used in production (pysnc handles
-        requests), but satisfies the APIAsset interface for testing."""
-        import json
-
+        """Build a Table API request spec for unit testing and diagnostics."""
         base = os.environ.get("SERVICENOW_INSTANCE", "")
         url = f"{base}/api/now/table/{self.table_name}"
 
@@ -180,8 +177,7 @@ class ServiceNowTableAsset(APIAsset):
     def parse_response(
         self, response: dict[str, Any],
     ) -> tuple[pd.DataFrame, PaginationState]:
-        """Parse Table API response. Not used in production (pysnc handles
-        parsing), but satisfies the @abstractmethod contract for testing."""
+        """Parse a Table API JSON response for unit testing and diagnostics."""
         results: list[dict[str, Any]] = response.get("result", [])
 
         if results:
@@ -195,8 +191,6 @@ class ServiceNowTableAsset(APIAsset):
 
         cursor = None
         if results:
-            import json
-
             last = results[-1]
             cursor = json.dumps({
                 "sys_updated_on": last.get("sys_updated_on", ""),
