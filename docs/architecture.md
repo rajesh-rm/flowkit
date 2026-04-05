@@ -32,7 +32,7 @@
 When Airflow calls `run_asset("my_asset", mode="forward")`:
 
 1. **Initialize** — Discover assets, acquire lock, read coverage watermarks, check for retry checkpoints
-2. **Extract** — Fetch data via API client (sequential, page-parallel, or entity-parallel) into a temp table
+2. **Extract** — Fetch data via API client or custom `extract()` hook (e.g., pysnc for ServiceNow) into a temp table
 3. **Transform & Validate** — Apply `asset.transform(df)`, run `asset.validate(df, context)`
 4. **Promote** — Move from temp table to main table via FULL_REPLACE, UPSERT, or APPEND (single transaction)
 5. **Finalize** — Update coverage tracker, record metrics, clear checkpoints, drop temp table, release lock
@@ -75,6 +75,27 @@ This diagram shows how data flows through a single extraction cycle:
                        │  state.has_more?
                        │  YES → loop back to build_request()
                        │  NO  → proceed to transform & validate
+```
+
+**Alternative path — `extract()` hook (e.g., ServiceNow/pysnc):**
+
+Assets that override `extract()` bypass the diagram above. The runner calls `asset.extract(engine, temp_table, context)` directly, and the asset handles fetching and writing to the temp table using its own client:
+
+```
+                    ┌──────────────┐
+                    │  Runner      │
+                    │  run_asset() │
+                    └──────┬───────┘
+                           │
+              ┌────────────▼────────────┐
+              │ asset.extract()          │
+              │  ├─ create SDK client    │
+              │  ├─ iterate records      │
+              │  └─ write_to_temp()      │
+              └────────────┬────────────┘
+                           │
+                   proceed to transform
+                   & validate
 ```
 
 ## Rate Limiter + Parallel Workers
@@ -144,11 +165,12 @@ For child resources (PRs per repo, issues per project). Parent entity keys are l
 - **Error handling**: `SkippedRequestError` (e.g., 404) skips the entity, doesn't kill the run
 - **Thread pool**: `_run_workers()` caps pool size at `min(max_workers, work_units)` — no wasted threads
 
-## Asset Definition: Three Paths
+## Asset Definition: Four Paths
 
 - **RestAsset** (declarative) — for standard REST APIs. Declare endpoint, pagination, field_map as class attributes. No `build_request()`/`parse_response()` needed. See `sonarqube/projects.py`.
 - **APIAsset** (custom) — for APIs needing custom logic (JQL construction, keyset pagination, multi-org iteration). Override `parse_response()` and either `build_request()` (sequential) or `build_entity_request()` (entity-parallel).
 - **GitHubRepoAsset** (shared base) — for GitHub repo-scoped entity-parallel assets. Provides token manager, pagination, org filtering, and response parsing helpers. See `assets/github/branches.py`.
+- **ServiceNowTableAsset** (pysnc/extract hook) — for ServiceNow tables. Uses pysnc's GlideRecord client instead of httpx. Overrides `extract()` to bypass the API client pipeline entirely. Subclasses only set `table_name` and `columns`. See `assets/servicenow/base.py`.
 
 ## Run Resilience
 
