@@ -1,0 +1,30 @@
+{
+  "result": [
+    {
+      "sys_id": "user001abc",
+      "user_name": "john.doe",
+      "name": "John Doe",
+      "email": "john.doe@example.com",
+      "title": "Senior Engineer",
+      "department": "dept001",
+      "manager": "user002abc",
+      "active": "true",
+      "locked_out": "false",
+      "last_login_time": "2025-12-01T09:00:00Z",
+      "sys_updated_on": "2025-12-01T10:00:00Z"
+    },
+    {
+      "sys_id": "user002abc",
+      "user_name": "jane.smith",
+      "name": "Jane Smith",
+      "email": "jane.smith@example.com",
+      "title": "Engineering Manager",
+      "department": "dept001",
+      "manager": "",
+      "active": "true",
+      "locked_out": "false",
+      "last_login_time": "2025-12-01T08:30:00Z",
+      "sys_updated_on": "2025-12-01T10:30:00Z"
+    }
+  ]
+}

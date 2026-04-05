@@ -1,0 +1,14 @@
+{
+  "result": [
+    {
+      "sys_id": "req001abc",
+      "number": "REQ0010001",
+      "short_description": "New laptop request",
+      "request_state": "approved",
+      "requested_for": "user001abc",
+      "opened_at": "2025-12-01T09:00:00Z",
+      "closed_at": null,
+      "sys_updated_on": "2025-12-01T10:00:00Z"
+    }
+  ]
+}

@@ -30,18 +30,59 @@ This catalog documents every built-in asset. Use it as a reference when building
 **Authentication:** OAuth2 client_credentials or Basic Auth — `ServiceNowTokenManager`
 **API docs:** https://docs.servicenow.com/bundle/latest/page/integrate/inbound-rest/concept/c_TableAPI.html
 
-| Asset | Table | Load | Parallel | Pagination | API Endpoint |
-|-------|-------|------|----------|------------|--------------|
-| `servicenow_incidents` | `raw.servicenow_incidents` | UPSERT | Sequential | keyset (`sys_updated_on`, `sys_id`) | `/api/now/table/incident` |
-| `servicenow_changes` | `raw.servicenow_changes` | UPSERT | Sequential | keyset (`sys_updated_on`, `sys_id`) | `/api/now/table/change_request` |
+All ServiceNow assets share `ServiceNowTableAsset` base class — `build_request()` and `parse_response()` are defined once. Subclasses only set `table_name` and `columns`.
 
-**Both ServiceNow assets share `ServiceNowTableAsset`** base class — `build_request()` and `parse_response()` are defined once. Subclasses only set `table_name` and `columns`.
+**Performance optimizations:** All assets pass `sysparm_fields` (only fetch declared columns), `sysparm_exclude_reference_link=true` (suppress verbose reference link objects), and `sysparm_no_count=true` (skip expensive server-side COUNT). Page size is 1000.
+
+### ITSM tables
+
+| Asset | Table | Load | SN Table | API Endpoint |
+|-------|-------|------|----------|--------------|
+| `servicenow_incidents` | `raw.servicenow_incidents` | UPSERT | `incident` | `/api/now/table/incident` |
+| `servicenow_changes` | `raw.servicenow_changes` | UPSERT | `change_request` | `/api/now/table/change_request` |
+| `servicenow_problems` | `raw.servicenow_problems` | UPSERT | `problem` | `/api/now/table/problem` |
+| `servicenow_change_tasks` | `raw.servicenow_change_tasks` | UPSERT | `change_task` | `/api/now/table/change_task` |
+
+### Service catalog
+
+| Asset | Table | Load | SN Table | API Endpoint |
+|-------|-------|------|----------|--------------|
+| `servicenow_catalog_requests` | `raw.servicenow_catalog_requests` | UPSERT | `sc_request` | `/api/now/table/sc_request` |
+| `servicenow_catalog_items` | `raw.servicenow_catalog_items` | UPSERT | `sc_req_item` | `/api/now/table/sc_req_item` |
+
+### User directory
+
+| Asset | Table | Load | SN Table | API Endpoint |
+|-------|-------|------|----------|--------------|
+| `servicenow_users` | `raw.servicenow_users` | UPSERT | `sys_user` | `/api/now/table/sys_user` |
+| `servicenow_user_groups` | `raw.servicenow_user_groups` | UPSERT | `sys_user_group` | `/api/now/table/sys_user_group` |
+| `servicenow_locations` | `raw.servicenow_locations` | UPSERT | `cmn_location` | `/api/now/table/cmn_location` |
+| `servicenow_departments` | `raw.servicenow_departments` | UPSERT | `cmn_department` | `/api/now/table/cmn_department` |
+
+### CMDB & hardware
+
+| Asset | Table | Load | SN Table | API Endpoint |
+|-------|-------|------|----------|--------------|
+| `servicenow_cmdb_cis` | `raw.servicenow_cmdb_cis` | UPSERT | `cmdb_ci` | `/api/now/table/cmdb_ci` |
+| `servicenow_hardware_assets` | `raw.servicenow_hardware_assets` | UPSERT | `alm_hardware` | `/api/now/table/alm_hardware` |
+
+### Reference/decode tables
+
+| Asset | Table | Load | SN Table | API Endpoint |
+|-------|-------|------|----------|--------------|
+| `servicenow_choices` | `raw.servicenow_choices` | FULL_REPLACE | `sys_choice` | `/api/now/table/sys_choice` |
+
+**`sys_choice`** is the dropdown decode table for all ServiceNow fields. It maps raw coded values (e.g., `incident.state="1"`) to human-readable labels (e.g., `"New"`). Unlike other ServiceNow assets, it uses FULL_REPLACE with RunMode.FULL because it is a reference table with no reliable incremental sync.
+
+### Key design choices
 
 **Why keyset pagination?** Offset pagination on large ServiceNow tables is unreliable — records inserted/updated during extraction cause rows to be skipped or duplicated. Keyset pagination sorts by `sys_updated_on,sys_id` and filters from the last-seen record, eliminating drift.
 
 **Why Sequential?** Keyset pagination is inherently sequential (each page's filter depends on the previous page's last record).
 
 **Why UPSERT?** In FORWARD mode we filter by `sys_updated_on >= last_watermark`. Records may reappear if updated between runs, so we upsert by `sys_id`.
+
+**Reference fields:** With `sysparm_exclude_reference_link=true`, reference fields like `assigned_to` return the raw `sys_id` string instead of a verbose JSON object. Join to dimension tables (`servicenow_users`, `servicenow_user_groups`, `servicenow_locations`) by `sys_id` for human-readable values.
 
 ---
 

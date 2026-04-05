@@ -33,7 +33,7 @@ class ServiceNowTableAsset(APIAsset):
     token_manager_class = ServiceNowTokenManager
     base_url = ""
 
-    pagination_config = PaginationConfig(strategy="keyset", page_size=100)
+    pagination_config = PaginationConfig(strategy="keyset", page_size=1000)
     parallel_mode = ParallelMode.NONE
     max_workers = 1
 
@@ -70,6 +70,9 @@ class ServiceNowTableAsset(APIAsset):
         params: dict[str, Any] = {
             "sysparm_limit": self.pagination_config.page_size,
             "sysparm_orderby": "sys_updated_on,sys_id",
+            "sysparm_fields": ",".join(c.name for c in self.columns),
+            "sysparm_exclude_reference_link": "true",
+            "sysparm_no_count": "true",
         }
         if query:
             params["sysparm_query"] = query
