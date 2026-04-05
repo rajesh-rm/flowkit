@@ -39,3 +39,15 @@ class PaginationStrategy(StrEnum):
     CURSOR = "cursor"
     KEYSET = "keyset"
     NONE = "none"
+
+
+class CheckpointType(StrEnum):
+    """Describes which extraction mode wrote a checkpoint.
+
+    Separate from ParallelMode because sequential uses NONE for config
+    but "sequential" for checkpoint provenance.
+    """
+
+    SEQUENTIAL = "sequential"
+    PAGE_PARALLEL = "page_parallel"
+    ENTITY_PARALLEL = "entity_parallel"

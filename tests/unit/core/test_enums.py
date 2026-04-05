@@ -1,6 +1,7 @@
 """Tests for core enum types."""
 
 from data_assets.core.enums import (
+    CheckpointType,
     LoadStrategy,
     PaginationStrategy,
     ParallelMode,
@@ -58,3 +59,9 @@ def test_pagination_strategy_from_string():
     assert PaginationStrategy("offset") == PaginationStrategy.OFFSET
     assert PaginationStrategy("cursor") == PaginationStrategy.CURSOR
     assert PaginationStrategy("none") == PaginationStrategy.NONE
+
+
+def test_checkpoint_type_values():
+    assert CheckpointType.SEQUENTIAL.value == "sequential"
+    assert CheckpointType.PAGE_PARALLEL.value == "page_parallel"
+    assert CheckpointType.ENTITY_PARALLEL.value == "entity_parallel"

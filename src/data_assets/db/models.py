@@ -97,6 +97,7 @@ class AssetRegistry(Base):
     __table_args__ = {"schema": "data_ops"}
 
     asset_name: Mapped[str] = mapped_column(Text, primary_key=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     asset_type: Mapped[str] = mapped_column(Text, nullable=False)
     source_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     target_schema: Mapped[str] = mapped_column(Text, nullable=False)
