@@ -1,0 +1,24 @@
+{
+  "result": [
+    {
+      "sys_id": "grp001abc",
+      "name": "Network Team",
+      "description": "Handles all network infrastructure",
+      "manager": "user002abc",
+      "email": "network@example.com",
+      "active": "true",
+      "type": "",
+      "sys_updated_on": "2025-11-15T14:00:00Z"
+    },
+    {
+      "sys_id": "grp002abc",
+      "name": "Database Team",
+      "description": "Database administration and support",
+      "manager": "user002abc",
+      "email": "dba@example.com",
+      "active": "true",
+      "type": "",
+      "sys_updated_on": "2025-11-20T09:00:00Z"
+    }
+  ]
+}

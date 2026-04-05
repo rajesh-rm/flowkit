@@ -1,0 +1,34 @@
+{
+  "result": [
+    {
+      "sys_id": "ci001abc",
+      "name": "web-server-01",
+      "sys_class_name": "cmdb_ci_server",
+      "category": "Hardware",
+      "subcategory": "Server",
+      "operational_status": "1",
+      "asset_tag": "AST-001",
+      "serial_number": "SN-12345",
+      "assigned_to": "user001abc",
+      "support_group": "grp001abc",
+      "company": "comp001",
+      "location": "loc001abc",
+      "sys_updated_on": "2025-12-01T06:00:00Z"
+    },
+    {
+      "sys_id": "ci002abc",
+      "name": "db-server-01",
+      "sys_class_name": "cmdb_ci_server",
+      "category": "Hardware",
+      "subcategory": "Server",
+      "operational_status": "1",
+      "asset_tag": "AST-002",
+      "serial_number": "SN-67890",
+      "assigned_to": "user001abc",
+      "support_group": "grp002abc",
+      "company": "comp001",
+      "location": "loc001abc",
+      "sys_updated_on": "2025-12-01T07:00:00Z"
+    }
+  ]
+}

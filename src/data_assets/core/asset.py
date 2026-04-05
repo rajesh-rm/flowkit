@@ -5,6 +5,7 @@ from __future__ import annotations
 from abc import ABC
 
 import pandas as pd
+from sqlalchemy.engine import Engine
 
 from data_assets.core.column import Column
 from data_assets.core.enums import LoadStrategy, RunMode, SchemaContract
@@ -35,6 +36,16 @@ class Asset(ABC):
 
     # --- Schema contract ---
     schema_contract: SchemaContract = SchemaContract.EVOLVE
+
+    def extract(
+        self, engine: Engine, temp_table: str, context: RunContext,
+    ) -> int | None:
+        """Custom extraction logic. Override to bypass the standard API pipeline.
+
+        Return the number of rows extracted, or None to use the default
+        extraction pipeline (APIClient for APIAsset, SQL for TransformAsset).
+        """
+        return None
 
     def transform(self, df: pd.DataFrame) -> pd.DataFrame:
         """Post-extraction pandas transform. Override for custom logic."""

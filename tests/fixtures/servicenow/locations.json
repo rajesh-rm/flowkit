@@ -1,0 +1,26 @@
+{
+  "result": [
+    {
+      "sys_id": "loc001abc",
+      "name": "New York HQ",
+      "city": "New York",
+      "state": "NY",
+      "country": "US",
+      "latitude": "40.7128",
+      "longitude": "-74.0060",
+      "parent": "",
+      "sys_updated_on": "2025-10-01T12:00:00Z"
+    },
+    {
+      "sys_id": "loc002abc",
+      "name": "London Office",
+      "city": "London",
+      "state": "",
+      "country": "UK",
+      "latitude": "51.5074",
+      "longitude": "-0.1278",
+      "parent": "",
+      "sys_updated_on": "2025-10-01T12:00:00Z"
+    }
+  ]
+}

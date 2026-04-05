@@ -1,0 +1,18 @@
+{
+  "result": [
+    {
+      "sys_id": "hw001abc",
+      "display_name": "Dell PowerEdge R740",
+      "asset_tag": "AST-001",
+      "serial_number": "SN-12345",
+      "model": "PowerEdge R740",
+      "model_category": "Server",
+      "assigned_to": "user001abc",
+      "location": "loc001abc",
+      "install_status": "1",
+      "substatus": "in_use",
+      "ci": "ci001abc",
+      "sys_updated_on": "2025-12-01T06:00:00Z"
+    }
+  ]
+}

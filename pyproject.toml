@@ -30,6 +30,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "PyJWT>=2.0",
     "cryptography>=41.0",
+    "pysnc>=1.0",
 ]
 
 [project.optional-dependencies]
