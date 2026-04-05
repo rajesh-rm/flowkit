@@ -13,7 +13,7 @@ Every change to this codebase must follow these five rules:
 1. **Simple and modular** — code must be understandable by junior developers and AI agents. Just modular enough for extension, not more.
 2. **Pure Python, self-sufficient** — the package handles all ETL logic itself. Only Airflow handles scheduling. No delegating core logic to external frameworks.
 3. **Simple patterns over complexity** — prefer 10 lines of clear code over importing a library. No unnecessary abstractions.
-4. **Battle-tested libraries only** — dependencies must be 5+ years old, popular in data engineering, and carry a liberal open-source license (MIT, Apache 2.0, BSD). Current deps: SQLAlchemy, pandas, httpx, python-dotenv, PyJWT.
+4. **Battle-tested libraries only** — dependencies must be 5+ years old, popular in data engineering, and carry a liberal open-source license (MIT, Apache 2.0, BSD). Current deps: SQLAlchemy, pandas, httpx, python-dotenv, PyJWT, pysnc.
 5. **90%+ test coverage** — every module has unit tests. Integration tests use mocked APIs + testcontainers Postgres.
 
 ---
@@ -29,6 +29,7 @@ Every change to this codebase must follow these five rules:
    - 2d. [Implement parse_response()](#2d-implement-parse_response)
    - 2e. [Implement build_entity_request() (ENTITY_PARALLEL only)](#2e-implement-build_entity_request-entity_parallel-only)
    - 2f. [Wire It Up](#2f-wire-it-up)
+   - 2g. [The `extract()` Hook (Custom Client Pattern)](#2g-the-extract-hook-custom-client-pattern)
 3. [Step-by-Step: Adding a Transform Asset](#3-step-by-step-adding-a-transform-asset)
 4. [Testing Your Asset](#4-testing-your-asset)
 5. [Complete Minimal Example](#5-complete-minimal-example)
@@ -56,6 +57,10 @@ QUESTION 1b: Is this a standard REST API? (JSON response, pagination, field mapp
   +-- YES, standard pattern (most APIs)
   |     --> Use RestAsset (declarative, ~25 lines, no code to write).
   |         See Section 1.5 below.
+  |
+  +-- The source has an official Python SDK (e.g., pysnc for ServiceNow)
+  |     --> Override extract() on your asset class.
+  |         See Section 2g below.
   |
   +-- NO, needs custom request/response logic
         --> Use APIAsset (custom, full control).
@@ -190,14 +195,15 @@ from the class attributes.
 When multiple assets share the same API pattern (same auth, pagination, response format),
 extract a base class. The codebase has two examples:
 
-**ServiceNow** — `ServiceNowTableAsset` holds shared keyset pagination logic.
-Subclasses only set `table_name` and `columns`:
+**ServiceNow** — `ServiceNowTableAsset` uses pysnc (GlideRecord) for extraction
+via the `extract()` hook. Subclasses only set `name`, `target_table`,
+`table_name`, and `columns`:
 
 ```python
 # servicenow/base.py
 class ServiceNowTableAsset(APIAsset):
     table_name: str = ""  # subclass sets this
-    # ... shared keyset pagination logic ...
+    # ... shared pysnc extraction logic (see Section 2g) ...
 
 # servicenow/incidents.py
 @register
@@ -371,24 +377,27 @@ Key points:
 - The `base64` import is at function-level because it is only needed for the
   Cloud path.
 
-#### Pattern 3: OAuth2 Client Credentials (like ServiceNow)
+#### Pattern 3: OAuth2 Client Credentials
+
+> **Note:** ServiceNow assets no longer use this pattern — they use pysnc
+> with the `extract()` hook (see Section 2g). This pattern is shown as a
+> reusable template for APIs that use standard OAuth2 client_credentials.
 
 The API issues short-lived access tokens. You must acquire one, cache it,
 and refresh it before it expires.
 
 ```python
-class ServiceNowTokenManager(TokenManager):
-    """OAuth2 client_credentials flow.
+class ExampleOAuth2TokenManager(TokenManager):
+    """OAuth2 client_credentials flow (generic pattern).
 
-    Requires: SERVICENOW_INSTANCE, SERVICENOW_CLIENT_ID,
-              SERVICENOW_CLIENT_SECRET
+    Requires: EXAMPLE_API_URL, EXAMPLE_CLIENT_ID, EXAMPLE_CLIENT_SECRET
     """
 
     def __init__(self) -> None:
         super().__init__()
-        self._instance = _resolver.resolve("SERVICENOW_INSTANCE") or ""
-        self._client_id = _resolver.resolve("SERVICENOW_CLIENT_ID")
-        self._client_secret = _resolver.resolve("SERVICENOW_CLIENT_SECRET")
+        self._instance = _resolver.resolve("EXAMPLE_API_URL") or ""
+        self._client_id = _resolver.resolve("EXAMPLE_CLIENT_ID")
+        self._client_secret = _resolver.resolve("EXAMPLE_CLIENT_SECRET")
         self._token: str | None = None
         self._expires_at: float = 0.0   # Unix timestamp
 
@@ -405,7 +414,7 @@ class ServiceNowTokenManager(TokenManager):
     def _refresh(self) -> None:
         import httpx
         resp = httpx.post(
-            f"{self._instance}/oauth_token.do",
+            f"{self._instance}/oauth/token",
             data={
                 "grant_type": "client_credentials",
                 "client_id": self._client_id,
@@ -1150,6 +1159,71 @@ the framework calls `registry.get("pagerduty_incidents")` to retrieve it.
 - [ ] `assets/pagerduty/__init__.py` imports the asset class
 - [ ] `assets/__init__.py` imports `data_assets.assets.pagerduty`
 - [ ] Required env vars are documented / set: `PAGERDUTY_TOKEN`, `PAGERDUTY_URL`
+
+---
+
+### 2g. The `extract()` Hook (Custom Client Pattern)
+
+For APIs with an official Python client that handles HTTP, auth, and pagination
+natively, you can bypass the APIClient/httpx pipeline entirely by overriding
+the `extract()` method on your asset class.
+
+**When to use:** The data source provides a Python SDK (e.g., pysnc for
+ServiceNow) that handles authentication and pagination internally.
+
+**The contract** (defined on the base `Asset` class in `core/asset.py`):
+
+```python
+def extract(
+    self, engine: Engine, temp_table: str, context: RunContext,
+) -> int | None:
+    """Override to bypass the standard API pipeline.
+
+    Return the number of rows extracted. Return None to fall back
+    to the default extraction pipeline.
+    """
+```
+
+**How it works:** The runner checks whether the asset class overrides
+`extract()`. If it does, the runner calls it directly instead of going
+through `build_request()` → `APIClient` → `parse_response()`. Your
+`extract()` method is responsible for fetching data and writing it to the
+temp table via `write_to_temp()`.
+
+**Real example: ServiceNow (pysnc)**
+
+All 13 ServiceNow assets use this pattern. `ServiceNowTableAsset.extract()`
+creates a pysnc `GlideRecord`, iterates results in batches, and writes
+each batch to the temp table:
+
+```python
+# assets/servicenow/base.py (simplified)
+def extract(self, engine, temp_table, context):
+    client = self._create_pysnc_client()  # pysnc handles auth
+    gr = client.GlideRecord(self.table_name, batch_size=1000)
+    gr.fields = [c.name for c in self.columns]
+
+    if context.start_date:
+        gr.add_query("sys_updated_on", ">=",
+                      context.start_date.strftime("%Y-%m-%d %H:%M:%S"))
+
+    gr.query()
+
+    total_rows = 0
+    batch = []
+    for record in gr:
+        batch.append(record.serialize())
+        if len(batch) >= 1000:
+            df = self._batch_to_df(batch)
+            total_rows += write_to_temp(engine, temp_table, df)
+            batch = []
+    # ... flush remaining batch ...
+    return total_rows
+```
+
+Subclasses only set `name`, `target_table`, `table_name`, and `columns` — no
+`build_request()` or `parse_response()` needed. See
+`assets/servicenow/incidents.py` for a concrete example (~30 lines).
 
 ---
 
