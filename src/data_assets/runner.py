@@ -209,9 +209,9 @@ def run_asset(
                     # Inherited table was gone (e.g., Postgres crash); update lock
                     update_lock_temp_table(engine, asset_name, temp_tbl)
 
-            custom_rows = asset.extract(engine, temp_tbl, context)
-            if custom_rows is not None:
-                rows_extracted = custom_rows
+            has_custom_extract = type(asset).extract is not Asset.extract
+            if has_custom_extract:
+                rows_extracted = asset.extract(engine, temp_tbl, context)
             elif isinstance(asset, APIAsset):
                 rows_extracted, client_stats = _extract_api(
                     asset, engine, temp_tbl, context, existing_cp_map, overrides
