@@ -21,6 +21,7 @@ from sqlalchemy.engine import Engine
 
 from data_assets.checkpoint.manager import save_checkpoint
 from data_assets.core.api_asset import APIAsset
+from data_assets.core.enums import CheckpointType
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import RequestSpec, SkippedRequestError
 from data_assets.extract.api_client import APIClient
@@ -160,7 +161,7 @@ def _fetch_pages(
                 run_id=context.run_id,
                 asset_name=asset.name,
                 worker_id=worker_id,
-                checkpoint_type="sequential",
+                checkpoint_type=CheckpointType.SEQUENTIAL,
                 checkpoint_value=cp,
                 rows_so_far=rows,
                 status="in_progress",
@@ -347,7 +348,7 @@ def extract_page_parallel(
                 run_id=context.run_id,
                 asset_name=asset.name,
                 worker_id=worker_id,
-                checkpoint_type="page_parallel",
+                checkpoint_type=CheckpointType.PAGE_PARALLEL,
                 checkpoint_value={"last_page": page_num},
                 rows_so_far=worker_rows,
                 status="in_progress",
@@ -358,7 +359,7 @@ def extract_page_parallel(
             run_id=context.run_id,
             asset_name=asset.name,
             worker_id=worker_id,
-            checkpoint_type="page_parallel",
+            checkpoint_type=CheckpointType.PAGE_PARALLEL,
             checkpoint_value={"last_page": pages[-1]},
             rows_so_far=worker_rows,
             status="completed",
@@ -441,7 +442,7 @@ def extract_entity_parallel(
                     run_id=context.run_id,
                     asset_name=asset.name,
                     worker_id=worker_id,
-                    checkpoint_type="entity_parallel",
+                    checkpoint_type=CheckpointType.ENTITY_PARALLEL,
                     checkpoint_value={
                         "completed_entities": list(completed),
                         "current_entity": _ek,
@@ -479,7 +480,7 @@ def extract_entity_parallel(
                 run_id=context.run_id,
                 asset_name=asset.name,
                 worker_id=worker_id,
-                checkpoint_type="entity_parallel",
+                checkpoint_type=CheckpointType.ENTITY_PARALLEL,
                 checkpoint_value={"completed_entities": list(completed)},
                 rows_so_far=worker_rows,
                 status="in_progress",
@@ -490,7 +491,7 @@ def extract_entity_parallel(
             run_id=context.run_id,
             asset_name=asset.name,
             worker_id=worker_id,
-            checkpoint_type="entity_parallel",
+            checkpoint_type=CheckpointType.ENTITY_PARALLEL,
             checkpoint_value={"completed_entities": list(completed)},
             rows_so_far=worker_rows,
             status="completed",
