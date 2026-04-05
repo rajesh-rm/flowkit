@@ -170,7 +170,7 @@ For child resources (PRs per repo, issues per project). Parent entity keys are l
 - **RestAsset** (declarative) — for standard REST APIs. Declare endpoint, pagination, field_map as class attributes. No `build_request()`/`parse_response()` needed. See `sonarqube/projects.py`.
 - **APIAsset** (custom) — for APIs needing custom logic (JQL construction, keyset pagination, multi-org iteration). Override `parse_response()` and either `build_request()` (sequential) or `build_entity_request()` (entity-parallel).
 - **GitHubRepoAsset** (shared base) — for GitHub repo-scoped entity-parallel assets. Provides token manager, pagination, org filtering, and response parsing helpers. See `assets/github/branches.py`.
-- **ServiceNowTableAsset** (pysnc/extract hook) — for ServiceNow tables. Uses pysnc's GlideRecord client instead of httpx. Overrides `extract()` to bypass the API client pipeline entirely. Subclasses only set `table_name` and `columns`. See `assets/servicenow/base.py`.
+- **ServiceNowTableAsset** (pysnc/extract hook) — for ServiceNow tables. Uses pysnc's GlideRecord client instead of httpx. Overrides `extract()` to bypass the API client pipeline entirely. Subclasses only set `name`, `target_table`, `table_name`, and `columns`. See `assets/servicenow/base.py`.
 
 ## Run Resilience
 

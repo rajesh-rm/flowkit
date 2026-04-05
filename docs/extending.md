@@ -195,14 +195,15 @@ from the class attributes.
 When multiple assets share the same API pattern (same auth, pagination, response format),
 extract a base class. The codebase has two examples:
 
-**ServiceNow** — `ServiceNowTableAsset` holds shared keyset pagination logic.
-Subclasses only set `table_name` and `columns`:
+**ServiceNow** — `ServiceNowTableAsset` uses pysnc (GlideRecord) for extraction
+via the `extract()` hook. Subclasses only set `name`, `target_table`,
+`table_name`, and `columns`:
 
 ```python
 # servicenow/base.py
 class ServiceNowTableAsset(APIAsset):
     table_name: str = ""  # subclass sets this
-    # ... shared keyset pagination logic ...
+    # ... shared pysnc extraction logic (see Section 2g) ...
 
 # servicenow/incidents.py
 @register
@@ -386,18 +387,17 @@ The API issues short-lived access tokens. You must acquire one, cache it,
 and refresh it before it expires.
 
 ```python
-class ServiceNowTokenManager(TokenManager):
-    """OAuth2 client_credentials flow.
+class ExampleOAuth2TokenManager(TokenManager):
+    """OAuth2 client_credentials flow (generic pattern).
 
-    Requires: SERVICENOW_INSTANCE, SERVICENOW_CLIENT_ID,
-              SERVICENOW_CLIENT_SECRET
+    Requires: EXAMPLE_API_URL, EXAMPLE_CLIENT_ID, EXAMPLE_CLIENT_SECRET
     """
 
     def __init__(self) -> None:
         super().__init__()
-        self._instance = _resolver.resolve("SERVICENOW_INSTANCE") or ""
-        self._client_id = _resolver.resolve("SERVICENOW_CLIENT_ID")
-        self._client_secret = _resolver.resolve("SERVICENOW_CLIENT_SECRET")
+        self._instance = _resolver.resolve("EXAMPLE_API_URL") or ""
+        self._client_id = _resolver.resolve("EXAMPLE_CLIENT_ID")
+        self._client_secret = _resolver.resolve("EXAMPLE_CLIENT_SECRET")
         self._token: str | None = None
         self._expires_at: float = 0.0   # Unix timestamp
 
@@ -414,7 +414,7 @@ class ServiceNowTokenManager(TokenManager):
     def _refresh(self) -> None:
         import httpx
         resp = httpx.post(
-            f"{self._instance}/oauth_token.do",
+            f"{self._instance}/oauth/token",
             data={
                 "grant_type": "client_credentials",
                 "client_id": self._client_id,
@@ -1169,8 +1169,7 @@ natively, you can bypass the APIClient/httpx pipeline entirely by overriding
 the `extract()` method on your asset class.
 
 **When to use:** The data source provides a Python SDK (e.g., pysnc for
-ServiceNow) that is more reliable or capable than raw HTTP calls. The SDK
-handles authentication, pagination, retries, and rate limiting internally.
+ServiceNow) that handles authentication and pagination internally.
 
 **The contract** (defined on the base `Asset` class in `core/asset.py`):
 
@@ -1222,9 +1221,9 @@ def extract(self, engine, temp_table, context):
     return total_rows
 ```
 
-Subclasses only set `table_name` and `columns` — no `build_request()` or
-`parse_response()` needed. See `assets/servicenow/incidents.py` for a
-concrete example (~30 lines).
+Subclasses only set `name`, `target_table`, `table_name`, and `columns` — no
+`build_request()` or `parse_response()` needed. See
+`assets/servicenow/incidents.py` for a concrete example (~30 lines).
 
 ---
 

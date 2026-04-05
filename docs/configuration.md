@@ -45,7 +45,7 @@ ServiceNow assets use [pysnc](https://github.com/ServiceNow/PySNC) (GlideRecord 
 
 When all four credentials are set, pysnc uses the OAuth2 **password grant** flow. Otherwise it falls back to basic auth with username + password.
 
-**How to set up OAuth2:** In ServiceNow, navigate to **System OAuth > Application Registry** → **Create an OAuth API endpoint for external clients**. Note the Client ID and Client Secret. pysnc uses the `password` grant type, which requires all four variables above.
+**How to set up OAuth2:** In ServiceNow, navigate to **System OAuth > Application Registry** → **Create an OAuth API endpoint for external clients**. Note the Client ID and Client Secret. pysnc uses the `password` grant type, which requires all five variables (instance, username, password, client_id, client_secret).
 
 ### GitHub
 
