@@ -193,11 +193,12 @@ from the class attributes.
 ### Shared base classes for similar APIs
 
 When multiple assets share the same API pattern (same auth, pagination, response format),
-extract a base class. The codebase has two examples:
+extract a base class. The codebase has three examples:
 
 **ServiceNow** — `ServiceNowTableAsset` uses pysnc (GlideRecord) for extraction
-via the `extract()` hook. Subclasses only set `name`, `target_table`,
-`table_name`, and `columns`:
+via the `extract()` hook. Authentication is handled by `ServiceNowTokenManager`
+(set as `token_manager_class` on the base). Subclasses only set `name`,
+`target_table`, `table_name`, and `columns`:
 
 ```python
 # servicenow/base.py
@@ -249,6 +250,31 @@ class GitHubBranches(GitHubRepoAsset):
 
 Each repo-scoped GitHub asset is ~35 lines. The base class handles all shared
 config, entity key injection, org filtering, and request/response boilerplate.
+
+**SonarQube** — `SonarQubeAsset` (in `assets/sonarqube/helpers.py`) provides
+shared config for SonarQube assets that use APIAsset. It sets
+`token_manager_class = SonarQubeTokenManager`, `source_name`, `target_schema`,
+and `rate_limit_per_second`:
+
+```python
+# assets/sonarqube/helpers.py
+class SonarQubeAsset(APIAsset):
+    source_name = "sonarqube"
+    target_schema = "raw"
+    token_manager_class = SonarQubeTokenManager
+    rate_limit_per_second = 5.0
+
+# assets/sonarqube/issues.py — extends SonarQubeAsset
+@register
+class SonarQubeIssues(SonarQubeAsset):
+    name = "sonarqube_issues"
+    target_table = "sonarqube_issues"
+    # ... only columns, pagination, and parse_response needed
+```
+
+`SonarQubeProjects` uses `RestAsset` instead (for its declarative features)
+and sets the shared config attributes directly since `RestAsset` and
+`SonarQubeAsset` are separate base classes.
 
 ---
 
@@ -379,9 +405,11 @@ Key points:
 
 #### Pattern 3: OAuth2 Client Credentials
 
-> **Note:** ServiceNow assets no longer use this pattern — they use pysnc
-> with the `extract()` hook (see Section 2g). This pattern is shown as a
-> reusable template for APIs that use standard OAuth2 client_credentials.
+> **Note:** ServiceNow assets use pysnc with the `extract()` hook (see
+> Section 2g). Authentication is handled by `ServiceNowTokenManager`, which
+> supports both OAuth2 and basic auth via its `get_pysnc_auth()` method.
+> The pattern below is a reusable template for APIs that use standard
+> OAuth2 client_credentials.
 
 The API issues short-lived access tokens. You must acquire one, cache it,
 and refresh it before it expires.
@@ -800,7 +828,8 @@ class PagerDutyIncidents(APIAsset):
     # ---------------------------------------------------------------
 
     date_column = "updated_at"
-    # The column used to track incremental coverage.
+    # The column used to track incremental coverage. Defined on the
+    # base Asset class (default None) so it works for all asset types.
     # The framework stores the MAX value of this column after each
     # successful run. On the next FORWARD run, context.start_date is
     # set to that stored value so you only fetch newer records.
@@ -822,6 +851,7 @@ That is a lot of attributes. Here is the mental model:
 - **Target** (target_schema, target_table, columns, primary_key) tells the system where data goes.
 - **Extraction** (token_manager_class, base_url, rate_limit_per_second, pagination_config, parallel_mode, max_workers) tells the system how to get data.
 - **Loading** (load_strategy, default_run_mode, date_column, api_date_param) tells the system how to persist data.
+- **Run resilience** (stale_heartbeat_minutes, max_run_hours) controls how long a run can be idle or run before being considered abandoned. These are defined on the base `Asset` class with safe defaults (20 min heartbeat, 5 hours max) so they work for all asset types — API, transform, or custom `extract()` hook.
 
 ---
 
@@ -1199,34 +1229,51 @@ temp table via `write_to_temp()`.
 
 **Real example: ServiceNow (pysnc)**
 
-All 13 ServiceNow assets use this pattern. `ServiceNowTableAsset.extract()`
-creates a pysnc `GlideRecord`, iterates results in batches, and writes
-each batch to the temp table:
+All 14 ServiceNow assets use this pattern. `ServiceNowTableAsset` sets
+`token_manager_class = ServiceNowTokenManager`, and `extract()` uses the
+token manager's `get_pysnc_auth()` method to get credentials for the pysnc
+client. This keeps authentication in the standard `TokenManager` pattern
+rather than reading environment variables directly in the asset:
 
 ```python
 # assets/servicenow/base.py (simplified)
-def extract(self, engine, temp_table, context):
-    client = self._create_pysnc_client()  # pysnc handles auth
-    gr = client.GlideRecord(self.table_name, batch_size=1000)
-    gr.fields = [c.name for c in self.columns]
+class ServiceNowTableAsset(APIAsset):
+    token_manager_class = ServiceNowTokenManager
 
-    if context.start_date:
-        gr.add_query("sys_updated_on", ">=",
-                      context.start_date.strftime("%Y-%m-%d %H:%M:%S"))
+    def _create_pysnc_client(self):
+        from pysnc import ServiceNowClient
+        token_mgr = self.token_manager_class()
+        return ServiceNowClient(token_mgr.instance, token_mgr.get_pysnc_auth())
 
-    gr.query()
+    def extract(self, engine, temp_table, context):
+        client = self._create_pysnc_client()
+        gr = client.GlideRecord(self.table_name, batch_size=1000)
+        gr.fields = [c.name for c in self.columns]
 
-    total_rows = 0
-    batch = []
-    for record in gr:
-        batch.append(record.serialize())
-        if len(batch) >= 1000:
-            df = self._batch_to_df(batch)
-            total_rows += write_to_temp(engine, temp_table, df)
-            batch = []
-    # ... flush remaining batch ...
-    return total_rows
+        if context.start_date:
+            gr.add_query("sys_updated_on", ">=",
+                          context.start_date.strftime("%Y-%m-%d %H:%M:%S"))
+
+        gr.query()
+
+        total_rows = 0
+        batch = []
+        for record in gr:
+            batch.append(record.serialize())
+            if len(batch) >= 1000:
+                df = self._batch_to_df(batch)
+                total_rows += write_to_temp(engine, temp_table, df)
+                batch = []
+        # ... flush remaining batch ...
+        return total_rows
 ```
+
+`ServiceNowTokenManager.get_pysnc_auth()` returns auth suitable for
+pysnc's `ServiceNowClient` — either a `(username, password)` tuple for
+basic auth, or a `ServiceNowPasswordGrantFlow` object for OAuth2. The
+token manager resolves credentials via `CredentialResolver` (Airflow
+Connections → env vars → `.env` file), the same way all other source
+token managers work.
 
 Subclasses only set `name`, `target_table`, `table_name`, and `columns` — no
 `build_request()` or `parse_response()` needed. See

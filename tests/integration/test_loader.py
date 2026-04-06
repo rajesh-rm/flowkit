@@ -181,14 +181,16 @@ class TestPromote:
         assert result[result["id"] == 99].iloc[0]["name"] == "keep"  # untouched
 
     def test_append(self, clean_db):
-        create_table(clean_db, "raw", "promo_ap", COLS, PK)
+        # APPEND does plain INSERT with no conflict handling, so the target
+        # must not have a PK constraint if duplicate keys are expected.
+        create_table(clean_db, "raw", "promo_ap", COLS, primary_key=[])
         with clean_db.begin() as conn:
             conn.execute(text(
                 'INSERT INTO raw.promo_ap (id, name, score) VALUES (1, \'existing\', 0.0)'
             ))
 
         tname = self._setup(clean_db, uuid.uuid4())
-        rows = promote(clean_db, tname, "raw", "promo_ap", COLS, PK, LoadStrategy.APPEND)
+        rows = promote(clean_db, tname, "raw", "promo_ap", COLS, [], LoadStrategy.APPEND)
         assert rows == 3
 
         result = pd.read_sql("SELECT * FROM raw.promo_ap ORDER BY id", clean_db)

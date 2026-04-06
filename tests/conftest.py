@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -37,16 +38,70 @@ class StubTokenManager(TokenManager):
 
 @pytest.fixture(autouse=True)
 def _clean_registry():
-    """Save and restore the asset registry around each test."""
-    saved = dict(_registry)
+    """Isolate the asset registry between tests.
+
+    Saves the registry before each test, restores it after. This prevents
+    ad-hoc @register calls in one test from leaking into the next.
+
+    For integration tests that call run_asset() → discover(): the first
+    test discovers all assets; subsequent tests reuse them because Python
+    caches module imports (re-importing doesn't re-execute @register).
+    We snapshot AFTER yield so the discovered state is preserved.
+    """
+    snapshot = dict(_registry)
     yield
+    # If discover() ran during this test and the pre-test snapshot was
+    # empty, keep the discovered assets — they can't be re-discovered.
+    if _registry and not snapshot:
+        return
     _registry.clear()
-    _registry.update(saved)
+    _registry.update(snapshot)
+
+
+# ---------------------------------------------------------------------------
+# Container runtime socket discovery
+# ---------------------------------------------------------------------------
+
+
+def _find_docker_socket() -> str | None:
+    """Detect a working Docker or Podman socket path for testcontainers.
+
+    Checks in order of priority:
+    1. DOCKER_HOST env var (explicit override — always wins)
+    2. Podman rootless socket ($XDG_RUNTIME_DIR/podman/podman.sock)
+    3. macOS Docker Desktop socket (~/.docker/run/docker.sock)
+    4. Default /var/run/docker.sock (Linux Docker, or macOS symlink)
+
+    Returns a bare socket path (e.g., /path/to/docker.sock) or None.
+    """
+    # 1. Explicit override — the user knows best
+    if os.environ.get("DOCKER_HOST"):
+        return None
+
+    candidates: list[str] = []
+
+    # 2. Podman rootless (RHEL, Fedora)
+    xdg = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    candidates.append(f"{xdg}/podman/podman.sock")
+
+    # 3. macOS Docker Desktop
+    if sys.platform == "darwin":
+        candidates.append(os.path.expanduser("~/.docker/run/docker.sock"))
+
+    # 4. Default Linux Docker
+    candidates.append("/var/run/docker.sock")
+
+    for sock in candidates:
+        if os.path.exists(sock):
+            return sock
+
+    return None
 
 
 # ---------------------------------------------------------------------------
 # Postgres fixture (integration tests)
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="session")
 def pg_engine():
@@ -54,9 +109,24 @@ def pg_engine():
 
     Falls back to DATABASE_URL env var if testcontainers/Docker is not available.
     """
-    # Try testcontainers first (requires Docker to be running)
+    # Try testcontainers first (requires Docker or Podman)
     try:
         from testcontainers.postgres import PostgresContainer
+
+        # Ensure the container runtime socket is discoverable
+        socket_path = _find_docker_socket()
+        if socket_path:
+            # DOCKER_HOST needs the unix:// scheme (for docker-py)
+            os.environ.setdefault("DOCKER_HOST", f"unix://{socket_path}")
+            # TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE needs the bare path
+            # (mounted as a volume into the Ryuk cleanup container)
+            os.environ.setdefault(
+                "TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE", socket_path,
+            )
+
+        # Podman doesn't support Ryuk (the cleanup sidecar)
+        if "podman" in os.environ.get("DOCKER_HOST", ""):
+            os.environ.setdefault("TESTCONTAINERS_RYUK_DISABLED", "true")
 
         with PostgresContainer("postgres:16-alpine") as pg:
             url = pg.get_connection_url()
@@ -64,19 +134,25 @@ def pg_engine():
             _setup_schemas(engine)
             yield engine
             return
-    except Exception:
-        pass  # Docker not running, testcontainers not installed, etc.
+    except Exception as exc:
+        _container_error = str(exc)
 
     # Fallback to DATABASE_URL
     url = os.environ.get("DATABASE_URL")
-    if not url:
-        pytest.skip(
-            "No Postgres available. Either start Docker (for testcontainers) "
-            "or set DATABASE_URL env var."
-        )
-    engine = create_engine(url)
-    _setup_schemas(engine)
-    yield engine
+    if url:
+        engine = create_engine(url)
+        _setup_schemas(engine)
+        yield engine
+        return
+
+    pytest.skip(
+        f"No Postgres available for integration tests.\n"
+        f"  Container error: {_container_error}\n"
+        f"Options:\n"
+        f"  1. Start Docker Desktop (macOS) or enable podman.socket (RHEL)\n"
+        f"  2. Set DATABASE_URL env var to an existing Postgres instance\n"
+        f"  3. Set DOCKER_HOST to a custom Docker/Podman socket URI"
+    )
 
 
 def _setup_schemas(engine: Engine) -> None:
@@ -119,7 +195,3 @@ def load_fixture():
         path = FIXTURES_DIR / relative_path
         return json.loads(path.read_text())
     return _load
-
-
-
-

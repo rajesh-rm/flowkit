@@ -43,7 +43,7 @@ ServiceNow assets use [pysnc](https://github.com/ServiceNow/PySNC) (GlideRecord 
 | `SERVICENOW_CLIENT_ID` | OAuth2 client ID |
 | `SERVICENOW_CLIENT_SECRET` | OAuth2 client secret |
 
-When all four credentials are set, pysnc uses the OAuth2 **password grant** flow. Otherwise it falls back to basic auth with username + password.
+When all four credentials are set, `ServiceNowTokenManager.get_pysnc_auth()` returns a `ServiceNowPasswordGrantFlow` for OAuth2. Otherwise it falls back to basic auth with `(username, password)`. Credentials are resolved via `CredentialResolver` (Airflow Connections → env vars → `.env` file) — the same mechanism used by all other source token managers.
 
 **How to set up OAuth2:** In ServiceNow, navigate to **System OAuth > Application Registry** → **Create an OAuth API endpoint for external clients**. Note the Client ID and Client Secret. pysnc uses the `password` grant type, which requires all five variables (instance, username, password, client_id, client_secret).
 

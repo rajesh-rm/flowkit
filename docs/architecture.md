@@ -79,7 +79,7 @@ This diagram shows how data flows through a single extraction cycle:
 
 **Alternative path — `extract()` hook (e.g., ServiceNow/pysnc):**
 
-Assets that override `extract()` bypass the diagram above. The runner calls `asset.extract(engine, temp_table, context)` directly, and the asset handles fetching and writing to the temp table using its own client:
+Assets that override `extract()` bypass the diagram above. The runner calls `asset.extract(engine, temp_table, context)` directly, and the asset handles fetching and writing to the temp table using its own client. For example, ServiceNow assets use pysnc with credentials from `ServiceNowTokenManager.get_pysnc_auth()`:
 
 ```
                     ┌──────────────┐
@@ -171,12 +171,13 @@ For child resources (PRs per repo, issues per project). Parent entity keys are l
 
 - **RestAsset** (declarative) — for standard REST APIs. Declare endpoint, pagination, field_map as class attributes. No `build_request()`/`parse_response()` needed. See `sonarqube/projects.py`.
 - **APIAsset** (custom) — for APIs needing custom logic (JQL construction, keyset pagination, multi-org iteration). Override `parse_response()` and either `build_request()` (sequential) or `build_entity_request()` (entity-parallel).
-- **GitHubRepoAsset** (shared base) — for GitHub repo-scoped entity-parallel assets. Provides token manager, pagination, org filtering, and response parsing helpers. See `assets/github/branches.py`.
-- **ServiceNowTableAsset** (pysnc/extract hook) — for ServiceNow tables. Uses pysnc's GlideRecord client instead of httpx. Overrides `extract()` to bypass the API client pipeline entirely. Subclasses only set `name`, `target_table`, `table_name`, and `columns`. See `assets/servicenow/base.py`.
+- **GitHubRepoAsset** (shared base) — for GitHub repo-scoped entity-parallel assets. Provides token manager, pagination, org filtering, and response parsing helpers. See `assets/github/helpers.py`.
+- **SonarQubeAsset** (shared base) — for SonarQube assets using APIAsset. Provides shared token manager, rate limit, and source config. See `assets/sonarqube/helpers.py`.
+- **ServiceNowTableAsset** (pysnc/extract hook) — for ServiceNow tables. Uses pysnc's GlideRecord client instead of httpx. Authentication via `ServiceNowTokenManager.get_pysnc_auth()`. Subclasses only set `name`, `target_table`, `table_name`, and `columns`. See `assets/servicenow/base.py`.
 
 ## Run Resilience
 
 - **UUIDv7 run IDs** — timestamp-ordered, sortable. Each run gets a unique ID that sorts chronologically.
-- **Stale-run takeover** — if a worker dies, the next retry detects the abandoned run (no heartbeat in 20 min OR exceeded 5 hour max), inherits its temp table and checkpoints, and resumes extraction.
+- **Stale-run takeover** — if a worker dies, the next retry detects the abandoned run (no heartbeat in `stale_heartbeat_minutes` (default 20) OR exceeded `max_run_hours` (default 5)), inherits its temp table and checkpoints, and resumes extraction. Both thresholds are configurable per asset on the base `Asset` class.
 - **Secrets injection** — `run_asset(secrets={...})` injects credentials as env vars for the run duration. Cleaned up in `finally` block. Airflow DAGs use this to pass secrets from Connections.
 - **Entity-parallel unified checkpoint** — each checkpoint saves completed entities + current entity + pagination position, enabling exact mid-entity resume.

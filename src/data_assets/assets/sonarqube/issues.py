@@ -14,29 +14,20 @@ import os
 
 import pandas as pd
 
-from data_assets.core.api_asset import APIAsset
+from data_assets.assets.sonarqube.helpers import SonarQubeAsset
 from data_assets.core.column import Column
 from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
-from data_assets.extract.token_manager import SonarQubeTokenManager
 
 
 @register
-class SonarQubeIssues(APIAsset):
+class SonarQubeIssues(SonarQubeAsset):
     """SonarQube issues — captures new AND updated issues via update_date sort."""
 
     name = "sonarqube_issues"
-    source_name = "sonarqube"
-
-    target_schema = "raw"
     target_table = "sonarqube_issues"
-
-    token_manager_class = SonarQubeTokenManager
-    base_url = ""
-
-    rate_limit_per_second = 5.0
 
     pagination_config = PaginationConfig(
         strategy="page_number",
