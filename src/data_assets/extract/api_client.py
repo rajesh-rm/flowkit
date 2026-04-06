@@ -55,7 +55,7 @@ class APIClient:
         return dict(self._stats)
 
     @staticmethod
-    def _default_classify(status_code: int, headers: dict) -> str:
+    def _default_classify(status_code: int, _headers: dict) -> str:
         if status_code == 429 or status_code >= 500:
             return "retry"
         if status_code == 404:
@@ -147,7 +147,7 @@ class APIClient:
 
             try:
                 return response.json()
-            except (ValueError, json.JSONDecodeError) as exc:
+            except json.JSONDecodeError as exc:
                 raise ValueError(
                     f"Non-JSON response from {spec.url} "
                     f"(HTTP {response.status_code}): "

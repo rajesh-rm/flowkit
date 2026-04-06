@@ -305,3 +305,353 @@ class TestUpdateWatermarksDateParsing:
             with patch("data_assets.runner.logger") as mock_logger:
                 _update_watermarks(MagicMock(), asset, RunMode.FULL, df)
         mock_logger.warning.assert_not_called()
+
+    def test_skips_when_all_dates_unparseable(self):
+        """If every date is unparseable, col is empty after dropna — should not crash."""
+        asset = MagicMock()
+        asset.date_column = "updated_at"
+        asset.name = "test"
+        df = pd.DataFrame({"updated_at": ["not-a-date", "also-bad"]})
+        with patch("data_assets.runner.update_coverage") as mock_cov:
+            _update_watermarks(MagicMock(), asset, RunMode.FULL, df)
+        mock_cov.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _ensure_initialized — double-check lock
+# ---------------------------------------------------------------------------
+
+from data_assets.runner import _ensure_initialized
+
+
+class TestEnsureInitialized:
+    def test_double_check_lock_skips_second_call(self):
+        """After first successful init, subsequent calls return immediately."""
+        import data_assets.runner as runner_mod
+
+        original = runner_mod._initialized
+        try:
+            runner_mod._initialized = False
+            with patch("data_assets.runner.create_all_tables") as mock_create, \
+                 patch("data_assets.runner.discover") as mock_discover, \
+                 patch("data_assets.runner.register_asset_metadata") as mock_register, \
+                 patch("data_assets.runner.all_assets", return_value=[]):
+                engine = MagicMock()
+                _ensure_initialized(engine)
+                assert runner_mod._initialized is True
+                mock_create.assert_called_once()
+
+                # Second call should be a no-op (fast path)
+                _ensure_initialized(engine)
+                mock_create.assert_called_once()  # still only one call
+        finally:
+            runner_mod._initialized = original
+
+    def test_already_initialized_returns_immediately(self):
+        """When _initialized is True, should skip all work."""
+        import data_assets.runner as runner_mod
+
+        original = runner_mod._initialized
+        try:
+            runner_mod._initialized = True
+            with patch("data_assets.runner.create_all_tables") as mock_create:
+                _ensure_initialized(MagicMock())
+            mock_create.assert_not_called()
+        finally:
+            runner_mod._initialized = original
+
+
+# ---------------------------------------------------------------------------
+# run_asset — exception handling (lines 253-265)
+# ---------------------------------------------------------------------------
+
+
+class TestRunAssetExceptionHandling:
+    @patch("data_assets.runner.setup_logging")
+    @patch("data_assets.runner.get_engine")
+    @patch("data_assets.runner._ensure_initialized")
+    @patch("data_assets.runner.get")
+    @patch("data_assets.runner.temp_table_name", return_value="tmp_test_123")
+    @patch("data_assets.runner.acquire_or_takeover", return_value=(None, None))
+    @patch("data_assets.runner.get_coverage", return_value=None)
+    @patch("data_assets.runner.checkpoints_by_worker", return_value={})
+    @patch("data_assets.runner.get_checkpoints", return_value=[])
+    @patch("data_assets.runner.record_run_start")
+    @patch("data_assets.runner._prepare_temp_table", return_value="tmp_tbl")
+    @patch("data_assets.runner._run_extraction", side_effect=RuntimeError("extract boom"))
+    @patch("data_assets.runner.record_run_failure")
+    @patch("data_assets.runner.drop_temp_table")
+    @patch("data_assets.runner.release_lock")
+    def test_exception_records_failure_and_cleans_up(
+        self,
+        mock_release,
+        mock_drop_temp,
+        mock_record_fail,
+        mock_extraction,
+        mock_prepare,
+        mock_record_start,
+        mock_get_cps,
+        mock_cp_by_worker,
+        mock_coverage,
+        mock_acquire,
+        mock_temp_name,
+        mock_get_asset,
+        mock_init,
+        mock_engine_fn,
+        mock_logging,
+    ):
+        """When extraction raises, run_asset should record failure, drop temp table, and release lock."""
+        mock_engine = MagicMock()
+        mock_engine_fn.return_value = mock_engine
+
+        mock_asset_cls = MagicMock()
+        mock_asset = MagicMock()
+        mock_asset.stale_heartbeat_minutes = 20
+        mock_asset.max_run_hours = 5
+        mock_asset_cls.return_value = mock_asset
+        mock_get_asset.return_value = mock_asset_cls
+
+        with pytest.raises(RuntimeError, match="extract boom"):
+            run_asset("test_asset", run_mode="full")
+
+        mock_record_fail.assert_called()
+        mock_drop_temp.assert_called_once_with(mock_engine, "tmp_tbl")
+        mock_release.assert_called_once_with(mock_engine, "test_asset")
+
+    @patch("data_assets.runner.setup_logging")
+    @patch("data_assets.runner.get_engine")
+    @patch("data_assets.runner._ensure_initialized")
+    @patch("data_assets.runner.get")
+    @patch("data_assets.runner.temp_table_name", return_value="tmp_test_123")
+    @patch("data_assets.runner.acquire_or_takeover", return_value=(None, None))
+    @patch("data_assets.runner.get_coverage", return_value=None)
+    @patch("data_assets.runner.checkpoints_by_worker", return_value={})
+    @patch("data_assets.runner.get_checkpoints", return_value=[])
+    @patch("data_assets.runner.record_run_start")
+    @patch("data_assets.runner._prepare_temp_table", return_value="tmp_tbl")
+    @patch("data_assets.runner._run_extraction", side_effect=RuntimeError("boom"))
+    @patch("data_assets.runner.record_run_failure")
+    @patch("data_assets.runner.drop_temp_table", side_effect=Exception("drop failed"))
+    @patch("data_assets.runner.release_lock")
+    def test_exception_cleanup_handles_drop_failure(
+        self,
+        mock_release,
+        mock_drop_temp,
+        mock_record_fail,
+        mock_extraction,
+        mock_prepare,
+        mock_record_start,
+        mock_get_cps,
+        mock_cp_by_worker,
+        mock_coverage,
+        mock_acquire,
+        mock_temp_name,
+        mock_get_asset,
+        mock_init,
+        mock_engine_fn,
+        mock_logging,
+    ):
+        """If drop_temp_table fails during cleanup, lock should still be released."""
+        mock_engine = MagicMock()
+        mock_engine_fn.return_value = mock_engine
+
+        mock_asset_cls = MagicMock()
+        mock_asset = MagicMock()
+        mock_asset.stale_heartbeat_minutes = 20
+        mock_asset.max_run_hours = 5
+        mock_asset_cls.return_value = mock_asset
+        mock_get_asset.return_value = mock_asset_cls
+
+        with pytest.raises(RuntimeError, match="boom"):
+            run_asset("test_asset", run_mode="full")
+
+        mock_release.assert_called_once_with(mock_engine, "test_asset")
+
+
+# ---------------------------------------------------------------------------
+# _run_extraction — routing for TransformAsset and unknown types
+# ---------------------------------------------------------------------------
+
+from data_assets.runner import _run_extraction
+from data_assets.core.asset import Asset
+from data_assets.core.api_asset import APIAsset
+from data_assets.core.transform_asset import TransformAsset
+
+
+class _FakeTransformAsset(TransformAsset):
+    """Minimal concrete TransformAsset for routing tests."""
+    name = "fake_transform"
+    target_table = "fake_transform"
+    columns = []
+    primary_key = ["id"]
+
+    def query(self, context):
+        return "SELECT 1"
+
+
+class _FakeAPIAsset(APIAsset):
+    """Minimal concrete APIAsset for routing tests."""
+    name = "fake_api"
+    target_table = "fake_api"
+    columns = []
+    primary_key = ["id"]
+
+    def parse_response(self, response):
+        return pd.DataFrame(), None
+
+
+class TestRunExtractionRouting:
+    @patch("data_assets.runner._check_source_freshness")
+    @patch("data_assets.runner.execute_transform", return_value=42)
+    def test_transform_asset_route(self, mock_exec, mock_freshness):
+        """TransformAsset should route to execute_transform."""
+        asset = _FakeTransformAsset()
+
+        engine = MagicMock()
+        context = MagicMock()
+
+        rows, stats = _run_extraction(asset, engine, "tmp_tbl", context, {}, {})
+
+        assert rows == 42
+        assert stats == {}
+        mock_freshness.assert_called_once()
+        mock_exec.assert_called_once()
+
+    def test_unknown_asset_type_raises(self):
+        """An asset that is neither APIAsset nor TransformAsset should raise TypeError."""
+        # Create a plain Asset subclass (not API or Transform)
+        class _PlainAsset(Asset):
+            name = "mystery"
+            target_table = "mystery"
+            columns = []
+            primary_key = ["id"]
+
+        asset = _PlainAsset()
+
+        with pytest.raises(TypeError, match="mystery"):
+            _run_extraction(asset, MagicMock(), "tmp", MagicMock(), {}, {})
+
+    @patch("data_assets.runner._extract_api", return_value=(100, {"api_calls": 5}))
+    def test_api_asset_route(self, mock_api):
+        """APIAsset should route to _extract_api."""
+        asset = _FakeAPIAsset()
+
+        engine = MagicMock()
+        context = MagicMock()
+
+        rows, stats = _run_extraction(asset, engine, "tmp", context, {}, {})
+
+        assert rows == 100
+        assert stats == {"api_calls": 5}
+        mock_api.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# _run_transform_and_validate — custom transform path (lines 351-358)
+# ---------------------------------------------------------------------------
+
+from data_assets.runner import _run_transform_and_validate
+
+
+class TestRunTransformAndValidateCustomTransform:
+    @patch("data_assets.runner.read_temp_table")
+    @patch("data_assets.runner.drop_table")
+    @patch("data_assets.runner.create_temp_table", return_value="new_tmp")
+    @patch("data_assets.runner.write_to_temp")
+    def test_custom_transform_replaces_temp_table(
+        self, mock_write, mock_create, mock_drop, mock_read
+    ):
+        """When asset has custom transform, old temp is dropped and new one created."""
+        from data_assets.core.asset import Asset
+        from data_assets.core.column import Column
+        from data_assets.validation.validators import ValidationResult
+
+        df_input = pd.DataFrame({"id": [1, 2, 3], "value": ["a", "b", "c"]})
+        df_transformed = pd.DataFrame({"id": [1, 2], "value": ["a", "b"]})
+        mock_read.return_value = df_input
+
+        # Create a real Asset subclass with a custom transform method
+        class CustomTransformAsset(Asset):
+            name = "test_custom"
+            target_schema = "raw"
+            target_table = "test_custom"
+            columns = [Column("id", "INTEGER"), Column("value", "TEXT")]
+            primary_key = ["id"]
+
+            def transform(self, df):
+                return df_transformed
+
+            def validate(self, df, context):
+                return ValidationResult(passed=True, failures=[])
+
+            def validate_warnings(self, df, context):
+                return []
+
+        asset = CustomTransformAsset()
+        engine = MagicMock()
+        run_id = uuid.uuid4()
+
+        df, temp_tbl, warnings = _run_transform_and_validate(
+            asset, engine, "old_tmp", MagicMock(), run_id, "test_custom"
+        )
+
+        assert temp_tbl == "new_tmp"
+        mock_drop.assert_called_once()
+        mock_create.assert_called_once()
+        mock_write.assert_called_once()
+        pd.testing.assert_frame_equal(df, df_transformed)
+
+
+# ---------------------------------------------------------------------------
+# _extract_api — token_manager_class is None (line 409)
+# ---------------------------------------------------------------------------
+
+from data_assets.runner import _extract_api
+
+
+class TestExtractApiTokenManagerNone:
+    def test_raises_when_no_token_manager(self):
+        """API asset without token_manager_class should raise ValueError."""
+        asset = MagicMock(spec=APIAsset)
+        asset.name = "no_token"
+        asset.token_manager_class = None
+
+        with pytest.raises(ValueError, match="token_manager_class"):
+            _extract_api(asset, MagicMock(), "tmp", MagicMock(), {}, {})
+
+
+# ---------------------------------------------------------------------------
+# _compute_date_window — fallback (line 486)
+# ---------------------------------------------------------------------------
+
+
+class TestComputeDateWindowFallback:
+    def test_unknown_mode_returns_none_none(self):
+        """A hypothetical unrecognized mode should hit the fallback return None, None.
+
+        This is a defensive test — all known modes are covered above, but
+        the fallback line 486 needs coverage.
+        """
+        # Create a mock mode that doesn't match any known branch
+        mock_mode = MagicMock()
+        mock_mode.__eq__ = lambda self, other: False
+        start, end = _compute_date_window(mock_mode, None, {})
+        assert start is None
+        assert end is None
+
+
+# ---------------------------------------------------------------------------
+# _update_watermarks — empty column after dropna (line 507)
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateWatermarksEmptyAfterDropna:
+    def test_returns_early_when_all_dates_null(self):
+        """If date column contains only NaN/None, col.empty is True after dropna."""
+        asset = MagicMock()
+        asset.date_column = "updated_at"
+        asset.name = "test"
+        df = pd.DataFrame({"updated_at": [None, None]})
+        with patch("data_assets.runner.update_coverage") as mock_cov:
+            _update_watermarks(MagicMock(), asset, RunMode.FULL, df)
+        mock_cov.assert_not_called()

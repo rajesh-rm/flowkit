@@ -42,51 +42,34 @@ Or prefix commands with `.venv/bin/` without activating.
 
 ```bash
 # All unit tests — no database, no network, no Docker
-pytest tests/unit/ -v
+make test-unit
 
 # With coverage
-pytest tests/unit/ --cov=data_assets --cov-report=term-missing
+make test-cov
 ```
-
-Unit tests cover:
-- Core types, enums (RunMode, LoadStrategy, SchemaContract, PaginationStrategy), column definitions
-- Asset base class (default transform, validation)
-- Asset registry (register, lookup, decorator)
-- All GitHub assets (repos, PRs, branches, commits, workflows, runs, jobs, members, user details, runner groups, properties)
-- All SonarQube assets (projects, issues, measures)
-- All ServiceNow and Jira assets
-- API client (retries, error classification, rate limit headers — mocked via respx)
-- Rate limiter (sliding-window, thread safety)
-- Parallel extraction (entity key injection, max_pages safety, checkpoint resume)
-- Token manager credential validation
-- Loader DDL generation
-- Composable validators
 
 ## 5. Run integration tests (Docker required)
 
 Integration tests use [testcontainers](https://testcontainers.com/) to spin up an ephemeral Postgres instance in Docker. Make sure Docker is running.
 
 ```bash
-# Run all integration tests
-pytest tests/integration/ -v -m integration
-
-# Run tests for a single source
-pytest tests/integration/test_e2e_sonarqube.py -v
-pytest tests/integration/test_e2e_github.py -v
+make test-integration
 ```
 
 If you don't have Docker, you can point to an existing Postgres:
 
 ```bash
 export DATABASE_URL="postgresql://user:pass@localhost:5432/test_data_assets"
-pytest tests/integration/ -v -m integration
+.venv/bin/python -m pytest tests/integration/ -v -m integration
 ```
 
 ## 6. Run all tests
 
 ```bash
-pytest -v
+make test
 ```
+
+For the full testing guide — directory structure, fixtures, patterns, and how to write tests — see [docs/testing.md](testing.md).
 
 ## 7. Code quality
 

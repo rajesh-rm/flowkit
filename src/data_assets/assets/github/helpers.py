@@ -68,7 +68,7 @@ class GitHubRepoAsset(APIAsset):
         return filter_to_current_org(keys)
 
     def _paginated_entity_request(
-        self, entity_key: str, url_path: str,
+        self, _entity_key: str, url_path: str,
         checkpoint: dict | None = None,
         extra_params: dict[str, Any] | None = None,
     ) -> RequestSpec:

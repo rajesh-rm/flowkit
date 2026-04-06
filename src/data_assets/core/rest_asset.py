@@ -109,9 +109,8 @@ class RestAsset(APIAsset):
             params[self.pagination_config.offset_param] = (
                 (checkpoint.get("next_offset") or 0) if checkpoint else 0
             )
-        elif strategy == "cursor":
-            if checkpoint and checkpoint.get("cursor"):
-                params[self.pagination_config.cursor_field or "cursor"] = checkpoint["cursor"]
+        elif strategy == "cursor" and checkpoint and checkpoint.get("cursor"):
+            params[self.pagination_config.cursor_field or "cursor"] = checkpoint["cursor"]
 
         # Add date filter if incremental and context has start_date
         if context.start_date and self.api_date_param:

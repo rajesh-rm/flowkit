@@ -16,7 +16,10 @@ test-unit: ## Run unit tests only (no Docker needed)
 	.venv/bin/python -m pytest tests/unit/ -v
 
 test-cov: ## Run unit tests with coverage report
-	.venv/bin/python -m pytest tests/unit/ --cov=data_assets --cov-report=term-missing
+	.venv/bin/python -m pytest tests/unit/ --cov=src/data_assets --cov-report=term-missing
+
+test-cov-full: ## Run ALL tests with coverage (unit + integration, as used by SonarQube)
+	.venv/bin/python -m pytest tests/ --cov=src/data_assets --cov-report=term-missing --cov-report=xml:coverage.xml
 
 test-integration: ## Run integration tests (requires Docker)
 	.venv/bin/python -m pytest tests/integration/ -v -m integration

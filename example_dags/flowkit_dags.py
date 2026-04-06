@@ -32,6 +32,10 @@ default_args = {
     "retry_exponential_backoff": True,
 }
 
+# Cron schedules — staggered so upstream assets finish before downstream.
+SCHEDULE_TIER_1 = "0 5 * * *"  # repos, org-level assets, jira_projects
+SCHEDULE_TIER_2 = "0 6 * * *"  # repo-scoped assets, sonarqube, jira_issues
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -85,7 +89,7 @@ for _org_cfg in _gh_orgs:
 
     with DAG(
         dag_id=f"github_repos_{_slug}",
-        schedule="0 5 * * *",
+        schedule=SCHEDULE_TIER_1,
         default_args=default_args,
         max_active_runs=1,
         catchup=False,
@@ -115,7 +119,7 @@ for _org_cfg in _gh_orgs:
     for _asset_name, _mode in _gh_repo_assets.items():
         with DAG(
             dag_id=f"{_asset_name}_{_slug}",
-            schedule="0 6 * * *",
+            schedule=SCHEDULE_TIER_2,
             default_args=default_args,
             max_active_runs=1,
             catchup=False,
@@ -135,7 +139,7 @@ for _org_cfg in _gh_orgs:
     for _asset_name, _mode in [("github_members", "full"), ("github_runner_groups", "full")]:
         with DAG(
             dag_id=f"{_asset_name}_{_slug}",
-            schedule="0 5 * * *",
+            schedule=SCHEDULE_TIER_1,
             default_args=default_args,
             max_active_runs=1,
             catchup=False,
@@ -183,7 +187,7 @@ for _org_cfg in _gh_orgs:
 
 with DAG(
     dag_id="sonarqube_projects",
-    schedule="0 6 * * *",
+    schedule=SCHEDULE_TIER_2,
     default_args=default_args,
     max_active_runs=1,
     catchup=False,
@@ -249,7 +253,7 @@ with DAG(
 
 with DAG(
     dag_id="jira_projects",
-    schedule="0 5 * * *",
+    schedule=SCHEDULE_TIER_1,
     default_args=default_args,
     max_active_runs=1,
     catchup=False,
@@ -263,7 +267,7 @@ with DAG(
 
 with DAG(
     dag_id="jira_issues",
-    schedule="0 6 * * *",
+    schedule=SCHEDULE_TIER_2,
     default_args=default_args,
     max_active_runs=1,
     catchup=False,
