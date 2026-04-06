@@ -1,0 +1,21 @@
+"""Shared base class for Jira assets."""
+
+from __future__ import annotations
+
+import os
+
+from data_assets.core.api_asset import APIAsset
+from data_assets.extract.token_manager import JiraTokenManager
+
+
+class JiraAsset(APIAsset):
+    """Base for Jira assets. Shares source config and URL resolution."""
+
+    source_name = "jira"
+    target_schema = "raw"
+    token_manager_class = JiraTokenManager
+    base_url = ""
+    rate_limit_per_second = 5.0
+
+    def get_jira_url(self) -> str:
+        return os.environ.get("JIRA_URL", self.base_url)

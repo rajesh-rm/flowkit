@@ -52,7 +52,6 @@ tests/
 │   │   └── test_types.py           #     PaginationState, RequestSpec, etc.
 │   ├── extract/                    #   Extraction layer
 │   │   ├── test_api_client.py      #     HTTP retries, error handling (respx)
-│   │   ├── test_flatten.py         #     JSON flattening
 │   │   ├── test_parallel.py        #     Parallel extraction, checkpoints
 │   │   ├── test_rate_limiter.py    #     Sliding-window rate limiter
 │   │   └── test_token_manager.py   #     All token managers (GitHub, ServiceNow, Jira, SonarQube)

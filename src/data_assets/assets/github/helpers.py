@@ -8,7 +8,6 @@ from typing import Any
 import pandas as pd
 
 from data_assets.core.api_asset import APIAsset
-from data_assets.core.column import Column
 from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
@@ -34,6 +33,49 @@ def filter_to_current_org(keys: list) -> list:
     if not org:
         return keys
     return [k for k in keys if str(k).startswith(f"{org}/")]
+
+
+class GitHubOrgAsset(APIAsset):
+    """Base class for GitHub assets scoped to an organization (not per-repo).
+
+    Handles standard org-level pagination and request building. Subclasses set
+    org_endpoint (e.g., "/repos", "/members") and implement parse_response().
+    """
+
+    source_name = "github"
+    target_schema = "raw"
+
+    token_manager_class = GitHubAppTokenManager
+    base_url = "https://api.github.com"
+
+    pagination_config = PaginationConfig(strategy="page_number", page_size=100)
+    parallel_mode = ParallelMode.NONE
+    max_workers = 1
+
+    load_strategy = LoadStrategy.UPSERT
+    default_run_mode = RunMode.FULL
+
+    # Subclass sets this to the org-relative API path (e.g., "/repos", "/members")
+    org_endpoint: str = ""
+    # Extra query params for build_request (e.g., {"type": "all"} for repos)
+    org_request_params: dict[str, Any] = {}
+
+    def build_request(
+        self, context: RunContext, checkpoint: dict[str, Any] | None = None
+    ) -> RequestSpec:
+        org = get_github_org()
+        page = (checkpoint.get("next_page") or 1) if checkpoint else 1
+        base = get_github_base_url()
+
+        params: dict[str, Any] = {"per_page": 100, "page": page}
+        params.update(self.org_request_params)
+
+        return RequestSpec(
+            method="GET",
+            url=f"{base}/orgs/{org}{self.org_endpoint}",
+            params=params,
+            headers={"Accept": "application/vnd.github+json"},
+        )
 
 
 class GitHubRepoAsset(APIAsset):
