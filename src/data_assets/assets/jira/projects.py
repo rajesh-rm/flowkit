@@ -6,7 +6,7 @@ from typing import Any
 import pandas as pd
 
 from data_assets.core.api_asset import APIAsset
-from data_assets.core.column import Column
+from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
@@ -44,6 +44,9 @@ class JiraProjects(APIAsset):
     # PK is "key" (not "id") because jira_issues uses project key in JQL
     # and entity-parallel fans out by primary key values.
     primary_key = ["key"]
+    indexes = [
+        Index(columns=("name",)),
+    ]
 
     # ------------------------------------------------------------------
     # Request / response

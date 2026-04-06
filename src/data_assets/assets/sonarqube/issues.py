@@ -15,7 +15,7 @@ import os
 import pandas as pd
 
 from data_assets.assets.sonarqube.helpers import SonarQubeAsset
-from data_assets.core.column import Column
+from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
@@ -58,6 +58,12 @@ class SonarQubeIssues(SonarQubeAsset):
     ]
 
     primary_key = ["key"]
+    indexes = [
+        Index(columns=("project",)),
+        Index(columns=("update_date",)),
+        Index(columns=("severity",)),
+        Index(columns=("status",)),
+    ]
     date_column = "update_date"  # Track watermark on update_date, not creation_date
 
     def build_entity_request(

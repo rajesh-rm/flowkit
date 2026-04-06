@@ -7,7 +7,7 @@ from typing import Any
 import pandas as pd
 
 from data_assets.assets.github.helpers import GitHubRepoAsset
-from data_assets.core.column import Column
+from data_assets.core.column import Column, Index
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationState, RequestSpec
@@ -30,6 +30,9 @@ class GitHubWorkflows(GitHubRepoAsset):
         Column("updated_at", "TIMESTAMPTZ"),
     ]
     primary_key = ["id"]
+    indexes = [
+        Index(columns=("repo_full_name",)),
+    ]
 
     def build_entity_request(self, entity_key: str, context: RunContext, checkpoint: dict | None = None) -> RequestSpec:
         return self._paginated_entity_request(

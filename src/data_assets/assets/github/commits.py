@@ -7,7 +7,7 @@ from typing import Any
 import pandas as pd
 
 from data_assets.assets.github.helpers import GitHubRepoAsset
-from data_assets.core.column import Column
+from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
@@ -35,6 +35,11 @@ class GitHubCommits(GitHubRepoAsset):
         Column("html_url", "TEXT"),
     ]
     primary_key = ["sha"]
+    indexes = [
+        Index(columns=("repo_full_name",)),
+        Index(columns=("committer_date",)),
+        Index(columns=("author_login",)),
+    ]
     date_column = "committer_date"
 
     def build_entity_request(self, entity_key: str, context: RunContext, checkpoint: dict | None = None) -> RequestSpec:

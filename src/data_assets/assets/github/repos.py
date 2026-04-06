@@ -14,7 +14,7 @@ import pandas as pd
 
 from data_assets.assets.github.helpers import get_github_base_url, get_github_org
 from data_assets.core.api_asset import APIAsset
-from data_assets.core.column import Column
+from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
@@ -62,6 +62,11 @@ class GitHubRepos(APIAsset):
     ]
 
     primary_key = ["full_name"]
+    indexes = [
+        Index(columns=("owner_login",)),
+        Index(columns=("language",)),
+        Index(columns=("updated_at",)),
+    ]
 
     def build_request(
         self, context: RunContext, checkpoint: dict[str, Any] | None = None

@@ -11,7 +11,7 @@ pagination, columns, and field_map (if API fields differ from column names).
 
 from __future__ import annotations
 
-from data_assets.core.column import Column
+from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.registry import register
 from data_assets.core.rest_asset import RestAsset
@@ -58,6 +58,9 @@ class SonarQubeProjects(RestAsset):
         Column("qualifier", "TEXT"),
     ]
     primary_key = ["key"]
+    indexes = [
+        Index(columns=("name",)),
+    ]
 
     def build_request(self, context, checkpoint=None):
         spec = super().build_request(context, checkpoint)

@@ -18,7 +18,7 @@ from typing import Any
 import pandas as pd
 
 from data_assets.assets.sonarqube.helpers import SonarQubeAsset
-from data_assets.core.column import Column
+from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
@@ -61,6 +61,9 @@ class SonarQubeMeasures(SonarQubeAsset):
     ]
 
     primary_key = ["project_key"]
+    indexes = [
+        Index(columns=("ncloc",)),
+    ]
 
     def build_entity_request(
         self, entity_key: str, context: RunContext, checkpoint: dict | None = None

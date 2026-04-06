@@ -128,6 +128,7 @@ The limiter is shared. Workers wait their turn.
 | Failure model | Temp table + checkpoints | Zero wasted API calls on retry |
 | Transform safety | Per-query `statement_timeout` (default 300s, configurable per asset) | Prevents runaway SQL from holding connections indefinitely |
 | Bulk write safety | `chunksize=1000` on temp table inserts | Prevents PostgreSQL bind-parameter overflow on large DataFrames |
+| Declarative indexes | Every asset declares `indexes` (at least one required); created after promotion via `CREATE INDEX IF NOT EXISTS` | Proactive query performance — indexes reflect expected query patterns, not reactive DBA work |
 | Schema management | Auto-create, additive migration via SchemaContract enum (EVOLVE/FREEZE/DISCARD) | Safe evolution, no data loss |
 | Rate limiting | In-process sliding-window counter (thread-safe) | Simple, no external state |
 | Parallelism | Thread pool for page/entity fan-out | Shared rate limiter + token manager |

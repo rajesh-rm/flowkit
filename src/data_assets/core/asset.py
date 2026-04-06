@@ -7,7 +7,7 @@ from abc import ABC
 import pandas as pd
 from sqlalchemy.engine import Engine
 
-from data_assets.core.column import Column
+from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy, RunMode, SchemaContract
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import ValidationResult
@@ -29,6 +29,7 @@ class Asset(ABC):
     target_table: str = ""
     columns: list[Column] = []
     primary_key: list[str] = []
+    indexes: list[Index] = []
 
     # --- Behavior ---
     default_run_mode: RunMode = RunMode.FULL

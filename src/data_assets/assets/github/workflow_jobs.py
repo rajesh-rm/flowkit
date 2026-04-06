@@ -10,7 +10,7 @@ from typing import Any
 import pandas as pd
 
 from data_assets.assets.github.helpers import GitHubRepoAsset, get_github_base_url
-from data_assets.core.column import Column
+from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
@@ -43,6 +43,11 @@ class GitHubWorkflowJobs(GitHubRepoAsset):
         Column("runner_group_name", "TEXT"),
     ]
     primary_key = ["id"]
+    indexes = [
+        Index(columns=("run_id",)),
+        Index(columns=("completed_at",)),
+        Index(columns=("conclusion",)),
+    ]
     date_column = "completed_at"
 
     def filter_entity_keys(self, keys: list) -> list:
