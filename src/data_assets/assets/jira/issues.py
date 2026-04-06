@@ -6,7 +6,7 @@ from typing import Any
 import pandas as pd
 
 from data_assets.core.api_asset import APIAsset
-from data_assets.core.column import Column
+from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
@@ -57,6 +57,13 @@ class JiraIssues(APIAsset):
     ]
 
     primary_key = ["id"]
+    indexes = [
+        Index(columns=("key",), unique=True),
+        Index(columns=("project_key",)),
+        Index(columns=("status",)),
+        Index(columns=("updated",)),
+        Index(columns=("assignee",)),
+    ]
     date_column = "updated"
     api_date_param = "jql"
 

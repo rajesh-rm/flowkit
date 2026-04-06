@@ -388,6 +388,7 @@ def _run_promotion(
         columns=asset.columns, primary_key=asset.primary_key,
         load_strategy=asset.load_strategy,
         schema_contract=asset.schema_contract,
+        indexes=asset.indexes,
     )
 
 

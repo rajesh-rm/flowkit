@@ -15,7 +15,7 @@ import pandas as pd
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 
-from data_assets.core.column import Column
+from data_assets.core.column import Column, Index, index_name
 from data_assets.core.enums import LoadStrategy, SchemaContract
 
 logger = logging.getLogger(__name__)
@@ -106,6 +106,36 @@ def ensure_columns(
             logger.info("Added column '%s' to %s.%s", col.name, schema, table_name)
 
 
+def ensure_indexes(
+    engine: Engine,
+    schema: str,
+    table_name: str,
+    indexes: list[Index],
+) -> None:
+    """Create declared indexes on the target table (idempotent).
+
+    Uses CREATE INDEX IF NOT EXISTS so it is safe to call on every run.
+    Each index is created in its own transaction so one failure does not
+    block the others.
+    """
+    for idx in indexes:
+        name = index_name(table_name, idx)
+        unique = "UNIQUE " if idx.unique else ""
+        cols = ", ".join(f'"{c}"' for c in idx.columns)
+        ddl = (
+            f'CREATE {unique}INDEX IF NOT EXISTS "{name}" '
+            f'ON "{schema}"."{table_name}" USING {idx.method} ({cols})'
+        )
+        if idx.include:
+            inc_cols = ", ".join(f'"{c}"' for c in idx.include)
+            ddl += f" INCLUDE ({inc_cols})"
+        if idx.where:
+            ddl += f" WHERE {idx.where}"
+        with engine.begin() as conn:
+            conn.execute(text(ddl))
+        logger.info("Ensured index %s on %s.%s", name, schema, table_name)
+
+
 def drop_table(engine: Engine, schema: str, table_name: str) -> None:
     """Drop a table if it exists."""
     with engine.begin() as conn:
@@ -183,10 +213,12 @@ def promote(
     primary_key: list[str],
     load_strategy: LoadStrategy,
     schema_contract: str = "evolve",
+    indexes: list[Index] | None = None,
 ) -> int:
     """Promote data from temp table to main table in a single transaction.
 
     Ensures target table exists (creates if missing, manages columns per schema_contract).
+    Creates declared indexes after promotion (idempotent).
     Returns number of rows loaded.
     """
     create_table(engine, target_schema, target_table, columns, primary_key)
@@ -218,6 +250,9 @@ def promote(
 
         rows_loaded = promoter(conn, TEMP_SCHEMA, temp_table, target_schema, target_table,
                                primary_key, column_names)
+
+    if indexes:
+        ensure_indexes(engine, target_schema, target_table, indexes)
 
     logger.info("Promoted %d rows to %s.%s via %s",
                 rows_loaded, target_schema, target_table, load_strategy.value)

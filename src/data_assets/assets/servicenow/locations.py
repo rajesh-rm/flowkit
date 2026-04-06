@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from data_assets.assets.servicenow.base import ServiceNowTableAsset
-from data_assets.core.column import Column
+from data_assets.core.column import Column, Index
 from data_assets.core.registry import register
 
 
@@ -23,4 +23,9 @@ class ServiceNowLocations(ServiceNowTableAsset):
         Column("longitude", "TEXT"),
         Column("parent", "TEXT"),
         Column("sys_updated_on", "TIMESTAMPTZ"),
+    ]
+    indexes = [
+        Index(columns=("name",)),
+        Index(columns=("country",)),
+        Index(columns=("sys_updated_on",)),
     ]

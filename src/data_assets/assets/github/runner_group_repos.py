@@ -11,7 +11,7 @@ from data_assets.assets.github.helpers import (
     get_github_base_url,
     get_github_org,
 )
-from data_assets.core.column import Column
+from data_assets.core.column import Column, Index
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationState, RequestSpec
@@ -35,6 +35,9 @@ class GitHubRunnerGroupRepos(GitHubRepoAsset):
         Column("repo_full_name", "TEXT"),
     ]
     primary_key = ["runner_group_id", "repo_id"]
+    indexes = [
+        Index(columns=("repo_full_name",)),
+    ]
 
     def filter_entity_keys(self, keys: list) -> list:
         return keys  # No org filtering — parent is already org-scoped

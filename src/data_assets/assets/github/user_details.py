@@ -8,7 +8,7 @@ import pandas as pd
 
 from data_assets.assets.github.helpers import get_github_base_url
 from data_assets.core.api_asset import APIAsset
-from data_assets.core.column import Column
+from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
@@ -50,6 +50,9 @@ class GitHubUserDetails(APIAsset):
         Column("updated_at", "TIMESTAMPTZ"),
     ]
     primary_key = ["login"]
+    indexes = [
+        Index(columns=("company",)),
+    ]
 
     def build_entity_request(self, entity_key, context: RunContext, checkpoint=None) -> RequestSpec:
         base = get_github_base_url()

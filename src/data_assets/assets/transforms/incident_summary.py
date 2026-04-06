@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from data_assets.core.column import Column
+from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
@@ -26,6 +26,10 @@ class IncidentSummary(TransformAsset):
         Column("incident_count", "INTEGER", nullable=False),
     ]
     primary_key = ["report_date", "priority", "state"]
+    indexes = [
+        Index(columns=("report_date",)),
+        Index(columns=("priority",)),
+    ]
 
     def query(self, context: RunContext) -> str:
         return """

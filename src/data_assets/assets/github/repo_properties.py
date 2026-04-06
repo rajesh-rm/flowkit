@@ -7,7 +7,7 @@ from typing import Any
 import pandas as pd
 
 from data_assets.assets.github.helpers import GitHubRepoAsset
-from data_assets.core.column import Column
+from data_assets.core.column import Column, Index
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
@@ -28,6 +28,9 @@ class GitHubRepoProperties(GitHubRepoAsset):
         Column("value", "TEXT"),
     ]
     primary_key = ["repo_full_name", "property_name"]
+    indexes = [
+        Index(columns=("value",)),
+    ]
 
     def build_entity_request(self, entity_key: str, context: RunContext, checkpoint: dict | None = None) -> RequestSpec:
         return self._paginated_entity_request(

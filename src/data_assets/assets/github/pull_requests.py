@@ -7,7 +7,7 @@ from typing import Any
 import pandas as pd
 
 from data_assets.assets.github.helpers import GitHubRepoAsset
-from data_assets.core.column import Column
+from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
@@ -51,6 +51,12 @@ class GitHubPullRequests(GitHubRepoAsset):
     ]
 
     primary_key = ["id"]
+    indexes = [
+        Index(columns=("repo_full_name",)),
+        Index(columns=("updated_at",)),
+        Index(columns=("state",)),
+        Index(columns=("user_login",)),
+    ]
     date_column = "updated_at"
 
     def build_entity_request(

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from data_assets.assets.servicenow.base import ServiceNowTableAsset
-from data_assets.core.column import Column
+from data_assets.core.column import Column, Index
 from data_assets.core.registry import register
 
 
@@ -25,4 +25,10 @@ class ServiceNowChangeTasks(ServiceNowTableAsset):
         Column("planned_start_date", "TIMESTAMPTZ", nullable=True),
         Column("planned_end_date", "TIMESTAMPTZ", nullable=True),
         Column("sys_updated_on", "TIMESTAMPTZ"),
+    ]
+    indexes = [
+        Index(columns=("number",), unique=True),
+        Index(columns=("change_request",)),
+        Index(columns=("state",)),
+        Index(columns=("sys_updated_on",)),
     ]

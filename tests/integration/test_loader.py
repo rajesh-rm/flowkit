@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 from sqlalchemy import inspect, text
 
-from data_assets.core.column import Column
+from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy
 from data_assets.load.loader import (
     _column_ddl,
@@ -16,6 +16,7 @@ from data_assets.load.loader import (
     create_temp_table,
     drop_temp_table,
     ensure_columns,
+    ensure_indexes,
     promote,
     read_temp_table,
     temp_table_exists,
@@ -218,3 +219,64 @@ class TestPromote:
         assert len(result) == 2
         assert result[result["id"] == 1].iloc[0]["name"] in ("first", "second")
         assert result[result["id"] == 2].iloc[0]["name"] == "unique"
+
+
+# ---------------------------------------------------------------------------
+# Index creation
+# ---------------------------------------------------------------------------
+
+
+IDX_COLS = [Column("id", "INTEGER", nullable=False), Column("name", "TEXT"), Column("status", "TEXT")]
+IDX_PK = ["id"]
+INDEXES = [
+    Index(columns=("name",)),
+    Index(columns=("status",)),
+]
+
+
+@pytest.mark.integration
+class TestEnsureIndexes:
+    def test_creates_indexes(self, clean_db):
+        create_table(clean_db, "raw", "idx_test", IDX_COLS, IDX_PK)
+        ensure_indexes(clean_db, "raw", "idx_test", INDEXES)
+
+        result = pd.read_sql(
+            "SELECT indexname FROM pg_indexes WHERE tablename = 'idx_test' AND schemaname = 'raw'",
+            clean_db,
+        )
+        names = set(result["indexname"])
+        assert "ix_idx_test_name" in names
+        assert "ix_idx_test_status" in names
+
+    def test_idempotent(self, clean_db):
+        create_table(clean_db, "raw", "idx_idem", IDX_COLS, IDX_PK)
+        ensure_indexes(clean_db, "raw", "idx_idem", INDEXES)
+        ensure_indexes(clean_db, "raw", "idx_idem", INDEXES)  # no error
+
+    def test_unique_index(self, clean_db):
+        unique_idx = [Index(columns=("name",), unique=True)]
+        create_table(clean_db, "raw", "idx_uniq", IDX_COLS, IDX_PK)
+        ensure_indexes(clean_db, "raw", "idx_uniq", unique_idx)
+
+        result = pd.read_sql(
+            "SELECT indexname FROM pg_indexes WHERE tablename = 'idx_uniq' AND schemaname = 'raw'",
+            clean_db,
+        )
+        assert "ix_idx_uniq_name_unique" in set(result["indexname"])
+
+    def test_promote_creates_indexes(self, clean_db):
+        run_id = uuid.uuid4()
+        tname = create_temp_table(clean_db, "idx_promo", run_id, IDX_COLS)
+        df = pd.DataFrame({"id": [1, 2], "name": ["a", "b"], "status": ["open", "closed"]})
+        write_to_temp(clean_db, tname, df)
+
+        promote(clean_db, tname, "raw", "idx_promo", IDX_COLS, IDX_PK,
+                LoadStrategy.FULL_REPLACE, indexes=INDEXES)
+
+        result = pd.read_sql(
+            "SELECT indexname FROM pg_indexes WHERE tablename = 'idx_promo' AND schemaname = 'raw'",
+            clean_db,
+        )
+        names = set(result["indexname"])
+        assert "ix_idx_promo_name" in names
+        assert "ix_idx_promo_status" in names

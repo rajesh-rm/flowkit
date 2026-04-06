@@ -17,6 +17,7 @@ import pandas as pd
 from sqlalchemy.engine import Engine
 
 from data_assets.core.api_asset import APIAsset
+from data_assets.core.column import Index
 from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
@@ -45,6 +46,9 @@ class ServiceNowTableAsset(APIAsset):
 
     primary_key = ["sys_id"]
     date_column = "sys_updated_on"
+    indexes = [
+        Index(columns=("sys_updated_on",)),
+    ]
 
     # Subclass must set this to the ServiceNow table name (e.g., "incident")
     table_name: str = ""

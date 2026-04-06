@@ -565,7 +565,7 @@ from typing import Any
 import pandas as pd
 
 from data_assets.core.api_asset import APIAsset
-from data_assets.core.column import Column
+from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
@@ -824,6 +824,42 @@ class PagerDutyIncidents(APIAsset):
     # For composite keys: primary_key = ["project_key", "incident_id"]
 
     # ---------------------------------------------------------------
+    # Indexes (required — at least one per asset)
+    # ---------------------------------------------------------------
+
+    indexes = [
+        Index(columns=("status",)),              # filter open/closed
+        Index(columns=("updated_at",)),          # time-range queries
+        Index(columns=("service_name",)),        # group by service
+    ]
+    # Every asset must declare at least one Index. The framework creates
+    # them on the main table after promotion (CREATE INDEX IF NOT EXISTS).
+    #
+    # The goal is proactive index design: define indexes based on how
+    # analysts and dashboards will query the data, not reactively after
+    # slow queries appear.
+    #
+    # Index(columns, unique=False, method="btree", where=None, include=None, name=None)
+    #
+    #   columns:  Tuple of column names (order matters for composites).
+    #             Example: ("repo_full_name",) or ("name", "element", "value")
+    #   unique:   True for UNIQUE indexes (e.g., lookup by natural key).
+    #   method:   "btree" (default, good for =, <, >, BETWEEN),
+    #             "gin" (for JSONB or full-text), "hash" (for = only).
+    #   where:    Partial index — raw SQL condition without the WHERE keyword.
+    #             Example: "state = 'open'"
+    #   include:  Covering index columns (Postgres 11+). The index stores
+    #             these values so queries can be answered from the index alone.
+    #   name:     Auto-generated if omitted as ix_{table}_{cols}[_unique][_partial].
+    #
+    # Multiple indexes can reference the same column (e.g., a plain btree
+    # and a partial index on the same column for different query patterns).
+    #
+    # Primary key columns are already indexed by the PK constraint.
+    # Don't add a redundant index on PK columns — instead index the
+    # columns analysts will filter, join, or group by.
+
+    # ---------------------------------------------------------------
     # Incremental support (date-based watermarks)
     # ---------------------------------------------------------------
 
@@ -848,7 +884,7 @@ class PagerDutyIncidents(APIAsset):
 That is a lot of attributes. Here is the mental model:
 
 - **Identity** (name, description, source_name) tells the system what this asset is.
-- **Target** (target_schema, target_table, columns, primary_key) tells the system where data goes.
+- **Target** (target_schema, target_table, columns, primary_key, indexes) tells the system where data goes and how to index it.
 - **Extraction** (token_manager_class, base_url, rate_limit_per_second, pagination_config, parallel_mode, max_workers) tells the system how to get data.
 - **Loading** (load_strategy, default_run_mode, date_column, api_date_param) tells the system how to persist data.
 - **Run resilience** (stale_heartbeat_minutes, max_run_hours) controls how long a run can be idle or run before being considered abandoned. These are defined on the base `Asset` class with safe defaults (20 min heartbeat, 5 hours max) so they work for all asset types — API, transform, or custom `extract()` hook.
@@ -1275,7 +1311,7 @@ token manager resolves credentials via `CredentialResolver` (Airflow
 Connections → env vars → `.env` file), the same way all other source
 token managers work.
 
-Subclasses only set `name`, `target_table`, `table_name`, and `columns` — no
+Subclasses set `name`, `target_table`, `table_name`, `columns`, and `indexes` — no
 `build_request()` or `parse_response()` needed. See
 `assets/servicenow/incidents.py` for a concrete example (~30 lines).
 
@@ -1323,7 +1359,7 @@ Create `src/data_assets/assets/transforms/pagerduty_incident_summary.py`:
 ```python
 from __future__ import annotations
 
-from data_assets.core.column import Column
+from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
@@ -1358,6 +1394,11 @@ class PagerDutyIncidentSummary(TransformAsset):
     ]
 
     primary_key = ["report_date", "service_name", "urgency"]
+
+    indexes = [
+        Index(columns=("report_date",)),     # filter by date range
+        Index(columns=("service_name",)),    # aggregate by service
+    ]
 
     def query(self, context: RunContext) -> str:
         """SQL SELECT that produces the summary rows.
