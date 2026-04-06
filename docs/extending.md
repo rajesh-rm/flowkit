@@ -185,9 +185,9 @@ from the class attributes.
 |-----------|----------|-------------|
 | `endpoint` | Yes | API path (e.g., `/api/items`) |
 | `base_url_env` | Yes | Env var name for base URL (e.g., `"MY_API_URL"`) |
-| `response_path` | Yes | Dot-path to records in response JSON. Use `""` if response IS the list. |
+| `response_path` | Yes | Dot-path to records in response JSON. Omit (or set to `None`) if the response itself IS the list — a warning is logged if the response is not a list and no `response_path` is configured. |
 | `pagination` | Yes | Dict: `{"strategy": "page_number\|offset\|cursor\|none", "page_size": 100}`. Param name overrides: `page_size_param`, `page_number_param`, `limit_param`, `offset_param`, `page_index_path`. |
-| `field_map` | No | Dict mapping API field names → column names. Only for renames. |
+| `field_map` | No | Dict mapping API field names → column names. Only for renames. Duplicate column targets are rejected at class definition time (`ValueError`). |
 | `api_date_param` | No | Query param name for incremental date filter (e.g., `"updated_since"`) |
 
 ### Shared base classes for similar APIs
@@ -420,6 +420,7 @@ class ExampleOAuth2TokenManager(TokenManager):
                 "client_id": self._client_id,
                 "client_secret": self._client_secret,
             },
+            timeout=30,  # prevent indefinite hang if token endpoint is down
         )
         resp.raise_for_status()
         data = resp.json()
@@ -434,6 +435,8 @@ Key points:
   avoid edge cases where the token expires between checking and using it.
 - `_refresh` uses a local `httpx` import to avoid circular imports at
   module load time.
+- Always include `timeout=30` on the `httpx.post()` call. Token refresh
+  holds the thread lock — a hanging endpoint blocks all extraction threads.
 
 #### Pattern 4: JWT / GitHub App (sign JWT, exchange for installation token)
 
@@ -492,6 +495,7 @@ class GitHubAppTokenManager(TokenManager):
                 "Authorization": f"Bearer {encoded_jwt}",
                 "Accept": "application/vnd.github+json",
             },
+            timeout=30,  # prevent indefinite hang if token endpoint is down
         )
         resp.raise_for_status()
         data = resp.json()
@@ -506,6 +510,9 @@ Key points:
   last 1 hour, so this gives a comfortable buffer.
 - The `jwt` and `httpx` libraries are imported inside `_refresh` to keep them
   as lazy dependencies.
+- Always set `timeout=30` on token refresh calls. The refresh holds a thread
+  lock — without a timeout, a hanging token endpoint blocks all extraction
+  threads indefinitely.
 
 #### Where to put your new token manager
 
@@ -1245,11 +1252,21 @@ class TransformAsset(Asset):
     load_strategy = LoadStrategy.FULL_REPLACE
     target_schema = "mart"       # convention: transforms go in "mart" schema
     source_tables: list[str] = []
+    query_timeout_seconds: int = 300  # safety limit — per-query Postgres timeout
 
     @abstractmethod
     def query(self, context: RunContext) -> str:
         """Return a SQL SELECT producing the output rows."""
         ...
+```
+
+The `query_timeout_seconds` attribute sets a per-query `statement_timeout` on the
+Postgres session (via `SET LOCAL`). If your transform runs a heavy multi-table JOIN
+that legitimately needs more than 5 minutes, override it:
+
+```python
+class HeavyTransform(TransformAsset):
+    query_timeout_seconds = 900  # 15 minutes
 ```
 
 **Complete example: daily PagerDuty incident summary.**
@@ -1788,6 +1805,12 @@ def classify_error(self, status_code: int, headers: dict) -> str:
 ```
 
 Default: 404→skip, 429/5xx→retry, other 4xx→fail.
+
+**Non-JSON responses:** If an API (or an intermediate proxy/CDN) returns a
+non-JSON response on a successful HTTP status, the framework catches the parse
+error and raises a `ValueError` with the URL, status code, and first 200 characters
+of the response body. This makes proxy/CDN misconfiguration failures immediately
+diagnosable in logs.
 
 ### Schema Contracts (`schema_contract`)
 

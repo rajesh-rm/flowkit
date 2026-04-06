@@ -141,6 +141,7 @@ class GitHubAppTokenManager(TokenManager):
                 "Authorization": f"Bearer {encoded_jwt}",
                 "Accept": "application/vnd.github+json",
             },
+            timeout=30,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -213,6 +214,7 @@ class ServiceNowTokenManager(TokenManager):
                 "client_id": self._client_id,
                 "client_secret": self._client_secret,
             },
+            timeout=30,
         )
         resp.raise_for_status()
         data = resp.json()

@@ -69,10 +69,10 @@ def acquire_or_takeover(
         abandoned_run_id: uuid.UUID | None = None
 
         if existing is not None:
-            heartbeat = (existing.heartbeat_at or existing.locked_at).replace(
-                tzinfo=UTC
+            heartbeat = (existing.heartbeat_at or existing.locked_at).astimezone(
+                UTC
             )
-            lock_start = existing.locked_at.replace(tzinfo=UTC)
+            lock_start = existing.locked_at.astimezone(UTC)
 
             heartbeat_age = now - heartbeat
             run_age = now - lock_start

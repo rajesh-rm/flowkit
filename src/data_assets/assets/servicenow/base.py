@@ -136,6 +136,12 @@ class ServiceNowTableAsset(APIAsset):
         """Convert a batch of serialized records to a DataFrame with declared columns."""
         df = pd.DataFrame(batch)
         column_names = [c.name for c in self.columns]
+        missing = [c for c in column_names if c not in df.columns]
+        if missing:
+            logger.warning(
+                "%s: declared columns missing from API response: %s",
+                self.name, missing,
+            )
         return df[[c for c in column_names if c in df.columns]]
 
     # -----------------------------------------------------------------------

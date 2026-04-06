@@ -85,6 +85,8 @@ All ServiceNow assets share `ServiceNowTableAsset` base class. Extraction uses p
 
 **Reference fields:** With `sysparm_exclude_reference_link=true`, reference fields like `assigned_to` return the raw `sys_id` string instead of a verbose JSON object. Join to dimension tables (`servicenow_users`, `servicenow_user_groups`, `servicenow_locations`) by `sys_id` for human-readable values.
 
+**Missing column detection:** If the ServiceNow instance doesn't return a declared column (e.g., field deprecated or ACL changed), the framework logs a WARNING listing the missing columns. The extraction continues with those columns as NULL.
+
 ---
 
 ## GitHub

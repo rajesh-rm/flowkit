@@ -37,7 +37,7 @@ When Airflow calls `run_asset("my_asset", mode="forward")`:
 4. **Promote** — Move from temp table to main table via FULL_REPLACE, UPSERT, or APPEND (single transaction)
 5. **Finalize** — Update coverage tracker, record metrics, clear checkpoints, drop temp table, release lock
 
-On failure: lock is released, temp table is cleaned up, checkpoints are preserved for retry.
+On failure: lock is released, temp table cleanup is attempted (failures logged at WARNING), checkpoints are preserved for retry.
 
 ## Extraction Data Flow
 
@@ -126,6 +126,8 @@ The limiter is shared. Workers wait their turn.
 |----------|--------|-----------|
 | Load strategies | Full replace, upsert, append | Covers all ETL patterns |
 | Failure model | Temp table + checkpoints | Zero wasted API calls on retry |
+| Transform safety | Per-query `statement_timeout` (default 300s, configurable per asset) | Prevents runaway SQL from holding connections indefinitely |
+| Bulk write safety | `chunksize=1000` on temp table inserts | Prevents PostgreSQL bind-parameter overflow on large DataFrames |
 | Schema management | Auto-create, additive migration via SchemaContract enum (EVOLVE/FREEZE/DISCARD) | Safe evolution, no data loss |
 | Rate limiting | In-process sliding-window counter (thread-safe) | Simple, no external state |
 | Parallelism | Thread pool for page/entity fan-out | Shared rate limiter + token manager |
@@ -162,7 +164,7 @@ For child resources (PRs per repo, issues per project). Parent entity keys are l
 
 - **Rate limiter**: one sliding-window instance shared across all threads — 4 workers at 10/sec = 10/sec total
 - **Token manager**: thread-safe, shared — single token refreshed for all workers
-- **Error handling**: `SkippedRequestError` (e.g., 404) skips the entity, doesn't kill the run
+- **Error handling**: `SkippedRequestError` (e.g., 404) skips the entity, doesn't kill the run. Non-JSON responses (e.g., HTML error pages from proxies) are caught and wrapped with URL, status code, and body preview for diagnostics.
 - **Thread pool**: `_run_workers()` caps pool size at `min(max_workers, work_units)` — no wasted threads
 
 ## Asset Definition: Four Paths
