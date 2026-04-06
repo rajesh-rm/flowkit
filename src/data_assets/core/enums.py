@@ -41,6 +41,15 @@ class PaginationStrategy(StrEnum):
     NONE = "none"
 
 
+class IndexMethod(StrEnum):
+    BTREE = "btree"
+    GIN = "gin"
+    GIST = "gist"
+    HASH = "hash"
+    BRIN = "brin"
+    SPGIST = "spgist"
+
+
 class CheckpointType(StrEnum):
     """Describes which extraction mode wrote a checkpoint.
 

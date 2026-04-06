@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 
+from data_assets.core.enums import IndexMethod
+
 
 @dataclass(frozen=True)
 class Column:
@@ -33,7 +35,7 @@ class Index:
     Attributes:
         columns: Column names in the index (order matters for composites).
         unique: Whether this is a UNIQUE index.
-        method: Index access method — "btree" (default), "gin", "hash".
+        method: Index access method (IndexMethod enum). Default: BTREE.
         where: Optional partial index WHERE clause (raw SQL, omit the
             WHERE keyword). Example: "state = 'open'"
         include: Optional INCLUDE columns for covering indexes.
@@ -43,7 +45,7 @@ class Index:
 
     columns: tuple[str, ...]
     unique: bool = False
-    method: str = "btree"
+    method: IndexMethod = IndexMethod.BTREE
     where: str | None = None
     include: tuple[str, ...] | None = None
     name: str | None = None
