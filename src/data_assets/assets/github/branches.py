@@ -28,7 +28,7 @@ class GitHubBranches(GitHubRepoAsset):
     ]
     primary_key = ["repo_full_name", "name"]
     indexes = [
-        Index(columns=("repo_full_name",)),
+        Index(columns=("protected",)),
     ]
 
     def build_entity_request(self, entity_key: str, context: RunContext, checkpoint: dict | None = None) -> RequestSpec:

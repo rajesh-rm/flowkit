@@ -29,7 +29,7 @@ class GitHubRepoProperties(GitHubRepoAsset):
     ]
     primary_key = ["repo_full_name", "property_name"]
     indexes = [
-        Index(columns=("repo_full_name",)),
+        Index(columns=("value",)),
     ]
 
     def build_entity_request(self, entity_key: str, context: RunContext, checkpoint: dict | None = None) -> RequestSpec:
