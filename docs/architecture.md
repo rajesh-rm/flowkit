@@ -173,8 +173,10 @@ For child resources (PRs per repo, issues per project). Parent entity keys are l
 - **RestAsset** (declarative) — for standard REST APIs. Declare endpoint, pagination, field_map as class attributes. No `build_request()`/`parse_response()` needed. See `sonarqube/projects.py`.
 - **APIAsset** (custom) — for APIs needing custom logic (JQL construction, keyset pagination, multi-org iteration). Override `parse_response()` and either `build_request()` (sequential) or `build_entity_request()` (entity-parallel).
 - **GitHubRepoAsset** (shared base) — for GitHub repo-scoped entity-parallel assets. Provides token manager, pagination, org filtering, and response parsing helpers. See `assets/github/helpers.py`.
+- **GitHubOrgAsset** (shared base) — for GitHub org-scoped sequential assets (repos, members, runner groups). Provides shared `build_request()` with org-level pagination. Subclasses set `org_endpoint` and optionally `org_request_params`. See `assets/github/helpers.py`.
+- **JiraAsset** (shared base) — for Jira assets. Provides shared `source_name`, `token_manager_class`, `rate_limit_per_second`, and `get_jira_url()`. See `assets/jira/helpers.py`.
 - **SonarQubeAsset** (shared base) — for SonarQube assets using APIAsset. Provides shared token manager, rate limit, and source config. See `assets/sonarqube/helpers.py`.
-- **ServiceNowTableAsset** (pysnc/extract hook) — for ServiceNow tables. Uses pysnc's GlideRecord client instead of httpx. Authentication via `ServiceNowTokenManager.get_pysnc_auth()`. Subclasses only set `name`, `target_table`, `table_name`, and `columns`. See `assets/servicenow/base.py`.
+- **ServiceNowTableAsset** (pysnc/extract hook) — for ServiceNow tables. Uses pysnc's GlideRecord client instead of httpx. Authentication via `ServiceNowTokenManager.get_pysnc_auth()`. Subclasses only set `name`, `target_table`, `table_name`, and `columns`. All table assets are defined in `assets/servicenow/tables.py`; base class in `assets/servicenow/base.py`.
 
 ## Run Resilience
 

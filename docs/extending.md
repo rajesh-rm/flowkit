@@ -193,7 +193,7 @@ from the class attributes.
 ### Shared base classes for similar APIs
 
 When multiple assets share the same API pattern (same auth, pagination, response format),
-extract a base class. The codebase has three examples:
+extract a base class. The codebase has five examples:
 
 **ServiceNow** — `ServiceNowTableAsset` uses pysnc (GlideRecord) for extraction
 via the `extract()` hook. Authentication is handled by `ServiceNowTokenManager`
@@ -206,7 +206,7 @@ class ServiceNowTableAsset(APIAsset):
     table_name: str = ""  # subclass sets this
     # ... shared pysnc extraction logic (see Section 2g) ...
 
-# servicenow/incidents.py
+# servicenow/tables.py — all ServiceNow assets in one file
 @register
 class ServiceNowIncidents(ServiceNowTableAsset):
     name = "servicenow_incidents"
@@ -251,6 +251,30 @@ class GitHubBranches(GitHubRepoAsset):
 Each repo-scoped GitHub asset is ~35 lines. The base class handles all shared
 config, entity key injection, org filtering, and request/response boilerplate.
 
+**GitHub (org-scoped)** — `GitHubOrgAsset` (in `assets/github/helpers.py`) provides
+shared config for org-level sequential assets (repos, members, runner groups). It
+handles org-scoped request building and pagination. Subclasses set `org_endpoint`
+(e.g., `"/repos"`, `"/members"`) and optionally `org_request_params`, then implement
+`parse_response()`:
+
+```python
+# assets/github/helpers.py
+class GitHubOrgAsset(APIAsset):
+    org_endpoint: str = ""          # subclass sets (e.g., "/repos")
+    org_request_params: dict = {}   # optional extra query params
+
+    def build_request(self, context, checkpoint=None) -> RequestSpec:
+        # builds /orgs/{org}{org_endpoint} with pagination
+
+# assets/github/repos.py
+@register
+class GitHubRepos(GitHubOrgAsset):
+    name = "github_repos"
+    org_endpoint = "/repos"
+    org_request_params = {"type": "all"}
+    # ... only columns, primary_key, indexes, and parse_response() needed
+```
+
 **SonarQube** — `SonarQubeAsset` (in `assets/sonarqube/helpers.py`) provides
 shared config for SonarQube assets that use APIAsset. It sets
 `token_manager_class = SonarQubeTokenManager`, `source_name`, `target_schema`,
@@ -275,6 +299,28 @@ class SonarQubeIssues(SonarQubeAsset):
 `SonarQubeProjects` uses `RestAsset` instead (for its declarative features)
 and sets the shared config attributes directly since `RestAsset` and
 `SonarQubeAsset` are separate base classes.
+
+**Jira** — `JiraAsset` (in `assets/jira/helpers.py`) provides shared config
+for Jira assets. It sets `source_name`, `token_manager_class = JiraTokenManager`,
+`rate_limit_per_second`, and provides a `get_jira_url()` helper:
+
+```python
+# assets/jira/helpers.py
+class JiraAsset(APIAsset):
+    source_name = "jira"
+    target_schema = "raw"
+    token_manager_class = JiraTokenManager
+    rate_limit_per_second = 5.0
+
+    def get_jira_url(self) -> str:
+        return os.environ.get("JIRA_URL", self.base_url)
+
+# assets/jira/projects.py — extends JiraAsset
+@register
+class JiraProjects(JiraAsset):
+    name = "jira_projects"
+    # ... only columns, pagination, build_request, and parse_response needed
+```
 
 ---
 
@@ -646,7 +692,7 @@ class PagerDutyIncidents(APIAsset):
     )
     # How this API paginates its responses.
     #
-    # strategy options (also available as PaginationStrategy enum):
+    # strategy options:
     #   "page_number" -- API uses ?page=N&per_page=M
     #                    Example: SonarQube (?p=1&ps=100)
     #                    Good when: API numbers pages starting from 1.
@@ -1313,7 +1359,8 @@ token managers work.
 
 Subclasses set `name`, `target_table`, `table_name`, `columns`, and `indexes` — no
 `build_request()` or `parse_response()` needed. See
-`assets/servicenow/incidents.py` for a concrete example (~30 lines).
+`assets/servicenow/tables.py` for concrete examples — all ServiceNow table assets
+are defined in a single file (~30 lines each).
 
 ---
 
@@ -2015,10 +2062,9 @@ Copy `sonarqube/projects.py` (RestAsset pattern) or `sonarqube/measures.py` (API
 
 ### Adding a ServiceNow endpoint
 
-Copy `servicenow/incidents.py` (APIAsset with keyset pagination). Key settings:
-- `token_manager_class = ServiceNowTokenManager`
-- Change URL in `build_request()`: `/api/now/table/{table_name}`
-- Keyset pagination on `sys_updated_on,sys_id` — copy the exact query syntax
+Add a new `@register` class in `servicenow/tables.py` (all ServiceNow table assets live in one file). Inherit from `ServiceNowTableAsset` (in `servicenow/base.py`) and set `name`, `target_table`, `table_name`, `columns`, and `indexes`. Copy any existing class in `tables.py` as a starting template. Key notes:
+- The base class handles all extraction, keyset pagination, and auth via pysnc — no `build_request()` or `parse_response()` needed
+- Import the new class in `servicenow/__init__.py`
 - ServiceNow query syntax: `^` = AND, `^OR` = OR
 - Table API docs: https://docs.servicenow.com/bundle/latest/page/integrate/inbound-rest/concept/c_TableAPI.html
 
@@ -2037,14 +2083,13 @@ You only need to define:
 - `build_entity_request()` — use `self._paginated_entity_request(entity_key, url_path, checkpoint)`
 - `parse_response()` — use `self._parse_array_response(response, record_fn)` or `self._parse_wrapped_response(response, items_key, record_fn)`
 
-For org-level endpoints (members, runner groups), inherit from `APIAsset` directly.
+For org-level endpoints (repos, members, runner groups), inherit from `GitHubOrgAsset` (in `assets/github/helpers.py`). It provides shared `build_request()` logic for org-scoped pagination. Subclasses set `org_endpoint` (e.g., `"/repos"`, `"/members"`) and optionally `org_request_params`, then implement `parse_response()`.
 - **`since` param**: works on `/repos/{o}/{r}/commits` but NOT on `/pulls`
 - GitHub REST API docs: https://docs.github.com/en/rest
 
 ### Adding a Jira endpoint
 
-Copy `jira/issues.py` (APIAsset with JQL + entity-parallel). Key settings:
-- `token_manager_class = JiraTokenManager`
+Inherit from `JiraAsset` (in `assets/jira/helpers.py`), which provides shared `source_name`, `token_manager_class`, `rate_limit_per_second`, and `get_jira_url()`. Copy `jira/issues.py` (JQL + entity-parallel) or `jira/projects.py` (sequential) as a starting template. Key settings:
 - Pagination: `{"strategy": "offset", "page_size": 100}` with `startAt`/`maxResults`
 - Use JQL for date filtering: `updated >= "{iso_date}"`
 - For entity-parallel: set `parent_asset_name = "jira_projects"` (fans out by project key)

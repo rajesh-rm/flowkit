@@ -37,7 +37,20 @@ import pandas as pd
 from data_assets.core.api_asset import APIAsset
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
-from data_assets.extract.flatten import _get_nested
+
+
+def _get_nested(obj: Any, dot_path: str) -> Any:
+    """Traverse a nested dict using a dot-separated path.
+
+    Returns None if any key in the path is missing.
+    """
+    current = obj
+    for key in dot_path.split("."):
+        if isinstance(current, dict):
+            current = current.get(key)
+        else:
+            return None
+    return current
 
 
 class RestAsset(APIAsset):

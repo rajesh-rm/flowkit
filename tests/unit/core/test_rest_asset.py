@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from data_assets.core.column import Column
 from data_assets.core.enums import LoadStrategy
-from data_assets.core.rest_asset import RestAsset
+from data_assets.core.rest_asset import RestAsset, _get_nested
 from tests.unit.conftest import make_ctx
 
 
@@ -345,3 +345,35 @@ def test_custom_offset_param_names(monkeypatch):
     assert spec.params["skip"] == 0
     assert "limit" not in spec.params
     assert "offset" not in spec.params
+
+
+# --- _get_nested helper ---
+
+
+def test_get_nested_top_level():
+    assert _get_nested({"id": 42}, "id") == 42
+
+
+def test_get_nested_one_level():
+    assert _get_nested({"user": {"login": "alice"}}, "user.login") == "alice"
+
+
+def test_get_nested_deep():
+    obj = {"a": {"b": {"c": {"d": "deep"}}}}
+    assert _get_nested(obj, "a.b.c.d") == "deep"
+
+
+def test_get_nested_missing_key():
+    assert _get_nested({"user": {"login": "alice"}}, "user.email") is None
+
+
+def test_get_nested_missing_intermediate():
+    assert _get_nested({"user": None}, "user.login") is None
+
+
+def test_get_nested_non_dict():
+    assert _get_nested("not a dict", "key") is None
+
+
+def test_get_nested_empty_dict():
+    assert _get_nested({}, "key") is None

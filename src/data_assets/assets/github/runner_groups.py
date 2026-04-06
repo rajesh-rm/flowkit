@@ -6,34 +6,19 @@ from typing import Any
 
 import pandas as pd
 
-from data_assets.assets.github.helpers import get_github_base_url, get_github_org
-from data_assets.core.api_asset import APIAsset
+from data_assets.assets.github.helpers import GitHubOrgAsset
 from data_assets.core.column import Column, Index
-from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.registry import register
-from data_assets.core.run_context import RunContext
-from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
-from data_assets.extract.token_manager import GitHubAppTokenManager
+from data_assets.core.types import PaginationState
 
 
 @register
-class GitHubRunnerGroups(APIAsset):
+class GitHubRunnerGroups(GitHubOrgAsset):
     """Self-hosted runner groups for the organization."""
 
     name = "github_runner_groups"
-    source_name = "github"
-    target_schema = "raw"
     target_table = "github_runner_groups"
-
-    token_manager_class = GitHubAppTokenManager
-    base_url = "https://api.github.com"
-
-    pagination_config = PaginationConfig(strategy="page_number", page_size=100)
-    parallel_mode = ParallelMode.NONE
-    max_workers = 1
-
-    load_strategy = LoadStrategy.UPSERT  # UPSERT so multi-org runs don't wipe each other
-    default_run_mode = RunMode.FULL
+    org_endpoint = "/actions/runner-groups"
 
     columns = [
         Column("id", "INTEGER", nullable=False),
@@ -47,20 +32,6 @@ class GitHubRunnerGroups(APIAsset):
     indexes = [
         Index(columns=("name",)),
     ]
-
-    def build_request(
-        self, context: RunContext, checkpoint: dict[str, Any] | None = None
-    ) -> RequestSpec:
-        org = get_github_org()
-        page = (checkpoint.get("next_page") or 1) if checkpoint else 1
-        base = get_github_base_url()
-
-        return RequestSpec(
-            method="GET",
-            url=f"{base}/orgs/{org}/actions/runner-groups",
-            params={"per_page": 100, "page": page},
-            headers={"Accept": "application/vnd.github+json"},
-        )
 
     def parse_response(
         self, response: dict[str, Any]

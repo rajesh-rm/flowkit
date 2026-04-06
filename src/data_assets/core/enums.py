@@ -33,14 +33,6 @@ class SchemaContract(StrEnum):
     DISCARD = "discard"
 
 
-class PaginationStrategy(StrEnum):
-    PAGE_NUMBER = "page_number"
-    OFFSET = "offset"
-    CURSOR = "cursor"
-    KEYSET = "keyset"
-    NONE = "none"
-
-
 class IndexMethod(StrEnum):
     BTREE = "btree"
     GIN = "gin"

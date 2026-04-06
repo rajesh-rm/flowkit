@@ -3,7 +3,6 @@
 from data_assets.core.enums import (
     CheckpointType,
     LoadStrategy,
-    PaginationStrategy,
     ParallelMode,
     RunMode,
     SchemaContract,
@@ -35,14 +34,6 @@ def test_schema_contract_values():
     assert SchemaContract.DISCARD.value == "discard"
 
 
-def test_pagination_strategy_values():
-    assert PaginationStrategy.PAGE_NUMBER.value == "page_number"
-    assert PaginationStrategy.OFFSET.value == "offset"
-    assert PaginationStrategy.CURSOR.value == "cursor"
-    assert PaginationStrategy.KEYSET.value == "keyset"
-    assert PaginationStrategy.NONE.value == "none"
-
-
 def test_run_mode_from_string():
     assert RunMode("full") == RunMode.FULL
     assert RunMode("forward") == RunMode.FORWARD
@@ -52,13 +43,6 @@ def test_schema_contract_from_string():
     assert SchemaContract("evolve") == SchemaContract.EVOLVE
     assert SchemaContract("freeze") == SchemaContract.FREEZE
     assert SchemaContract("discard") == SchemaContract.DISCARD
-
-
-def test_pagination_strategy_from_string():
-    assert PaginationStrategy("page_number") == PaginationStrategy.PAGE_NUMBER
-    assert PaginationStrategy("offset") == PaginationStrategy.OFFSET
-    assert PaginationStrategy("cursor") == PaginationStrategy.CURSOR
-    assert PaginationStrategy("none") == PaginationStrategy.NONE
 
 
 def test_checkpoint_type_values():

@@ -1,17 +1,15 @@
 from __future__ import annotations
 
-import os
 from typing import Any
 
 import pandas as pd
 
-from data_assets.core.api_asset import APIAsset
+from data_assets.assets.jira.helpers import JiraAsset
 from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
-from data_assets.extract.token_manager import JiraTokenManager
 
 _ISSUE_FIELDS = (
     "summary,status,priority,issuetype,assignee,"
@@ -20,17 +18,11 @@ _ISSUE_FIELDS = (
 
 
 @register
-class JiraIssues(APIAsset):
+class JiraIssues(JiraAsset):
     """Jira issues asset -- fetches issues, optionally scoped per project."""
 
     name = "jira_issues"
-    source_name = "jira"
-    target_schema = "raw"
     target_table = "jira_issues"
-
-    token_manager_class = JiraTokenManager
-    base_url = ""  # Set from JIRA_URL env var at runtime
-    rate_limit_per_second = 5.0
 
     pagination_config = PaginationConfig(strategy="offset", page_size=100)
     parallel_mode = ParallelMode.ENTITY_PARALLEL
@@ -97,7 +89,7 @@ class JiraIssues(APIAsset):
         start_date_iso = context.start_date.isoformat() if context.start_date else None
         jql = self._build_jql(project_key=project_key, start_date=start_date_iso)
         start_at = checkpoint.get("next_offset", 0) if checkpoint else 0
-        base = os.environ.get("JIRA_URL", self.base_url)
+        base = self.get_jira_url()
         return RequestSpec(
             method="GET",
             url=f"{base}/rest/api/3/search",

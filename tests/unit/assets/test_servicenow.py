@@ -22,7 +22,7 @@ FIXTURES = Path(__file__).parent.parent.parent / "fixtures" / "servicenow"
 
 class TestServiceNowIncidentsBuildRequest:
     def test_basic(self, servicenow_env):
-        from data_assets.assets.servicenow.incidents import ServiceNowIncidents
+        from data_assets.assets.servicenow import ServiceNowIncidents
 
         spec = ServiceNowIncidents().build_request(make_ctx())
         assert spec.url == "https://dev.service-now.com/api/now/table/incident"
@@ -32,7 +32,7 @@ class TestServiceNowIncidentsBuildRequest:
         assert spec.params["sysparm_no_count"] == "true"
 
     def test_sysparm_fields_matches_columns(self, servicenow_env):
-        from data_assets.assets.servicenow.incidents import ServiceNowIncidents
+        from data_assets.assets.servicenow import ServiceNowIncidents
 
         asset = ServiceNowIncidents()
         spec = asset.build_request(make_ctx())
@@ -41,14 +41,14 @@ class TestServiceNowIncidentsBuildRequest:
         assert fields == column_names
 
     def test_with_start_date(self, servicenow_env):
-        from data_assets.assets.servicenow.incidents import ServiceNowIncidents
+        from data_assets.assets.servicenow import ServiceNowIncidents
 
         ctx = make_ctx(start_date=datetime(2025, 1, 1, tzinfo=UTC))
         spec = ServiceNowIncidents().build_request(ctx)
         assert "sys_updated_on>=" in spec.params["sysparm_query"]
 
     def test_with_keyset_checkpoint(self, servicenow_env):
-        from data_assets.assets.servicenow.incidents import ServiceNowIncidents
+        from data_assets.assets.servicenow import ServiceNowIncidents
 
         cursor = json.dumps({
             "sys_updated_on": "2025-12-01T10:00:00Z",
@@ -64,7 +64,7 @@ class TestServiceNowIncidentsBuildRequest:
 
 class TestServiceNowIncidentsParseResponse:
     def test_happy_path(self, servicenow_env):
-        from data_assets.assets.servicenow.incidents import ServiceNowIncidents
+        from data_assets.assets.servicenow import ServiceNowIncidents
 
         data = json.loads((FIXTURES / "incidents.json").read_text())
         df, state = ServiceNowIncidents().parse_response(data)
@@ -76,7 +76,7 @@ class TestServiceNowIncidentsParseResponse:
         assert "sys_id" in cursor_data
 
     def test_empty_response(self, servicenow_env):
-        from data_assets.assets.servicenow.incidents import ServiceNowIncidents
+        from data_assets.assets.servicenow import ServiceNowIncidents
 
         df, state = ServiceNowIncidents().parse_response({"result": []})
         assert len(df) == 0
@@ -85,7 +85,7 @@ class TestServiceNowIncidentsParseResponse:
 
     def test_empty_response_has_column_schema(self, servicenow_env):
         """Empty response should still have correct column names."""
-        from data_assets.assets.servicenow.incidents import ServiceNowIncidents
+        from data_assets.assets.servicenow import ServiceNowIncidents
 
         df, _ = ServiceNowIncidents().parse_response({"result": []})
         assert "sys_id" in df.columns
@@ -99,12 +99,12 @@ class TestServiceNowIncidentsParseResponse:
 
 class TestServiceNowChanges:
     def test_table_name(self, servicenow_env):
-        from data_assets.assets.servicenow.changes import ServiceNowChanges
+        from data_assets.assets.servicenow import ServiceNowChanges
 
         assert ServiceNowChanges().table_name == "change_request"
 
     def test_parse_response(self, servicenow_env):
-        from data_assets.assets.servicenow.changes import ServiceNowChanges
+        from data_assets.assets.servicenow import ServiceNowChanges
 
         data = json.loads((FIXTURES / "changes.json").read_text())
         df, state = ServiceNowChanges().parse_response(data)
@@ -121,19 +121,47 @@ class TestServiceNowChanges:
 class TestServiceNowTableAssetBase:
     def test_incidents_and_changes_share_base(self, servicenow_env):
         from data_assets.assets.servicenow.base import ServiceNowTableAsset
-        from data_assets.assets.servicenow.changes import ServiceNowChanges
-        from data_assets.assets.servicenow.incidents import ServiceNowIncidents
+        from data_assets.assets.servicenow import ServiceNowChanges
+        from data_assets.assets.servicenow import ServiceNowIncidents
 
         assert issubclass(ServiceNowIncidents, ServiceNowTableAsset)
         assert issubclass(ServiceNowChanges, ServiceNowTableAsset)
 
     def test_keyset_pagination_config(self, servicenow_env):
-        from data_assets.assets.servicenow.incidents import ServiceNowIncidents
+        from data_assets.assets.servicenow import ServiceNowIncidents
 
         asset = ServiceNowIncidents()
         assert asset.pagination_config.strategy == "keyset"
         assert asset.pagination_config.page_size == 1000
         assert asset.date_column == "sys_updated_on"
+
+
+class TestServiceNowRegistration:
+    """Verify all ServiceNow assets are discoverable after consolidation into tables.py."""
+
+    EXPECTED_ASSETS = [
+        "servicenow_incidents",
+        "servicenow_changes",
+        "servicenow_change_tasks",
+        "servicenow_problems",
+        "servicenow_users",
+        "servicenow_user_groups",
+        "servicenow_departments",
+        "servicenow_locations",
+        "servicenow_cmdb_cis",
+        "servicenow_hardware_assets",
+        "servicenow_catalog_items",
+        "servicenow_catalog_requests",
+        "servicenow_choices",
+    ]
+
+    def test_all_assets_registered(self, servicenow_env):
+        from data_assets.core.registry import all_assets, discover
+
+        discover()
+        registered = set(all_assets().keys())
+        for name in self.EXPECTED_ASSETS:
+            assert name in registered, f"ServiceNow asset '{name}' missing from registry"
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +171,7 @@ class TestServiceNowTableAssetBase:
 
 class TestPysncClientCreation:
     def test_basic_auth(self, servicenow_env):
-        from data_assets.assets.servicenow.incidents import ServiceNowIncidents
+        from data_assets.assets.servicenow import ServiceNowIncidents
 
         with patch("pysnc.ServiceNowClient") as mock_cls:
             ServiceNowIncidents()._create_pysnc_client()
@@ -152,7 +180,7 @@ class TestPysncClientCreation:
             )
 
     def test_oauth2_when_all_creds_set(self, servicenow_env, monkeypatch):
-        from data_assets.assets.servicenow.incidents import ServiceNowIncidents
+        from data_assets.assets.servicenow import ServiceNowIncidents
 
         monkeypatch.setenv("SERVICENOW_CLIENT_ID", "cid")
         monkeypatch.setenv("SERVICENOW_CLIENT_SECRET", "csec")
@@ -166,14 +194,14 @@ class TestPysncClientCreation:
             mock_cls.assert_called_once()
 
     def test_missing_instance_raises(self, monkeypatch):
-        from data_assets.assets.servicenow.incidents import ServiceNowIncidents
+        from data_assets.assets.servicenow import ServiceNowIncidents
 
         monkeypatch.delenv("SERVICENOW_INSTANCE", raising=False)
         with pytest.raises(RuntimeError, match="SERVICENOW_INSTANCE"):
             ServiceNowIncidents()._create_pysnc_client()
 
     def test_missing_credentials_raises(self, monkeypatch):
-        from data_assets.assets.servicenow.incidents import ServiceNowIncidents
+        from data_assets.assets.servicenow import ServiceNowIncidents
 
         monkeypatch.setenv("SERVICENOW_INSTANCE", "https://test.service-now.com")
         with pytest.raises(RuntimeError, match="SERVICENOW_USERNAME"):
@@ -198,7 +226,7 @@ class TestPysncExtract:
         return gr
 
     def test_extract_writes_to_temp_table(self, servicenow_env):
-        from data_assets.assets.servicenow.incidents import ServiceNowIncidents
+        from data_assets.assets.servicenow import ServiceNowIncidents
 
         records = [
             {"sys_id": "a1", "number": "INC001", "state": "1",
@@ -228,7 +256,7 @@ class TestPysncExtract:
         assert list(df["sys_id"]) == ["a1", "a2"]
 
     def test_extract_applies_date_filter(self, servicenow_env):
-        from data_assets.assets.servicenow.incidents import ServiceNowIncidents
+        from data_assets.assets.servicenow import ServiceNowIncidents
 
         mock_gr = self._make_mock_gr([])
         mock_client = MagicMock()
@@ -248,7 +276,7 @@ class TestPysncExtract:
         )
 
     def test_extract_sets_fields(self, servicenow_env):
-        from data_assets.assets.servicenow.incidents import ServiceNowIncidents
+        from data_assets.assets.servicenow import ServiceNowIncidents
 
         mock_gr = self._make_mock_gr([])
         mock_client = MagicMock()
@@ -306,17 +334,17 @@ class TestServiceNowTokenManagerValidation:
 
 class TestServiceNowUsers:
     def test_table_name(self, servicenow_env):
-        from data_assets.assets.servicenow.users import ServiceNowUsers
+        from data_assets.assets.servicenow import ServiceNowUsers
 
         assert ServiceNowUsers().table_name == "sys_user"
 
     def test_primary_key(self, servicenow_env):
-        from data_assets.assets.servicenow.users import ServiceNowUsers
+        from data_assets.assets.servicenow import ServiceNowUsers
 
         assert ServiceNowUsers().primary_key == ["sys_id"]
 
     def test_parse_response(self, servicenow_env):
-        from data_assets.assets.servicenow.users import ServiceNowUsers
+        from data_assets.assets.servicenow import ServiceNowUsers
 
         data = json.loads((FIXTURES / "users.json").read_text())
         df, state = ServiceNowUsers().parse_response(data)
@@ -326,7 +354,7 @@ class TestServiceNowUsers:
         assert not state.has_more
 
     def test_build_request_url(self, servicenow_env):
-        from data_assets.assets.servicenow.users import ServiceNowUsers
+        from data_assets.assets.servicenow import ServiceNowUsers
 
         spec = ServiceNowUsers().build_request(make_ctx())
         assert spec.url.endswith("/api/now/table/sys_user")
@@ -339,17 +367,17 @@ class TestServiceNowUsers:
 
 class TestServiceNowUserGroups:
     def test_table_name(self, servicenow_env):
-        from data_assets.assets.servicenow.user_groups import ServiceNowUserGroups
+        from data_assets.assets.servicenow import ServiceNowUserGroups
 
         assert ServiceNowUserGroups().table_name == "sys_user_group"
 
     def test_primary_key(self, servicenow_env):
-        from data_assets.assets.servicenow.user_groups import ServiceNowUserGroups
+        from data_assets.assets.servicenow import ServiceNowUserGroups
 
         assert ServiceNowUserGroups().primary_key == ["sys_id"]
 
     def test_parse_response(self, servicenow_env):
-        from data_assets.assets.servicenow.user_groups import ServiceNowUserGroups
+        from data_assets.assets.servicenow import ServiceNowUserGroups
 
         data = json.loads((FIXTURES / "user_groups.json").read_text())
         df, state = ServiceNowUserGroups().parse_response(data)
@@ -365,17 +393,17 @@ class TestServiceNowUserGroups:
 
 class TestServiceNowLocations:
     def test_table_name(self, servicenow_env):
-        from data_assets.assets.servicenow.locations import ServiceNowLocations
+        from data_assets.assets.servicenow import ServiceNowLocations
 
         assert ServiceNowLocations().table_name == "cmn_location"
 
     def test_primary_key(self, servicenow_env):
-        from data_assets.assets.servicenow.locations import ServiceNowLocations
+        from data_assets.assets.servicenow import ServiceNowLocations
 
         assert ServiceNowLocations().primary_key == ["sys_id"]
 
     def test_parse_response(self, servicenow_env):
-        from data_assets.assets.servicenow.locations import ServiceNowLocations
+        from data_assets.assets.servicenow import ServiceNowLocations
 
         data = json.loads((FIXTURES / "locations.json").read_text())
         df, state = ServiceNowLocations().parse_response(data)
@@ -391,17 +419,17 @@ class TestServiceNowLocations:
 
 class TestServiceNowDepartments:
     def test_table_name(self, servicenow_env):
-        from data_assets.assets.servicenow.departments import ServiceNowDepartments
+        from data_assets.assets.servicenow import ServiceNowDepartments
 
         assert ServiceNowDepartments().table_name == "cmn_department"
 
     def test_primary_key(self, servicenow_env):
-        from data_assets.assets.servicenow.departments import ServiceNowDepartments
+        from data_assets.assets.servicenow import ServiceNowDepartments
 
         assert ServiceNowDepartments().primary_key == ["sys_id"]
 
     def test_parse_response(self, servicenow_env):
-        from data_assets.assets.servicenow.departments import ServiceNowDepartments
+        from data_assets.assets.servicenow import ServiceNowDepartments
 
         data = json.loads((FIXTURES / "departments.json").read_text())
         df, state = ServiceNowDepartments().parse_response(data)
@@ -417,17 +445,17 @@ class TestServiceNowDepartments:
 
 class TestServiceNowCmdbCIs:
     def test_table_name(self, servicenow_env):
-        from data_assets.assets.servicenow.cmdb_cis import ServiceNowCmdbCIs
+        from data_assets.assets.servicenow import ServiceNowCmdbCIs
 
         assert ServiceNowCmdbCIs().table_name == "cmdb_ci"
 
     def test_primary_key(self, servicenow_env):
-        from data_assets.assets.servicenow.cmdb_cis import ServiceNowCmdbCIs
+        from data_assets.assets.servicenow import ServiceNowCmdbCIs
 
         assert ServiceNowCmdbCIs().primary_key == ["sys_id"]
 
     def test_parse_response(self, servicenow_env):
-        from data_assets.assets.servicenow.cmdb_cis import ServiceNowCmdbCIs
+        from data_assets.assets.servicenow import ServiceNowCmdbCIs
 
         data = json.loads((FIXTURES / "cmdb_cis.json").read_text())
         df, state = ServiceNowCmdbCIs().parse_response(data)
@@ -444,23 +472,17 @@ class TestServiceNowCmdbCIs:
 
 class TestServiceNowHardwareAssets:
     def test_table_name(self, servicenow_env):
-        from data_assets.assets.servicenow.hardware_assets import (
-            ServiceNowHardwareAssets,
-        )
+        from data_assets.assets.servicenow import ServiceNowHardwareAssets
 
         assert ServiceNowHardwareAssets().table_name == "alm_hardware"
 
     def test_primary_key(self, servicenow_env):
-        from data_assets.assets.servicenow.hardware_assets import (
-            ServiceNowHardwareAssets,
-        )
+        from data_assets.assets.servicenow import ServiceNowHardwareAssets
 
         assert ServiceNowHardwareAssets().primary_key == ["sys_id"]
 
     def test_parse_response(self, servicenow_env):
-        from data_assets.assets.servicenow.hardware_assets import (
-            ServiceNowHardwareAssets,
-        )
+        from data_assets.assets.servicenow import ServiceNowHardwareAssets
 
         data = json.loads((FIXTURES / "hardware_assets.json").read_text())
         df, state = ServiceNowHardwareAssets().parse_response(data)
@@ -476,17 +498,17 @@ class TestServiceNowHardwareAssets:
 
 class TestServiceNowProblems:
     def test_table_name(self, servicenow_env):
-        from data_assets.assets.servicenow.problems import ServiceNowProblems
+        from data_assets.assets.servicenow import ServiceNowProblems
 
         assert ServiceNowProblems().table_name == "problem"
 
     def test_primary_key(self, servicenow_env):
-        from data_assets.assets.servicenow.problems import ServiceNowProblems
+        from data_assets.assets.servicenow import ServiceNowProblems
 
         assert ServiceNowProblems().primary_key == ["sys_id"]
 
     def test_parse_response(self, servicenow_env):
-        from data_assets.assets.servicenow.problems import ServiceNowProblems
+        from data_assets.assets.servicenow import ServiceNowProblems
 
         data = json.loads((FIXTURES / "problems.json").read_text())
         df, state = ServiceNowProblems().parse_response(data)
@@ -502,17 +524,17 @@ class TestServiceNowProblems:
 
 class TestServiceNowChangeTasks:
     def test_table_name(self, servicenow_env):
-        from data_assets.assets.servicenow.change_tasks import ServiceNowChangeTasks
+        from data_assets.assets.servicenow import ServiceNowChangeTasks
 
         assert ServiceNowChangeTasks().table_name == "change_task"
 
     def test_primary_key(self, servicenow_env):
-        from data_assets.assets.servicenow.change_tasks import ServiceNowChangeTasks
+        from data_assets.assets.servicenow import ServiceNowChangeTasks
 
         assert ServiceNowChangeTasks().primary_key == ["sys_id"]
 
     def test_parse_response(self, servicenow_env):
-        from data_assets.assets.servicenow.change_tasks import ServiceNowChangeTasks
+        from data_assets.assets.servicenow import ServiceNowChangeTasks
 
         data = json.loads((FIXTURES / "change_tasks.json").read_text())
         df, state = ServiceNowChangeTasks().parse_response(data)
@@ -529,23 +551,17 @@ class TestServiceNowChangeTasks:
 
 class TestServiceNowCatalogRequests:
     def test_table_name(self, servicenow_env):
-        from data_assets.assets.servicenow.catalog_requests import (
-            ServiceNowCatalogRequests,
-        )
+        from data_assets.assets.servicenow import ServiceNowCatalogRequests
 
         assert ServiceNowCatalogRequests().table_name == "sc_request"
 
     def test_primary_key(self, servicenow_env):
-        from data_assets.assets.servicenow.catalog_requests import (
-            ServiceNowCatalogRequests,
-        )
+        from data_assets.assets.servicenow import ServiceNowCatalogRequests
 
         assert ServiceNowCatalogRequests().primary_key == ["sys_id"]
 
     def test_parse_response(self, servicenow_env):
-        from data_assets.assets.servicenow.catalog_requests import (
-            ServiceNowCatalogRequests,
-        )
+        from data_assets.assets.servicenow import ServiceNowCatalogRequests
 
         data = json.loads((FIXTURES / "catalog_requests.json").read_text())
         df, state = ServiceNowCatalogRequests().parse_response(data)
@@ -561,17 +577,17 @@ class TestServiceNowCatalogRequests:
 
 class TestServiceNowCatalogItems:
     def test_table_name(self, servicenow_env):
-        from data_assets.assets.servicenow.catalog_items import ServiceNowCatalogItems
+        from data_assets.assets.servicenow import ServiceNowCatalogItems
 
         assert ServiceNowCatalogItems().table_name == "sc_req_item"
 
     def test_primary_key(self, servicenow_env):
-        from data_assets.assets.servicenow.catalog_items import ServiceNowCatalogItems
+        from data_assets.assets.servicenow import ServiceNowCatalogItems
 
         assert ServiceNowCatalogItems().primary_key == ["sys_id"]
 
     def test_parse_response(self, servicenow_env):
-        from data_assets.assets.servicenow.catalog_items import ServiceNowCatalogItems
+        from data_assets.assets.servicenow import ServiceNowCatalogItems
 
         data = json.loads((FIXTURES / "catalog_items.json").read_text())
         df, state = ServiceNowCatalogItems().parse_response(data)
@@ -588,32 +604,32 @@ class TestServiceNowCatalogItems:
 
 class TestServiceNowChoices:
     def test_table_name(self, servicenow_env):
-        from data_assets.assets.servicenow.choices import ServiceNowChoices
+        from data_assets.assets.servicenow import ServiceNowChoices
 
         assert ServiceNowChoices().table_name == "sys_choice"
 
     def test_primary_key(self, servicenow_env):
-        from data_assets.assets.servicenow.choices import ServiceNowChoices
+        from data_assets.assets.servicenow import ServiceNowChoices
 
         assert ServiceNowChoices().primary_key == ["sys_id"]
 
     def test_load_strategy(self, servicenow_env):
-        from data_assets.assets.servicenow.choices import ServiceNowChoices
+        from data_assets.assets.servicenow import ServiceNowChoices
 
         assert ServiceNowChoices().load_strategy == LoadStrategy.FULL_REPLACE
 
     def test_default_run_mode(self, servicenow_env):
-        from data_assets.assets.servicenow.choices import ServiceNowChoices
+        from data_assets.assets.servicenow import ServiceNowChoices
 
         assert ServiceNowChoices().default_run_mode == RunMode.FULL
 
     def test_date_column_none(self, servicenow_env):
-        from data_assets.assets.servicenow.choices import ServiceNowChoices
+        from data_assets.assets.servicenow import ServiceNowChoices
 
         assert ServiceNowChoices().date_column is None
 
     def test_parse_response(self, servicenow_env):
-        from data_assets.assets.servicenow.choices import ServiceNowChoices
+        from data_assets.assets.servicenow import ServiceNowChoices
 
         data = json.loads((FIXTURES / "choices.json").read_text())
         df, state = ServiceNowChoices().parse_response(data)
@@ -625,7 +641,7 @@ class TestServiceNowChoices:
 
     def test_build_request_no_date_filter(self, servicenow_env):
         """FULL mode should not add a date filter to the query."""
-        from data_assets.assets.servicenow.choices import ServiceNowChoices
+        from data_assets.assets.servicenow import ServiceNowChoices
 
         spec = ServiceNowChoices().build_request(make_ctx())
         assert "sysparm_query" not in spec.params
