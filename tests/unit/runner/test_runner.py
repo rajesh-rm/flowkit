@@ -77,12 +77,6 @@ class TestComputeDateWindow:
 
 
 class TestUpdateWatermarks:
-    def test_skips_when_no_date_column(self):
-        asset = MagicMock(spec=[])  # no date_column attribute
-        with patch("data_assets.runner.update_coverage") as mock:
-            _update_watermarks(MagicMock(), asset, RunMode.FULL, pd.DataFrame())
-        mock.assert_not_called()
-
     def test_skips_when_date_column_is_none(self):
         asset = MagicMock()
         asset.date_column = None

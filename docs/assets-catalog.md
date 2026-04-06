@@ -13,7 +13,7 @@ This catalog documents every built-in asset. Use it as a reference when building
 | `sonarqube_issues` | `raw.sonarqube_issues` | UPSERT | ENTITY_PARALLEL (3 workers) | page_number (`p`, `ps`) | `/api/issues/search` |
 | `sonarqube_measures` | `raw.sonarqube_measures` | FULL_REPLACE | ENTITY_PARALLEL (3 workers) | none (one call per project) | `/api/measures/component` |
 
-**SonarQube projects uses RestAsset** (declarative) with a `build_request` override to add `qualifiers=TRK`. The endpoint `/api/components/search` returns all component types; the qualifier filter scopes to projects only.
+**SonarQube Issues and Measures** extend `SonarQubeAsset` (in `assets/sonarqube/helpers.py`), a shared base class that sets `token_manager_class`, `source_name`, `target_schema`, and `rate_limit_per_second`. **SonarQube Projects** uses `RestAsset` (declarative) with a `build_request` override to add `qualifiers=TRK` and sets the shared config directly.
 
 **Why PAGE_PARALLEL for projects?** The first response includes `paging.total` so we know how many pages exist upfront and can fan out.
 
@@ -31,9 +31,9 @@ This catalog documents every built-in asset. Use it as a reference when building
 **Authentication:** OAuth2 password grant (username + password + client_id + client_secret) or Basic Auth (username + password)
 **API docs:** https://docs.servicenow.com/bundle/latest/page/integrate/inbound-rest/concept/c_TableAPI.html
 
-All ServiceNow assets share `ServiceNowTableAsset` base class. Extraction uses pysnc's `GlideRecord` with automatic pagination, retry, and auth — bypassing the httpx API pipeline entirely. Subclasses only set `table_name` and `columns`.
+All ServiceNow assets share `ServiceNowTableAsset` base class. Extraction uses pysnc's `GlideRecord` with automatic pagination — bypassing the httpx API pipeline entirely. Authentication is handled by `ServiceNowTokenManager` (set as `token_manager_class` on the base), which provides credentials to pysnc via its `get_pysnc_auth()` method. This keeps auth in the standard `TokenManager` pattern used by all other sources. Subclasses only set `table_name` and `columns`.
 
-**Extraction flow:** pysnc handles HTTP, auth, and pagination natively. The `extract()` method on `ServiceNowTableAsset` creates a `GlideRecord`, sets fields from `self.columns`, applies date filters, and iterates results in batches of 1000.
+**Extraction flow:** The `extract()` method on `ServiceNowTableAsset` creates a pysnc client via `_create_pysnc_client()` (which delegates to `ServiceNowTokenManager` for credentials), creates a `GlideRecord`, sets fields from `self.columns`, applies date filters, and iterates results in batches of 1000.
 
 ### ITSM tables
 

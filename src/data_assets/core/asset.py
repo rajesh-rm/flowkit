@@ -37,6 +37,14 @@ class Asset(ABC):
     # --- Schema contract ---
     schema_contract: SchemaContract = SchemaContract.EVOLVE
 
+    # --- Run resilience ---
+    # A run is considered abandoned when EITHER threshold is exceeded.
+    stale_heartbeat_minutes: int = 20
+    max_run_hours: int = 5
+
+    # --- Incremental support ---
+    date_column: str | None = None
+
     def extract(
         self, engine: Engine, temp_table: str, context: RunContext,
     ) -> int | None:

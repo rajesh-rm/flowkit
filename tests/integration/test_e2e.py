@@ -13,6 +13,7 @@ import pytest
 import respx
 
 from data_assets.extract.token_manager import GitHubAppTokenManager
+from data_assets.load.loader import write_to_temp
 from tests.integration.conftest import seed_table, stub_token_manager
 
 
@@ -86,23 +87,37 @@ class TestSonarQubeE2E:
 SNOW_URL = "https://dev12345.service-now.com"
 
 
+def _mock_pysnc_extract(fixture_data):
+    """Return a mock extract() that writes fixture data to temp table via pysnc bypass.
+
+    ServiceNow assets use pysnc (requests-based), not httpx, so respx can't
+    intercept their calls. Instead we mock extract() to write fixture records
+    directly — the rest of the pipeline (validate, promote, finalize) runs for real.
+    """
+    records = fixture_data["result"]
+
+    def _extract(self, engine, temp_table, context):
+        column_names = [c.name for c in self.columns]
+        df = pd.DataFrame(records)
+        df = df[[c for c in column_names if c in df.columns]]
+        return write_to_temp(engine, temp_table, df)
+
+    return _extract
+
+
 @pytest.mark.integration
 class TestServiceNowE2E:
-    @respx.mock
     def test_incidents_full_run(self, run_engine, monkeypatch, load_fixture):
         monkeypatch.setenv("SERVICENOW_INSTANCE", SNOW_URL)
         monkeypatch.setenv("SERVICENOW_USERNAME", "admin")
         monkeypatch.setenv("SERVICENOW_PASSWORD", "test-pass")
 
-        respx.get(f"{SNOW_URL}/api/now/table/incident").mock(
-            side_effect=[
-                httpx.Response(200, json=load_fixture("servicenow/incidents.json")),
-                httpx.Response(200, json={"result": []}),
-            ]
-        )
+        fixture = load_fixture("servicenow/incidents.json")
+        from data_assets.assets.servicenow.base import ServiceNowTableAsset
 
-        from data_assets.runner import run_asset
-        result = run_asset("servicenow_incidents", run_mode="full")
+        with patch.object(ServiceNowTableAsset, "extract", _mock_pysnc_extract(fixture)):
+            from data_assets.runner import run_asset
+            result = run_asset("servicenow_incidents", run_mode="full")
 
         assert result["status"] == "success"
         assert result["rows_loaded"] == 2
@@ -111,21 +126,17 @@ class TestServiceNowE2E:
         assert "INC0010001" in df["number"].values
         assert "INC0010002" in df["number"].values
 
-    @respx.mock
     def test_changes_full_run(self, run_engine, monkeypatch, load_fixture):
         monkeypatch.setenv("SERVICENOW_INSTANCE", SNOW_URL)
         monkeypatch.setenv("SERVICENOW_USERNAME", "admin")
         monkeypatch.setenv("SERVICENOW_PASSWORD", "test-pass")
 
-        respx.get(f"{SNOW_URL}/api/now/table/change_request").mock(
-            side_effect=[
-                httpx.Response(200, json=load_fixture("servicenow/changes.json")),
-                httpx.Response(200, json={"result": []}),
-            ]
-        )
+        fixture = load_fixture("servicenow/changes.json")
+        from data_assets.assets.servicenow.base import ServiceNowTableAsset
 
-        from data_assets.runner import run_asset
-        result = run_asset("servicenow_changes", run_mode="full")
+        with patch.object(ServiceNowTableAsset, "extract", _mock_pysnc_extract(fixture)):
+            from data_assets.runner import run_asset
+            result = run_asset("servicenow_changes", run_mode="full")
 
         assert result["status"] == "success"
         assert result["rows_loaded"] == 1

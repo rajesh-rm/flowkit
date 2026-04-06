@@ -153,7 +153,7 @@ See [docs/extending.md](extending.md) for the comprehensive step-by-step guide. 
 | API returns errors | `base_url` is empty — make sure env var is set and read at runtime in `build_request` |
 | Data missing from table | Column names in `parse_response` DataFrame don't match `columns` list |
 | Duplicate rows | Check `primary_key` is set correctly, use `UPSERT` load strategy |
-| Lock error on retry | Previous run's lock wasn't released — auto-clears after 20 min without heartbeat or 5 hours max |
+| Lock error on retry | Previous run's lock wasn't released — auto-clears after `stale_heartbeat_minutes` (default 20 min) or `max_run_hours` (default 5 hours). Override these on your asset class for slow APIs. |
 
 ### Running a single asset locally
 

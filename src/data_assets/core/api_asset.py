@@ -54,14 +54,7 @@ class APIAsset(Asset):
     entity_key_column: str | None = None
 
     # --- Incremental support ---
-    date_column: str | None = None
     api_date_param: str | None = None
-
-    # --- Run resilience ---
-    # A run is considered abandoned when EITHER threshold is exceeded.
-    # Override per asset for slow APIs or long-running extractions.
-    stale_heartbeat_minutes: int = 20  # no checkpoint update in this many minutes
-    max_run_hours: int = 5  # total wall-clock time since run started
 
     # --- Error handling ---
 

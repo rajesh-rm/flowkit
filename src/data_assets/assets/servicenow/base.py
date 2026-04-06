@@ -20,6 +20,7 @@ from data_assets.core.api_asset import APIAsset
 from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
+from data_assets.extract.token_manager import ServiceNowTokenManager
 from data_assets.load.loader import write_to_temp
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,7 @@ class ServiceNowTableAsset(APIAsset):
 
     source_name = "servicenow"
     target_schema = "raw"
+    token_manager_class = ServiceNowTokenManager
 
     pagination_config = PaginationConfig(strategy="keyset", page_size=1000)
     parallel_mode = ParallelMode.NONE
@@ -52,34 +54,11 @@ class ServiceNowTableAsset(APIAsset):
     # -----------------------------------------------------------------------
 
     def _create_pysnc_client(self):
-        """Create an authenticated pysnc ServiceNowClient from env vars."""
+        """Create an authenticated pysnc ServiceNowClient via token manager."""
         from pysnc import ServiceNowClient
 
-        instance = os.environ.get("SERVICENOW_INSTANCE")
-        if not instance:
-            raise RuntimeError("SERVICENOW_INSTANCE environment variable is required")
-
-        username = os.environ.get("SERVICENOW_USERNAME")
-        password = os.environ.get("SERVICENOW_PASSWORD")
-        client_id = os.environ.get("SERVICENOW_CLIENT_ID")
-        client_secret = os.environ.get("SERVICENOW_CLIENT_SECRET")
-
-        if username and password and client_id and client_secret:
-            from pysnc.auth import ServiceNowPasswordGrantFlow
-
-            auth = ServiceNowPasswordGrantFlow(
-                username, password, client_id, client_secret,
-            )
-        elif username and password:
-            auth = (username, password)
-        else:
-            raise RuntimeError(
-                "ServiceNow requires SERVICENOW_USERNAME + SERVICENOW_PASSWORD "
-                "(with optional SERVICENOW_CLIENT_ID + SERVICENOW_CLIENT_SECRET "
-                "for OAuth2)"
-            )
-
-        return ServiceNowClient(instance, auth)
+        token_mgr = self.token_manager_class()
+        return ServiceNowClient(token_mgr.instance, token_mgr.get_pysnc_auth())
 
     def extract(
         self, engine: Engine, temp_table: str, context: RunContext,

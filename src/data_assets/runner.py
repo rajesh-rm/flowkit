@@ -195,88 +195,24 @@ def run_asset(
             # --- Phase 2: Extract ---
             extract_start = time.monotonic()
 
-            # WHY: Reusing the inherited temp table preserves partial extraction
-            # data from the abandoned run, avoiding re-fetching already-written pages.
-            if inherited_temp and temp_table_exists(engine, inherited_temp):
-                temp_tbl = inherited_temp
-                logger.info(
-                    "Reusing temp table '%s' from abandoned run %s",
-                    temp_tbl, abandoned_run_id,
-                )
-            else:
-                temp_tbl = create_temp_table(engine, asset_name, run_id, asset.columns)
-                if inherited_temp:
-                    # Inherited table was gone (e.g., Postgres crash); update lock
-                    update_lock_temp_table(engine, asset_name, temp_tbl)
-
-            has_custom_extract = type(asset).extract is not Asset.extract
-            if has_custom_extract:
-                rows_extracted = asset.extract(engine, temp_tbl, context)
-            elif isinstance(asset, APIAsset):
-                rows_extracted, client_stats = _extract_api(
-                    asset, engine, temp_tbl, context, existing_cp_map, overrides
-                )
-            elif isinstance(asset, TransformAsset):
-                _check_source_freshness(engine, asset)
-                query = asset.query(context)
-                rows_extracted = execute_transform(
-                    engine, query, temp_tbl, context,
-                    timeout_seconds=asset.query_timeout_seconds,
-                )
-            else:
-                raise TypeError(
-                    f"Asset '{asset_name}' has type {type(asset).__name__}, "
-                    f"expected APIAsset or TransformAsset"
-                )
+            temp_tbl = _prepare_temp_table(
+                engine, asset, asset_name, run_id, inherited_temp, abandoned_run_id,
+            )
+            rows_extracted, client_stats = _run_extraction(
+                asset, engine, temp_tbl, context, existing_cp_map, overrides,
+            )
 
             extract_seconds = round(time.monotonic() - extract_start, 2)
-
-            # Row count anomaly warning
             _check_row_count_anomaly(engine, asset_name, rows_extracted)
 
             # --- Phase 3: Transform & Validate ---
-            df = read_temp_table(engine, temp_tbl)
-
-            has_custom_transform = type(asset).transform is not Asset.transform
-            if has_custom_transform:
-                rows_before = len(df)
-                df = asset.transform(df)
-                drop_table(engine, TEMP_SCHEMA, temp_tbl)
-                temp_tbl = create_temp_table(engine, asset_name, run_id, asset.columns)
-                write_to_temp(engine, temp_tbl, df)
-                if len(df) != rows_before:
-                    logger.info(
-                        "Transform: %d rows → %d rows", rows_before, len(df),
-                    )
-
-            validation_result = asset.validate(df, context)
-            if not validation_result.passed:
-                raise ValueError(
-                    f"Validation failed for '{asset_name}': "
-                    + "; ".join(validation_result.failures)
-                )
-
-            # Collect non-blocking warnings
-            warnings = asset.validate_warnings(df, context)
-            if warnings:
-                for w in warnings:
-                    logger.warning("Validation warning for '%s': %s", asset_name, w)
+            df, temp_tbl, warnings = _run_transform_and_validate(
+                asset, engine, temp_tbl, context, run_id, asset_name,
+            )
 
             # --- Phase 4: Promote (skip if dry_run) ---
             promote_start = time.monotonic()
-
-            if dry_run:
-                logger.info("Dry run — skipping promotion for '%s'", asset_name)
-                rows_loaded = 0
-            else:
-                rows_loaded = promote(
-                    engine=engine, temp_table=temp_tbl,
-                    target_schema=asset.target_schema, target_table=asset.target_table,
-                    columns=asset.columns, primary_key=asset.primary_key,
-                    load_strategy=asset.load_strategy,
-                    schema_contract=asset.schema_contract,
-                )
-
+            rows_loaded = _run_promotion(asset, engine, temp_tbl, dry_run)
             promote_seconds = round(time.monotonic() - promote_start, 2)
 
             # --- Phase 5: Finalize ---
@@ -332,6 +268,127 @@ def run_asset(
         # in the same worker process
         for key in _injected_secrets:
             os.environ.pop(key, None)
+
+
+def _prepare_temp_table(
+    engine: Engine,
+    asset: Asset,
+    asset_name: str,
+    run_id,
+    inherited_temp: str | None,
+    abandoned_run_id,
+) -> str:
+    """Set up the temp table — reuse from abandoned run or create fresh."""
+    # WHY: Reusing the inherited temp table preserves partial extraction
+    # data from the abandoned run, avoiding re-fetching already-written pages.
+    if inherited_temp and temp_table_exists(engine, inherited_temp):
+        logger.info(
+            "Reusing temp table '%s' from abandoned run %s",
+            inherited_temp, abandoned_run_id,
+        )
+        return inherited_temp
+
+    tbl = create_temp_table(engine, asset_name, run_id, asset.columns)
+    if inherited_temp:
+        # Inherited table was gone (e.g., Postgres crash); update lock
+        update_lock_temp_table(engine, asset_name, tbl)
+    return tbl
+
+
+def _run_extraction(
+    asset: Asset,
+    engine: Engine,
+    temp_tbl: str,
+    context: RunContext,
+    existing_cp_map: dict[str, dict],
+    overrides: dict,
+) -> tuple[int, dict]:
+    """Phase 2: Extract data into the temp table.
+
+    Returns (rows_extracted, client_stats). client_stats is empty for
+    non-API extractions.
+    """
+    has_custom_extract = type(asset).extract is not Asset.extract
+    if has_custom_extract:
+        return asset.extract(engine, temp_tbl, context), {}
+
+    if isinstance(asset, APIAsset):
+        return _extract_api(
+            asset, engine, temp_tbl, context, existing_cp_map, overrides
+        )
+
+    if isinstance(asset, TransformAsset):
+        _check_source_freshness(engine, asset)
+        query = asset.query(context)
+        rows = execute_transform(
+            engine, query, temp_tbl, context,
+            timeout_seconds=asset.query_timeout_seconds,
+        )
+        return rows, {}
+
+    raise TypeError(
+        f"Asset '{asset.name}' has type {type(asset).__name__}, "
+        f"expected APIAsset or TransformAsset"
+    )
+
+
+def _run_transform_and_validate(
+    asset: Asset,
+    engine: Engine,
+    temp_tbl: str,
+    context: RunContext,
+    run_id,
+    asset_name: str,
+) -> tuple[pd.DataFrame, str, list[str]]:
+    """Phase 3: Apply optional transform, run validation.
+
+    Returns (df, temp_tbl, warnings). temp_tbl may change if the asset
+    has a custom transform (the old temp is replaced with the transformed data).
+    """
+    df = read_temp_table(engine, temp_tbl)
+
+    has_custom_transform = type(asset).transform is not Asset.transform
+    if has_custom_transform:
+        rows_before = len(df)
+        df = asset.transform(df)
+        drop_table(engine, TEMP_SCHEMA, temp_tbl)
+        temp_tbl = create_temp_table(engine, asset_name, run_id, asset.columns)
+        write_to_temp(engine, temp_tbl, df)
+        if len(df) != rows_before:
+            logger.info("Transform: %d rows → %d rows", rows_before, len(df))
+
+    validation_result = asset.validate(df, context)
+    if not validation_result.passed:
+        raise ValueError(
+            f"Validation failed for '{asset_name}': "
+            + "; ".join(validation_result.failures)
+        )
+
+    warnings = asset.validate_warnings(df, context)
+    if warnings:
+        for w in warnings:
+            logger.warning("Validation warning for '%s': %s", asset_name, w)
+
+    return df, temp_tbl, warnings
+
+
+def _run_promotion(
+    asset: Asset,
+    engine: Engine,
+    temp_tbl: str,
+    dry_run: bool,
+) -> int:
+    """Phase 4: Promote temp table to main table. Returns rows_loaded."""
+    if dry_run:
+        logger.info("Dry run — skipping promotion for '%s'", asset.name)
+        return 0
+    return promote(
+        engine=engine, temp_table=temp_tbl,
+        target_schema=asset.target_schema, target_table=asset.target_table,
+        columns=asset.columns, primary_key=asset.primary_key,
+        load_strategy=asset.load_strategy,
+        schema_contract=asset.schema_contract,
+    )
 
 
 def _extract_api(
@@ -431,7 +488,7 @@ def _compute_date_window(
 def _update_watermarks(
     engine: Engine, asset, mode: RunMode, df: pd.DataFrame,
 ) -> None:
-    if not hasattr(asset, "date_column") or not asset.date_column:
+    if not asset.date_column:
         return
     if asset.date_column not in df.columns:
         return

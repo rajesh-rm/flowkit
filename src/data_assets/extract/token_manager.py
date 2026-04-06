@@ -222,6 +222,26 @@ class ServiceNowTokenManager(TokenManager):
         self._expires_at = time.time() + int(data.get("expires_in", 1800))
         logger.debug("Refreshed ServiceNow OAuth token")
 
+    @property
+    def instance(self) -> str:
+        """ServiceNow instance URL (e.g., https://myco.service-now.com)."""
+        return self._instance
+
+    def get_pysnc_auth(self):
+        """Return auth suitable for pysnc ServiceNowClient.
+
+        Returns a (username, password) tuple for basic auth, or a
+        ServiceNowPasswordGrantFlow for OAuth2.
+        """
+        if self._username and self._password and self._client_id and self._client_secret:
+            from pysnc.auth import ServiceNowPasswordGrantFlow
+
+            return ServiceNowPasswordGrantFlow(
+                self._username, self._password,
+                self._client_id, self._client_secret,
+            )
+        return (self._username, self._password)
+
 
 # ---------------------------------------------------------------------------
 # SonarQube Token Manager
