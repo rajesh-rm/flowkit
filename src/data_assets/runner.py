@@ -219,7 +219,10 @@ def run_asset(
             elif isinstance(asset, TransformAsset):
                 _check_source_freshness(engine, asset)
                 query = asset.query(context)
-                rows_extracted = execute_transform(engine, query, temp_tbl, context)
+                rows_extracted = execute_transform(
+                    engine, query, temp_tbl, context,
+                    timeout_seconds=asset.query_timeout_seconds,
+                )
             else:
                 raise TypeError(
                     f"Asset '{asset_name}' has type {type(asset).__name__}, "
@@ -321,7 +324,7 @@ def run_asset(
                     try:
                         drop_temp_table(engine, temp_tbl)
                     except Exception:
-                        logger.debug("Failed to drop temp table on error cleanup", exc_info=True)
+                        logger.warning("Failed to drop temp table on error cleanup", exc_info=True)
                 release_lock(engine, asset_name)
             raise
     finally:

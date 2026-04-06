@@ -92,7 +92,7 @@ class GitHubRepos(APIAsset):
                 "id": repo["id"],
                 "full_name": repo["full_name"],
                 "name": repo.get("name"),
-                "owner_login": repo.get("owner", {}).get("login", ""),
+                "owner_login": (repo.get("owner") or {}).get("login", ""),
                 "private": str(repo.get("private", False)).lower(),
                 "description": repo.get("description"),
                 "language": repo.get("language"),

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from collections.abc import Callable
@@ -144,7 +145,14 @@ class APIClient:
             self._stats["api_calls"] += 1
             self._check_rate_limit_headers(response)
 
-            return response.json()
+            try:
+                return response.json()
+            except (ValueError, json.JSONDecodeError) as exc:
+                raise ValueError(
+                    f"Non-JSON response from {spec.url} "
+                    f"(HTTP {response.status_code}): "
+                    f"{response.text[:200]}"
+                ) from exc
 
     def _check_rate_limit_headers(self, response: httpx.Response) -> None:
         """If rate limit is nearly exhausted, preemptively pause."""

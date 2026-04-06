@@ -23,6 +23,8 @@ class TransformAsset(Asset):
     # --- Source ---
     source_tables: list[str] = []
 
+    query_timeout_seconds: int = 300
+
     @abstractmethod
     def query(self, context: RunContext) -> str:
         """Return a SQL SELECT producing the output rows.

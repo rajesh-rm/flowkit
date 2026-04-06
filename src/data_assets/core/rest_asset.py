@@ -24,9 +24,13 @@ APIAsset directly instead.
 
 from __future__ import annotations
 
+import logging
 import math
 import os
+from collections import Counter
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 import pandas as pd
 
@@ -77,6 +81,12 @@ class RestAsset(APIAsset):
                 page_index_path=p.get("page_index_path"),
             )
         if cls.field_map:
+            counts = Counter(cls.field_map.values())
+            dupes = {v for v, c in counts.items() if c > 1}
+            if dupes:
+                raise ValueError(
+                    f"{cls.__name__}.field_map has duplicate column targets: {dupes}"
+                )
             cls._reverse_field_map = {v: k for k, v in cls.field_map.items()}
 
     def build_request(
@@ -117,7 +127,15 @@ class RestAsset(APIAsset):
             records_raw = _get_nested(response, self.response_path) or []
         else:
             # Response IS the list (e.g., GitHub repos returns a list directly)
-            records_raw = response if isinstance(response, list) else []
+            if isinstance(response, list):
+                records_raw = response
+            else:
+                logger.warning(
+                    "%s: response is %s, not list, and no response_path "
+                    "configured. Returning 0 records.",
+                    type(self).__name__, type(response).__name__,
+                )
+                records_raw = []
 
         # Map fields: apply field_map renames, keep columns that match by name
         column_names = {c.name for c in self.columns}
