@@ -44,6 +44,7 @@ Read in this order:
 4. [**Configuration**](docs/configuration.md) — credentials and runtime overrides
 5. [**Assets Catalog**](docs/assets-catalog.md) — all built-in assets and their design choices
 6. [**Extending**](docs/extending.md) — adding new sources, transforms, and token managers
+7. [**Testing Guide**](docs/testing.md) — test structure, patterns, fixtures, and how to write tests
 
 ## Requirements
 

@@ -134,7 +134,7 @@ def test_parse_response_bare_list():
     response = [{"id": 1, "label": "A"}, {"id": 2, "label": "B"}]
     df, state = asset.parse_response(response)
     assert len(df) == 2
-    assert not state.has_more  # strategy=none
+    assert not state.has_more
 
 
 def test_parse_response_empty():

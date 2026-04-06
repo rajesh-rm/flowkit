@@ -105,7 +105,7 @@ class TestGitHubPullRequestsParseResponse:
         from data_assets.assets.github.pull_requests import GitHubPullRequests
 
         data = json.loads((FIXTURES / "pull_requests.json").read_text())
-        df, state = GitHubPullRequests().parse_response(data)
+        df, _ = GitHubPullRequests().parse_response(data)
         assert len(df) == 2
         assert df.iloc[0]["user_login"] == "dev-alice"
 
@@ -222,7 +222,7 @@ class TestGitHubBranches:
         from data_assets.assets.github.branches import GitHubBranches
 
         data = json.loads((FIXTURES / "branches.json").read_text())
-        df, state = GitHubBranches().parse_response(data)
+        df, _ = GitHubBranches().parse_response(data)
         assert len(df) == 2
         assert df.iloc[0]["name"] == "main"
         assert df.iloc[0]["commit_sha"] == "abc123def456"
@@ -264,7 +264,7 @@ class TestGitHubCommits:
         from data_assets.assets.github.commits import GitHubCommits
 
         data = json.loads((FIXTURES / "commits.json").read_text())
-        df, state = GitHubCommits().parse_response(data)
+        df, _ = GitHubCommits().parse_response(data)
         assert len(df) == 2
         assert df.iloc[0]["sha"] == "abc123def456789"
         assert df.iloc[0]["author_login"] == "dev-alice"
@@ -414,7 +414,7 @@ class TestGitHubRunnerGroups:
         from data_assets.assets.github.runner_groups import GitHubRunnerGroups
 
         data = json.loads((FIXTURES / "runner_groups.json").read_text())
-        df, state = GitHubRunnerGroups().parse_response(data)
+        df, _ = GitHubRunnerGroups().parse_response(data)
         assert len(df) == 2
         assert df.iloc[0]["name"] == "Default"
         assert df.iloc[0]["default"] == "true"
@@ -441,7 +441,7 @@ class TestGitHubRunnerGroupRepos:
         from data_assets.assets.github.runner_group_repos import GitHubRunnerGroupRepos
 
         data = json.loads((FIXTURES / "runner_group_repos.json").read_text())
-        df, state = GitHubRunnerGroupRepos().parse_response(data)
+        df, _ = GitHubRunnerGroupRepos().parse_response(data)
         assert len(df) == 2
         assert df.iloc[0]["repo_full_name"] == "org-one/service-api"
 

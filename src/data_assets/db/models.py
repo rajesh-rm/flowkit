@@ -10,6 +10,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+_SERVER_DEFAULT_NOW = text("now()")
+
 
 class Base(DeclarativeBase):
     """Base class for all ORM models."""
@@ -33,14 +35,14 @@ class RunLock(Base):
     locked_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        server_default=text("now()"),
+        server_default=_SERVER_DEFAULT_NOW,
     )
     locked_by: Mapped[str] = mapped_column(Text, nullable=False)
     temp_table: Mapped[str | None] = mapped_column(Text, nullable=True)
     heartbeat_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        server_default=text("now()"),
+        server_default=_SERVER_DEFAULT_NOW,
     )
 
 
@@ -86,7 +88,7 @@ class Checkpoint(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        server_default=text("now()"),
+        server_default=_SERVER_DEFAULT_NOW,
     )
 
 
@@ -106,7 +108,7 @@ class AssetRegistry(Base):
     registered_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        server_default=text("now()"),
+        server_default=_SERVER_DEFAULT_NOW,
     )
     last_success_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -130,7 +132,7 @@ class CoverageTracker(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        server_default=text("now()"),
+        server_default=_SERVER_DEFAULT_NOW,
     )
 
 

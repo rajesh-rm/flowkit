@@ -436,7 +436,7 @@ def extract_entity_parallel(
             # This ensures that if the worker dies mid-entity, the next worker
             # knows both which entities are done AND where within the current
             # entity to resume.
-            def on_entity_page(page_state, page_rows, _ek=entity_str):
+            def on_entity_page(page_state, page_rows, _ek=entity_str, _wr=worker_rows):
                 save_checkpoint(
                     engine,
                     run_id=context.run_id,
@@ -448,7 +448,7 @@ def extract_entity_parallel(
                         "current_entity": _ek,
                         "pagination_state": page_state,
                     },
-                    rows_so_far=worker_rows + page_rows,
+                    rows_so_far=_wr + page_rows,
                     status="in_progress",
                 )
 

@@ -55,7 +55,7 @@ class JiraProjects(APIAsset):
     def build_request(
         self,
         context: RunContext,
-        checkpoint: dict[str, Any] | None,
+        checkpoint: dict[str, Any] | None = None,
     ) -> RequestSpec:
         start_at = checkpoint.get("next_offset", 0) if checkpoint else 0
         base = os.environ.get("JIRA_URL", self.base_url)

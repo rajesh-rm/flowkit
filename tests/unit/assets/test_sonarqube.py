@@ -122,7 +122,7 @@ class TestSonarQubeIssues:
                         "type": "BUG", "creationDate": "2025-01-01T00:00:00+0000",
                         "updateDate": "2025-01-01T00:00:00+0000"} for i in range(100)],
         }
-        df, state = SonarQubeIssues().parse_response(data)
+        _, state = SonarQubeIssues().parse_response(data)
         assert state.has_more is True
         assert state.total_pages == 3
         assert state.next_page == 2

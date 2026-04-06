@@ -58,7 +58,7 @@ class APIAsset(Asset):
 
     # --- Error handling ---
 
-    def classify_error(self, status_code: int, headers: dict) -> str:
+    def classify_error(self, status_code: int, _headers: dict) -> str:
         """Classify an HTTP error response into an action.
 
         Returns:
@@ -75,7 +75,7 @@ class APIAsset(Asset):
             return "skip"
         return "fail"
 
-    def should_stop(self, df: pd.DataFrame, context: RunContext) -> bool:
+    def should_stop(self, _df: pd.DataFrame, context: RunContext) -> bool:
         """Check if extraction should stop early (watermark-based).
 
         Called after each page is fetched. Return True to stop paginating.

@@ -1452,6 +1452,10 @@ the top-level `assets/__init__.py`.
 
 ## 4. Testing Your Asset
 
+> For the full testing guide (directory structure, all fixtures, mocking patterns,
+> debugging tips, and checklists), see [testing.md](testing.md).
+> This section covers the minimum needed to test a new asset.
+
 ### Test Fixtures
 
 Create a JSON file that matches the shape of a real API response. Save it in

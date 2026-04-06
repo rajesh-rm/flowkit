@@ -113,7 +113,7 @@ class JiraIssues(APIAsset):
         self,
         entity_key: str,
         context: RunContext,
-        checkpoint: dict[str, Any] | None,
+        checkpoint: dict[str, Any] | None = None,
     ) -> RequestSpec:
         return self._build_search_request(context, checkpoint, project_key=entity_key)
 
