@@ -20,17 +20,22 @@ class Base(DeclarativeBase):
 
 
 class RunLock(Base):
-    """Mutex preventing concurrent runs of the same asset.
+    """Mutex preventing concurrent runs of the same asset partition.
 
     A row exists only while a run is active.  Also tracks the temp table
     and heartbeat so a retry worker can detect abandoned runs and take
     over their partial work.
+
+    The composite PK (asset_name, partition_key) allows multi-org runs
+    to hold independent locks on the same asset. partition_key defaults
+    to "" for non-partitioned assets.
     """
 
     __tablename__ = "run_locks"
     __table_args__ = {"schema": "data_ops"}
 
     asset_name: Mapped[str] = mapped_column(Text, primary_key=True)
+    partition_key: Mapped[str] = mapped_column(Text, primary_key=True, default="")
     run_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
     locked_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -55,6 +60,7 @@ class RunHistory(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     run_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
     asset_name: Mapped[str] = mapped_column(Text, nullable=False)
+    partition_key: Mapped[str] = mapped_column(Text, nullable=False, default="")
     run_mode: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -80,6 +86,7 @@ class Checkpoint(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     run_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
     asset_name: Mapped[str] = mapped_column(Text, nullable=False)
+    partition_key: Mapped[str] = mapped_column(Text, nullable=False, default="")
     worker_id: Mapped[str] = mapped_column(Text, nullable=False, default="main")
     checkpoint_type: Mapped[str] = mapped_column(Text, nullable=False)
     checkpoint_value: Mapped[dict] = mapped_column(JSONB, nullable=False)
@@ -117,12 +124,18 @@ class AssetRegistry(Base):
 
 
 class CoverageTracker(Base):
-    """Tracks data time boundaries each asset has successfully loaded."""
+    """Tracks data time boundaries each asset partition has successfully loaded.
+
+    The composite PK (asset_name, partition_key) allows multi-org runs
+    to maintain independent watermarks. partition_key defaults to ""
+    for non-partitioned assets.
+    """
 
     __tablename__ = "coverage_tracker"
     __table_args__ = {"schema": "data_ops"}
 
     asset_name: Mapped[str] = mapped_column(Text, primary_key=True)
+    partition_key: Mapped[str] = mapped_column(Text, primary_key=True, default="")
     forward_watermark: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -136,9 +149,41 @@ class CoverageTracker(Base):
     )
 
 
+def _migrate_add_partition_key(engine) -> None:
+    """One-time migration: add partition_key column to operational tables.
+
+    Safe to call multiple times (idempotent). Existing rows get
+    partition_key="" from the DEFAULT, preserving backward compatibility.
+    """
+    stmts = [
+        # Add column to each table (idempotent)
+        "ALTER TABLE data_ops.run_locks "
+        "ADD COLUMN IF NOT EXISTS partition_key TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE data_ops.coverage_tracker "
+        "ADD COLUMN IF NOT EXISTS partition_key TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE data_ops.checkpoints "
+        "ADD COLUMN IF NOT EXISTS partition_key TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE data_ops.run_history "
+        "ADD COLUMN IF NOT EXISTS partition_key TEXT NOT NULL DEFAULT ''",
+        # Rebuild composite PKs for run_locks and coverage_tracker
+        "ALTER TABLE data_ops.run_locks "
+        "DROP CONSTRAINT IF EXISTS run_locks_pkey",
+        "ALTER TABLE data_ops.run_locks "
+        "ADD CONSTRAINT run_locks_pkey PRIMARY KEY (asset_name, partition_key)",
+        "ALTER TABLE data_ops.coverage_tracker "
+        "DROP CONSTRAINT IF EXISTS coverage_tracker_pkey",
+        "ALTER TABLE data_ops.coverage_tracker "
+        "ADD CONSTRAINT coverage_tracker_pkey PRIMARY KEY (asset_name, partition_key)",
+    ]
+    with engine.begin() as conn:
+        for sql in stmts:
+            conn.execute(text(sql))
+
+
 def create_all_tables(engine) -> None:
     """Create all data_ops tables (idempotent)."""
     from data_assets.db.engine import ensure_schemas
 
     ensure_schemas(engine)
     Base.metadata.create_all(engine)
+    _migrate_add_partition_key(engine)

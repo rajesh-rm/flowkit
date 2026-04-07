@@ -22,9 +22,12 @@ def get_github_org() -> str:
     return orgs[0]
 
 
+_DEFAULT_GITHUB_API_URL = "https://api.github.com"
+
+
 def get_github_base_url() -> str:
     """Return the GitHub API base URL (supports Enterprise override)."""
-    return os.environ.get("GITHUB_API_URL", "https://api.github.com")
+    return os.environ.get("GITHUB_API_URL", _DEFAULT_GITHUB_API_URL)
 
 
 def filter_to_current_org(keys: list) -> list:
@@ -46,7 +49,7 @@ class GitHubOrgAsset(APIAsset):
     target_schema = "raw"
 
     token_manager_class = GitHubAppTokenManager
-    base_url = "https://api.github.com"
+    base_url = _DEFAULT_GITHUB_API_URL
 
     pagination_config = PaginationConfig(strategy="page_number", page_size=100)
     parallel_mode = ParallelMode.NONE
@@ -94,7 +97,7 @@ class GitHubRepoAsset(APIAsset):
     target_schema = "raw"
 
     token_manager_class = GitHubAppTokenManager
-    base_url = "https://api.github.com"
+    base_url = _DEFAULT_GITHUB_API_URL
 
     pagination_config = PaginationConfig(strategy="page_number", page_size=100)
     parallel_mode = ParallelMode.ENTITY_PARALLEL

@@ -32,6 +32,7 @@ def acquire_or_takeover(
     temp_table: str,
     stale_heartbeat_minutes: int = 20,
     max_run_hours: int = 5,
+    partition_key: str = "",
 ) -> tuple[str | None, uuid.UUID | None]:
     """Acquire lock for an asset, taking over abandoned runs if found.
 
@@ -62,6 +63,7 @@ def acquire_or_takeover(
         existing = session.execute(
             select(RunLock)
             .where(RunLock.asset_name == asset_name)
+            .where(RunLock.partition_key == partition_key)
             .with_for_update()
         ).scalar_one_or_none()
 
@@ -112,6 +114,7 @@ def acquire_or_takeover(
         lock_temp = inherited_temp if inherited_temp else temp_table
         lock = RunLock(
             asset_name=asset_name,
+            partition_key=partition_key,
             run_id=run_id,
             locked_at=now,
             locked_by=worker_id,
@@ -134,22 +137,27 @@ def acquire_or_takeover(
 
 
 def update_lock_temp_table(
-    engine: Engine, asset_name: str, temp_table: str
+    engine: Engine, asset_name: str, temp_table: str, partition_key: str = ""
 ) -> None:
     """Update the temp table name on the lock (e.g., when inherited table is gone)."""
     with Session(engine) as session:
         session.execute(
             update(RunLock)
             .where(RunLock.asset_name == asset_name)
+            .where(RunLock.partition_key == partition_key)
             .values(temp_table=temp_table)
         )
         session.commit()
 
 
-def release_lock(engine: Engine, asset_name: str) -> None:
+def release_lock(engine: Engine, asset_name: str, partition_key: str = "") -> None:
     """Release the run lock for the given asset."""
     with Session(engine) as session:
-        session.execute(delete(RunLock).where(RunLock.asset_name == asset_name))
+        session.execute(
+            delete(RunLock)
+            .where(RunLock.asset_name == asset_name)
+            .where(RunLock.partition_key == partition_key)
+        )
         session.commit()
     logger.info("Released run lock for '%s'", asset_name)
 
@@ -160,7 +168,10 @@ def release_lock(engine: Engine, asset_name: str) -> None:
 
 
 def get_checkpoints(
-    engine: Engine, asset_name: str, run_id: uuid.UUID | None = None
+    engine: Engine,
+    asset_name: str,
+    run_id: uuid.UUID | None = None,
+    partition_key: str = "",
 ) -> list[Checkpoint]:
     """Read all checkpoint rows for an asset, ordered by update time.
 
@@ -171,6 +182,7 @@ def get_checkpoints(
         stmt = (
             select(Checkpoint)
             .where(Checkpoint.asset_name == asset_name)
+            .where(Checkpoint.partition_key == partition_key)
             .order_by(Checkpoint.updated_at.asc())
         )
         if run_id is not None:
@@ -199,6 +211,7 @@ def save_checkpoint(
     checkpoint_value: dict,
     rows_so_far: int,
     status: str = "in_progress",
+    partition_key: str = "",
 ) -> None:
     """Insert or update a checkpoint row for a specific worker.
 
@@ -212,7 +225,9 @@ def save_checkpoint(
         # Verify this run still owns the lock (prevents zombie workers
         # from writing after a takeover)
         lock = session.execute(
-            select(RunLock).where(RunLock.asset_name == asset_name)
+            select(RunLock)
+            .where(RunLock.asset_name == asset_name)
+            .where(RunLock.partition_key == partition_key)
         ).scalar_one_or_none()
         if not lock or lock.run_id != run_id:
             raise RuntimeError(
@@ -224,6 +239,7 @@ def save_checkpoint(
             select(Checkpoint).where(
                 Checkpoint.run_id == run_id,
                 Checkpoint.asset_name == asset_name,
+                Checkpoint.partition_key == partition_key,
                 Checkpoint.worker_id == worker_id,
             )
         ).scalar_one_or_none()
@@ -237,6 +253,7 @@ def save_checkpoint(
             cp = Checkpoint(
                 run_id=run_id,
                 asset_name=asset_name,
+                partition_key=partition_key,
                 worker_id=worker_id,
                 checkpoint_type=checkpoint_type,
                 checkpoint_value=checkpoint_value,
@@ -250,17 +267,20 @@ def save_checkpoint(
         session.execute(
             update(RunLock)
             .where(RunLock.asset_name == asset_name)
+            .where(RunLock.partition_key == partition_key)
             .values(heartbeat_at=now)
         )
 
         session.commit()
 
 
-def clear_checkpoints(engine: Engine, asset_name: str) -> None:
+def clear_checkpoints(engine: Engine, asset_name: str, partition_key: str = "") -> None:
     """Delete all checkpoint rows for the given asset."""
     with Session(engine) as session:
         session.execute(
-            delete(Checkpoint).where(Checkpoint.asset_name == asset_name)
+            delete(Checkpoint)
+            .where(Checkpoint.asset_name == asset_name)
+            .where(Checkpoint.partition_key == partition_key)
         )
         session.commit()
     logger.debug("Cleared checkpoints for '%s'", asset_name)

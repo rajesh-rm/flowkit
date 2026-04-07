@@ -61,6 +61,7 @@ def _run_github(asset_name: str, run_mode: str, org_config: dict, **kwargs):
     return run_asset(
         asset_name=asset_name,
         run_mode=run_mode,
+        partition_key=org_config["org"],
         secrets={
             "GITHUB_APP_ID": conn.login,
             "GITHUB_PRIVATE_KEY": conn.password,

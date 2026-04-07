@@ -90,6 +90,7 @@ def run_asset(
     asset_name: str,
     run_mode: str = "full",
     secrets: dict[str, str] | None = None,
+    partition_key: str = "",
     **overrides,
 ) -> dict:
     """Execute a complete ETL run for the named asset.
@@ -102,6 +103,12 @@ def run_asset(
             before token managers initialize and cleaned up after the run.
             This is the primary way for Airflow DAGs to pass secrets from
             Connections, Variables, or secret backends.
+        partition_key: Optional partition identifier for multi-org/multi-tenant
+            runs. When set, locks, watermarks, and checkpoints are scoped to
+            (asset_name, partition_key) so different partitions can run
+            concurrently without interference. The target table is shared —
+            UPSERT with partition-scoped primary keys handles data correctly.
+            Default "" means no partitioning (single-tenant behavior).
         **overrides: Runtime overrides including:
             - rate_limit_per_second, max_workers, request_timeout, max_retries
             - start_date, end_date (override computed date window)
@@ -111,20 +118,21 @@ def run_asset(
     Returns:
         Dict with run metrics.
 
-    Example (Airflow DAG)::
+    Example (Airflow multi-org DAG)::
 
         from airflow.hooks.base import BaseHook
 
-        def _run_github(**kwargs):
+        def _run_github(org_config, **kwargs):
             conn = BaseHook.get_connection("github_app")
             run_asset(
                 "github_repos",
                 run_mode="full",
+                partition_key=org_config["org"],
                 secrets={
                     "GITHUB_APP_ID": conn.login,
                     "GITHUB_PRIVATE_KEY": conn.password,
-                    "GITHUB_INSTALLATION_ID": conn.extra_dejson["installation_id"],
-                    "GITHUB_ORGS": conn.extra_dejson["orgs"],
+                    "GITHUB_INSTALLATION_ID": org_config["installation_id"],
+                    "GITHUB_ORGS": org_config["org"],
                 },
                 airflow_run_id=kwargs["run_id"],
             )
@@ -163,6 +171,7 @@ def run_asset(
             engine, asset_name, run_id, new_temp,
             stale_heartbeat_minutes=stale_minutes,
             max_run_hours=max_hours,
+            partition_key=partition_key,
         )
 
         rows_extracted = 0
@@ -174,20 +183,22 @@ def run_asset(
             if abandoned_run_id:
                 record_run_failure(engine, abandoned_run_id, "Abandoned — taken over by new worker")
 
-            coverage = get_coverage(engine, asset_name)
+            coverage = get_coverage(engine, asset_name, partition_key=partition_key)
             start_date, end_date = _compute_date_window(mode, coverage, overrides)
 
             existing_cp_map = checkpoints_by_worker(
-                get_checkpoints(engine, asset_name)
+                get_checkpoints(engine, asset_name, partition_key=partition_key)
             )
 
             context = RunContext(
                 run_id=run_id, mode=mode, asset_name=asset_name,
+                partition_key=partition_key,
                 start_date=start_date, end_date=end_date, params=overrides,
             )
 
             record_run_start(
                 engine, run_id=run_id, asset_name=asset_name, run_mode=mode.value,
+                partition_key=partition_key,
                 airflow_run_id=overrides.get("airflow_run_id"),
                 metadata={"start_date": str(start_date), "end_date": str(end_date)},
             )
@@ -197,13 +208,15 @@ def run_asset(
 
             temp_tbl = _prepare_temp_table(
                 engine, asset, asset_name, run_id, inherited_temp, abandoned_run_id,
+                partition_key=partition_key,
             )
             rows_extracted, client_stats = _run_extraction(
                 asset, engine, temp_tbl, context, existing_cp_map, overrides,
             )
 
             extract_seconds = round(time.monotonic() - extract_start, 2)
-            _check_row_count_anomaly(engine, asset_name, rows_extracted)
+            _check_row_count_anomaly(engine, asset_name, rows_extracted,
+                                        partition_key=partition_key)
 
             # --- Phase 3: Transform & Validate ---
             df, temp_tbl, warnings = _run_transform_and_validate(
@@ -217,7 +230,8 @@ def run_asset(
 
             # --- Phase 5: Finalize ---
             if not dry_run:
-                _update_watermarks(engine, asset, mode, df)
+                _update_watermarks(engine, asset, mode, df,
+                                   partition_key=partition_key)
                 update_last_success(engine, asset_name)
 
             run_metadata = {
@@ -229,9 +243,9 @@ def run_asset(
 
             record_run_success(engine, run_id, rows_extracted, rows_loaded,
                                metadata=run_metadata)
-            clear_checkpoints(engine, asset_name)
+            clear_checkpoints(engine, asset_name, partition_key=partition_key)
             drop_temp_table(engine, temp_tbl)
-            release_lock(engine, asset_name)
+            release_lock(engine, asset_name, partition_key=partition_key)
 
             duration = time.monotonic() - start_time
             status = "dry_run" if dry_run else "success"
@@ -243,6 +257,7 @@ def run_asset(
             return {
                 "run_id": str(run_id),
                 "asset_name": asset_name,
+                "partition_key": partition_key,
                 "rows_extracted": rows_extracted,
                 "rows_loaded": rows_loaded,
                 "duration_seconds": round(duration, 2),
@@ -261,7 +276,7 @@ def run_asset(
                         drop_temp_table(engine, temp_tbl)
                     except Exception:
                         logger.warning("Failed to drop temp table on error cleanup", exc_info=True)
-                release_lock(engine, asset_name)
+                release_lock(engine, asset_name, partition_key=partition_key)
             raise
     finally:
         # Clean up injected secrets so they don't leak to other tasks
@@ -277,6 +292,7 @@ def _prepare_temp_table(
     run_id,
     inherited_temp: str | None,
     abandoned_run_id,
+    partition_key: str = "",
 ) -> str:
     """Set up the temp table — reuse from abandoned run or create fresh."""
     # WHY: Reusing the inherited temp table preserves partial extraction
@@ -291,7 +307,7 @@ def _prepare_temp_table(
     tbl = create_temp_table(engine, asset_name, run_id, asset.columns)
     if inherited_temp:
         # Inherited table was gone (e.g., Postgres crash); update lock
-        update_lock_temp_table(engine, asset_name, tbl)
+        update_lock_temp_table(engine, asset_name, tbl, partition_key=partition_key)
     return tbl
 
 
@@ -488,6 +504,7 @@ def _compute_date_window(
 
 def _update_watermarks(
     engine: Engine, asset, mode: RunMode, df: pd.DataFrame,
+    partition_key: str = "",
 ) -> None:
     if not asset.date_column:
         return
@@ -510,9 +527,11 @@ def _update_watermarks(
     min_date = col.min().to_pydatetime()
 
     if mode in (RunMode.FULL, RunMode.FORWARD):
-        update_coverage(engine, asset.name, forward_watermark=max_date)
+        update_coverage(engine, asset.name, forward_watermark=max_date,
+                        partition_key=partition_key)
     if mode in (RunMode.FULL, RunMode.BACKFILL):
-        update_coverage(engine, asset.name, backward_watermark=min_date)
+        update_coverage(engine, asset.name, backward_watermark=min_date,
+                        partition_key=partition_key)
 
 
 def _check_source_freshness(
@@ -550,7 +569,8 @@ def _check_source_freshness(
 
 
 def _check_row_count_anomaly(
-    engine: Engine, asset_name: str, rows_extracted: int
+    engine: Engine, asset_name: str, rows_extracted: int,
+    partition_key: str = "",
 ) -> None:
     """Warn if row count is significantly below recent average."""
     try:
@@ -558,6 +578,7 @@ def _check_row_count_anomaly(
             recent = (
                 select(RunHistory.rows_extracted)
                 .where(RunHistory.asset_name == asset_name)
+                .where(RunHistory.partition_key == partition_key)
                 .where(RunHistory.status == "success")
                 .order_by(RunHistory.completed_at.desc())
                 .limit(5)

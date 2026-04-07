@@ -416,7 +416,7 @@ class TestRunAssetExceptionHandling:
 
         mock_record_fail.assert_called()
         mock_drop_temp.assert_called_once_with(mock_engine, "tmp_tbl")
-        mock_release.assert_called_once_with(mock_engine, "test_asset")
+        mock_release.assert_called_once_with(mock_engine, "test_asset", partition_key="")
 
     @patch("data_assets.runner.setup_logging")
     @patch("data_assets.runner.get_engine")
@@ -465,7 +465,7 @@ class TestRunAssetExceptionHandling:
         with pytest.raises(RuntimeError, match="boom"):
             run_asset("test_asset", run_mode="full")
 
-        mock_release.assert_called_once_with(mock_engine, "test_asset")
+        mock_release.assert_called_once_with(mock_engine, "test_asset", partition_key="")
 
 
 # ---------------------------------------------------------------------------
@@ -655,3 +655,174 @@ class TestUpdateWatermarksEmptyAfterDropna:
         with patch("data_assets.runner.update_coverage") as mock_cov:
             _update_watermarks(MagicMock(), asset, RunMode.FULL, df)
         mock_cov.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# partition_key threading
+# ---------------------------------------------------------------------------
+
+
+class TestPartitionKeyInRunContext:
+    """Verify that partition_key is properly threaded through the run lifecycle."""
+
+    def test_run_context_carries_partition_key(self):
+        """RunContext dataclass stores partition_key with default empty string."""
+        ctx = RunContext(
+            run_id=uuid.uuid4(),
+            mode=RunMode.FULL,
+            asset_name="test",
+        )
+        assert ctx.partition_key == ""
+
+    def test_run_context_carries_custom_partition_key(self):
+        """RunContext dataclass stores a non-default partition_key."""
+        ctx = RunContext(
+            run_id=uuid.uuid4(),
+            mode=RunMode.FULL,
+            asset_name="test",
+            partition_key="org-acme",
+        )
+        assert ctx.partition_key == "org-acme"
+
+    @patch("data_assets.runner.setup_logging")
+    @patch("data_assets.runner.get_engine")
+    @patch("data_assets.runner._ensure_initialized")
+    @patch("data_assets.runner.get")
+    @patch("data_assets.runner.temp_table_name", return_value="tmp_test_123")
+    @patch("data_assets.runner.acquire_or_takeover", return_value=(None, None))
+    @patch("data_assets.runner.get_coverage", return_value=None)
+    @patch("data_assets.runner.checkpoints_by_worker", return_value={})
+    @patch("data_assets.runner.get_checkpoints", return_value=[])
+    @patch("data_assets.runner.record_run_start")
+    @patch("data_assets.runner._prepare_temp_table", return_value="tmp_tbl")
+    @patch("data_assets.runner._run_extraction", return_value=(10, {}))
+    @patch("data_assets.runner._run_transform_and_validate")
+    @patch("data_assets.runner._run_promotion", return_value=10)
+    @patch("data_assets.runner._update_watermarks")
+    @patch("data_assets.runner.update_last_success")
+    @patch("data_assets.runner.record_run_success")
+    @patch("data_assets.runner.clear_checkpoints")
+    @patch("data_assets.runner.drop_temp_table")
+    @patch("data_assets.runner.release_lock")
+    def test_partition_key_in_return_dict(
+        self,
+        mock_release,
+        mock_drop_temp,
+        mock_clear_cp,
+        mock_record_success,
+        mock_update_last,
+        mock_update_wm,
+        mock_promotion,
+        mock_transform,
+        mock_extraction,
+        mock_prepare,
+        mock_record_start,
+        mock_get_cps,
+        mock_cp_by_worker,
+        mock_coverage,
+        mock_acquire,
+        mock_temp_name,
+        mock_get_asset,
+        mock_init,
+        mock_engine_fn,
+        mock_logging,
+    ):
+        """run_asset() return dict should include partition_key."""
+        mock_engine = MagicMock()
+        mock_engine_fn.return_value = mock_engine
+
+        mock_asset_cls = MagicMock()
+        mock_asset = MagicMock()
+        mock_asset.stale_heartbeat_minutes = 20
+        mock_asset.max_run_hours = 5
+        mock_asset_cls.return_value = mock_asset
+        mock_get_asset.return_value = mock_asset_cls
+
+        mock_transform.return_value = (pd.DataFrame(), "tmp_tbl", [])
+
+        result = run_asset("test_asset", run_mode="full")
+
+        assert "partition_key" in result
+        assert result["partition_key"] == ""
+
+    @patch("data_assets.runner.setup_logging")
+    @patch("data_assets.runner.get_engine")
+    @patch("data_assets.runner._ensure_initialized")
+    @patch("data_assets.runner.get")
+    @patch("data_assets.runner.temp_table_name", return_value="tmp_test_123")
+    @patch("data_assets.runner.acquire_or_takeover", return_value=(None, None))
+    @patch("data_assets.runner.get_coverage", return_value=None)
+    @patch("data_assets.runner.checkpoints_by_worker", return_value={})
+    @patch("data_assets.runner.get_checkpoints", return_value=[])
+    @patch("data_assets.runner.record_run_start")
+    @patch("data_assets.runner._prepare_temp_table", return_value="tmp_tbl")
+    @patch("data_assets.runner._run_extraction", return_value=(10, {}))
+    @patch("data_assets.runner._run_transform_and_validate")
+    @patch("data_assets.runner._run_promotion", return_value=10)
+    @patch("data_assets.runner._update_watermarks")
+    @patch("data_assets.runner.update_last_success")
+    @patch("data_assets.runner.record_run_success")
+    @patch("data_assets.runner.clear_checkpoints")
+    @patch("data_assets.runner.drop_temp_table")
+    @patch("data_assets.runner.release_lock")
+    def test_custom_partition_key_threaded_through(
+        self,
+        mock_release,
+        mock_drop_temp,
+        mock_clear_cp,
+        mock_record_success,
+        mock_update_last,
+        mock_update_wm,
+        mock_promotion,
+        mock_transform,
+        mock_extraction,
+        mock_prepare,
+        mock_record_start,
+        mock_get_cps,
+        mock_cp_by_worker,
+        mock_coverage,
+        mock_acquire,
+        mock_temp_name,
+        mock_get_asset,
+        mock_init,
+        mock_engine_fn,
+        mock_logging,
+    ):
+        """A non-default partition_key should flow through to all partition-aware calls."""
+        mock_engine = MagicMock()
+        mock_engine_fn.return_value = mock_engine
+
+        mock_asset_cls = MagicMock()
+        mock_asset = MagicMock()
+        mock_asset.stale_heartbeat_minutes = 20
+        mock_asset.max_run_hours = 5
+        mock_asset_cls.return_value = mock_asset
+        mock_get_asset.return_value = mock_asset_cls
+
+        mock_transform.return_value = (pd.DataFrame(), "tmp_tbl", [])
+
+        result = run_asset("test_asset", run_mode="full", partition_key="org-acme")
+
+        # Return dict should carry the partition_key
+        assert result["partition_key"] == "org-acme"
+
+        # All partition-aware functions should receive partition_key="org-acme"
+        mock_acquire.assert_called_once()
+        assert mock_acquire.call_args[1]["partition_key"] == "org-acme"
+
+        mock_coverage.assert_called_once_with(mock_engine, "test_asset", partition_key="org-acme")
+
+        mock_get_cps.assert_called_once_with(mock_engine, "test_asset", partition_key="org-acme")
+
+        mock_record_start.assert_called_once()
+        assert mock_record_start.call_args[1]["partition_key"] == "org-acme"
+
+        mock_prepare.assert_called_once()
+        assert mock_prepare.call_args[1]["partition_key"] == "org-acme"
+
+        mock_update_wm.assert_called_once()
+        assert mock_update_wm.call_args[1]["partition_key"] == "org-acme"
+
+        mock_clear_cp.assert_called_once_with(mock_engine, "test_asset", partition_key="org-acme")
+
+        mock_release.assert_called_once_with(mock_engine, "test_asset", partition_key="org-acme")

@@ -20,6 +20,7 @@ def record_run_start(
     run_mode: str,
     airflow_run_id: str | None = None,
     metadata: dict | None = None,
+    partition_key: str = "",
 ) -> None:
     """Insert an in-progress run_history row at the start of a run."""
     with Session(engine) as session:
@@ -31,6 +32,7 @@ def record_run_start(
             started_at=datetime.now(UTC),
             metadata_=metadata or {},
             airflow_run_id=airflow_run_id,
+            partition_key=partition_key,
         )
         session.add(row)
         session.commit()
@@ -85,23 +87,24 @@ def update_coverage(
     asset_name: str,
     forward_watermark: datetime | None = None,
     backward_watermark: datetime | None = None,
+    partition_key: str = "",
 ) -> None:
     """Upsert the coverage_tracker row for an asset after a successful run."""
     now = datetime.now(UTC)
-    values: dict = {"asset_name": asset_name, "updated_at": now}
+    values: dict = {"asset_name": asset_name, "partition_key": partition_key, "updated_at": now}
     if forward_watermark is not None:
         values["forward_watermark"] = forward_watermark
     if backward_watermark is not None:
         values["backward_watermark"] = backward_watermark
 
-    update_set = {k: v for k, v in values.items() if k != "asset_name"}
+    update_set = {k: v for k, v in values.items() if k not in {"asset_name", "partition_key"}}
 
     with Session(engine) as session:
         stmt = (
             pg_insert(CoverageTracker)
             .values(**values)
             .on_conflict_do_update(
-                index_elements=["asset_name"],
+                index_elements=["asset_name", "partition_key"],
                 set_=update_set,
             )
         )
@@ -163,9 +166,13 @@ def update_last_success(engine: Engine, asset_name: str) -> None:
         session.commit()
 
 
-def get_coverage(engine: Engine, asset_name: str) -> CoverageTracker | None:
+def get_coverage(
+    engine: Engine, asset_name: str, partition_key: str = "",
+) -> CoverageTracker | None:
     """Read the coverage_tracker row for an asset."""
     with Session(engine) as session:
         return session.execute(
-            select(CoverageTracker).where(CoverageTracker.asset_name == asset_name)
+            select(CoverageTracker)
+            .where(CoverageTracker.asset_name == asset_name)
+            .where(CoverageTracker.partition_key == partition_key)
         ).scalar_one_or_none()
