@@ -18,7 +18,85 @@ git clone https://github.com/rajesh-rm/flowkit.git
 cd flowkit
 ```
 
-## 2. Set up the environment with uv
+## 2. Enterprise proxy setup (corporate networks only)
+
+> Skip this section if you are on a direct internet connection.
+
+If your network routes traffic through a corporate proxy or an internal PyPI mirror, configure these **before** running `uv` or `pip`.
+
+### 2a. HTTP/HTTPS proxy
+
+Set the standard proxy environment variables. Add these to your shell profile (`~/.zshrc`, `~/.bashrc`) so they persist across sessions:
+
+```bash
+export HTTP_PROXY="http://proxy.corp.example.com:8080"
+export HTTPS_PROXY="http://proxy.corp.example.com:8080"
+export NO_PROXY="localhost,127.0.0.1,.corp.example.com"
+```
+
+These are respected by `uv`, `pip`, `curl`, `git`, and `httpx` (the HTTP client used by data_assets at runtime).
+
+### 2b. Internal PyPI index (Artifactory / Nexus / DevPI)
+
+If your organization hosts an internal package mirror, configure uv to use it. Create or edit `~/.config/uv/uv.toml`:
+
+```toml
+[pip]
+index-url = "https://artifactory.corp.example.com/api/pypi/pypi-remote/simple"
+# Add extra indexes if you publish internal packages alongside public ones:
+# extra-index-url = "https://artifactory.corp.example.com/api/pypi/pypi-internal/simple"
+```
+
+Alternatively, set it as an environment variable:
+
+```bash
+export UV_INDEX_URL="https://artifactory.corp.example.com/api/pypi/pypi-remote/simple"
+```
+
+For plain pip (used inside venvs when uv is not available):
+
+```bash
+export PIP_INDEX_URL="https://artifactory.corp.example.com/api/pypi/pypi-remote/simple"
+```
+
+Or create `~/.pip/pip.conf` (macOS/Linux) / `%APPDATA%\pip\pip.ini` (Windows):
+
+```ini
+[global]
+index-url = https://artifactory.corp.example.com/api/pypi/pypi-remote/simple
+```
+
+### 2c. Custom CA certificates
+
+If your proxy uses a corporate root CA for TLS inspection, tell uv and pip where to find the CA bundle:
+
+```bash
+# Point to your corporate CA bundle
+export SSL_CERT_FILE="/etc/pki/tls/certs/corporate-ca-bundle.pem"
+export REQUESTS_CA_BUNDLE="$SSL_CERT_FILE"
+
+# For uv specifically (if the above isn't picked up):
+export UV_NATIVE_TLS=true
+```
+
+If the internal PyPI index uses a certificate signed by a corporate CA that's already trusted by your OS certificate store, `UV_NATIVE_TLS=true` tells uv to use the system trust store instead of its bundled certificates.
+
+For pip:
+
+```bash
+export PIP_CERT="/etc/pki/tls/certs/corporate-ca-bundle.pem"
+```
+
+### 2d. Verify proxy configuration
+
+Before proceeding, verify connectivity to PyPI (or your internal mirror):
+
+```bash
+# Should return package metadata, not a proxy error
+uv pip search requests 2>/dev/null || uv pip install --dry-run requests
+```
+
+## 3. Set up the environment with uv
 
 ```bash
 # Create virtual environment (downloads Python 3.11 if needed)
@@ -30,7 +108,7 @@ uv pip install -e ".[dev]"
 
 That's it. The `.venv` directory is gitignored.
 
-## 3. Activate the environment
+## 4. Activate the environment
 
 ```bash
 source .venv/bin/activate
@@ -38,7 +116,7 @@ source .venv/bin/activate
 
 Or prefix commands with `.venv/bin/` without activating.
 
-## 4. Run unit tests (no Docker required)
+## 5. Run unit tests (no Docker required)
 
 ```bash
 # All unit tests — no database, no network, no Docker
@@ -48,7 +126,7 @@ make test-unit
 make test-cov
 ```
 
-## 5. Run integration tests (Docker required)
+## 6. Run integration tests (Docker required)
 
 Integration tests use [testcontainers](https://testcontainers.com/) to spin up an ephemeral Postgres instance in Docker. Make sure Docker is running.
 
@@ -63,7 +141,7 @@ export DATABASE_URL="postgresql://user:pass@localhost:5432/test_data_assets"
 .venv/bin/python -m pytest tests/integration/ -v -m integration
 ```
 
-## 6. Run all tests
+## 7. Run all tests
 
 ```bash
 make test
@@ -71,7 +149,7 @@ make test
 
 For the full testing guide — directory structure, fixtures, patterns, and how to write tests — see [docs/testing.md](testing.md).
 
-## 7. Code quality
+## 8. Code quality
 
 ```bash
 # Lint
@@ -137,6 +215,9 @@ See [docs/extending.md](extending.md) for the comprehensive step-by-step guide. 
 | Data missing from table | Column names in `parse_response` DataFrame don't match `columns` list |
 | Duplicate rows | Check `primary_key` is set correctly, use `UPSERT` load strategy |
 | Lock error on retry | Previous run's lock wasn't released — auto-clears after `stale_heartbeat_minutes` (default 20 min) or `max_run_hours` (default 5 hours). Override these on your asset class for slow APIs. |
+| `uv pip install` fails with SSL/certificate error | Corporate proxy doing TLS inspection — set `SSL_CERT_FILE` and `UV_NATIVE_TLS=true` (see section 2c) |
+| `uv pip install` fails with timeout/connection refused | Proxy not configured — set `HTTPS_PROXY` (see section 2a) |
+| `pip install` downloads from wrong index | Internal mirror not configured — set `UV_INDEX_URL` or `PIP_INDEX_URL` (see section 2b) |
 
 ### Running a single asset locally
 

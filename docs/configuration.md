@@ -132,6 +132,25 @@ airflow connections add servicenow \
 With a secret backend (Vault, AWS SSM), Airflow resolves these at runtime — values
 never touch the metadata DB.
 
+## Network and Proxy
+
+If your environment routes traffic through a corporate proxy, set these variables
+so that `httpx` (the HTTP client used for API extraction) and `pysnc` (ServiceNow
+client) can reach external APIs.
+
+| Variable | Description |
+|----------|-------------|
+| `HTTPS_PROXY` | Proxy URL for HTTPS traffic (e.g., `http://proxy.corp.example.com:8080`) |
+| `HTTP_PROXY` | Proxy URL for HTTP traffic (same as above in most setups) |
+| `NO_PROXY` | Comma-separated hostnames/domains to bypass the proxy (e.g., `localhost,127.0.0.1,.corp.example.com`) |
+| `SSL_CERT_FILE` | Path to custom CA bundle for TLS inspection (e.g., `/etc/pki/tls/certs/corporate-ca-bundle.pem`) |
+| `REQUESTS_CA_BUNDLE` | Same as `SSL_CERT_FILE` — used by `requests` and `httpx` |
+
+`httpx` respects `HTTPS_PROXY` and `SSL_CERT_FILE` natively. If your corporate
+proxy's CA is already in the system trust store, no extra configuration is needed.
+
+For **development tooling** proxy setup (uv, pip, git), see [quickstart-dev.md](quickstart-dev.md#2-enterprise-proxy-setup-corporate-networks-only).
+
 ## Runtime Overrides
 
 Pass overrides as keyword arguments to `run_asset()`:
