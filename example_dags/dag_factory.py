@@ -105,9 +105,11 @@ def _run_asset(
     from data_assets import run_asset
 
     secrets = _resolve_secrets(source_name, org_override=org_override)
+    partition_key = org_override["org"] if org_override else ""
     return run_asset(
         asset_name=asset_name,
         run_mode=run_mode,
+        partition_key=partition_key,
         secrets=secrets or None,
         airflow_run_id=kwargs.get("run_id"),
     )

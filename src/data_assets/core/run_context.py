@@ -19,6 +19,7 @@ class RunContext:
     run_id: UUID
     mode: RunMode
     asset_name: str
+    partition_key: str = ""
     start_date: datetime | None = None
     end_date: datetime | None = None
     params: dict = field(default_factory=dict)

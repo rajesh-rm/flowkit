@@ -165,6 +165,7 @@ def _fetch_pages(
                 checkpoint_value=cp,
                 rows_so_far=rows,
                 status="in_progress",
+                partition_key=context.partition_key,
             )
 
     return rows
@@ -352,6 +353,7 @@ def extract_page_parallel(
                 checkpoint_value={"last_page": page_num},
                 rows_so_far=worker_rows,
                 status="in_progress",
+                partition_key=context.partition_key,
             )
 
         save_checkpoint(
@@ -363,6 +365,7 @@ def extract_page_parallel(
             checkpoint_value={"last_page": pages[-1]},
             rows_so_far=worker_rows,
             status="completed",
+            partition_key=context.partition_key,
         )
         return worker_rows
 
@@ -450,6 +453,7 @@ def extract_entity_parallel(
                     },
                     rows_so_far=_wr + page_rows,
                     status="in_progress",
+                    partition_key=context.partition_key,
                 )
 
             # Fetch all pages for this entity
@@ -484,6 +488,7 @@ def extract_entity_parallel(
                 checkpoint_value={"completed_entities": list(completed)},
                 rows_so_far=worker_rows,
                 status="in_progress",
+                partition_key=context.partition_key,
             )
 
         save_checkpoint(
@@ -495,6 +500,7 @@ def extract_entity_parallel(
             checkpoint_value={"completed_entities": list(completed)},
             rows_so_far=worker_rows,
             status="completed",
+            partition_key=context.partition_key,
         )
         return worker_rows
 

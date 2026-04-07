@@ -21,6 +21,7 @@ def make_ctx(**kwargs) -> RunContext:
         "run_id": uuid.uuid4(),
         "mode": RunMode.FULL,
         "asset_name": "test",
+        "partition_key": "",
     }
     defaults.update(kwargs)
     return RunContext(**defaults)
