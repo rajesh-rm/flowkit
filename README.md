@@ -46,6 +46,8 @@ Read in this order:
 6. [**Extending**](docs/extending.md) — adding new sources, transforms, and token managers
 7. [**Testing Guide**](docs/testing.md) — test structure, patterns, fixtures, and how to write tests
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow, code style, and PR guidelines.
+
 ## Requirements
 
 - Python 3.11+

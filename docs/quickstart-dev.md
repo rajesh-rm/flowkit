@@ -218,6 +218,8 @@ See [docs/extending.md](extending.md) for the comprehensive step-by-step guide. 
 | `uv pip install` fails with SSL/certificate error | Corporate proxy doing TLS inspection — set `SSL_CERT_FILE` and `UV_NATIVE_TLS=true` (see section 2c) |
 | `uv pip install` fails with timeout/connection refused | Proxy not configured — set `HTTPS_PROXY` (see section 2a) |
 | `pip install` downloads from wrong index | Internal mirror not configured — set `UV_INDEX_URL` or `PIP_INDEX_URL` (see section 2b) |
+| `LockError: Asset 'X' is locked by run ...` | Previous run still active or crashed — wait for `stale_heartbeat_minutes` (default 20) or delete the row from `data_ops.run_locks` manually |
+| `RuntimeError: Checkpoint rejected` | Another worker took over your run (stale-run takeover). Normal recovery — retry the task. |
 
 ### Running a single asset locally
 

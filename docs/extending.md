@@ -2034,6 +2034,31 @@ Every run records operational metrics in `run_history.metadata`:
 
 Query with: `SELECT metadata FROM data_ops.run_history WHERE asset_name = 'my_asset'`
 
+### Multi-Org / Multi-Tenant Runs
+
+If the same asset needs to run for multiple organizations (e.g., GitHub multi-org), use `partition_key` to give each org independent locks, watermarks, and checkpoints:
+
+```python
+run_asset(
+    "github_repos",
+    run_mode="full",
+    partition_key=org_config["org"],
+    secrets={
+        "GITHUB_ORGS": org_config["org"],
+        "GITHUB_INSTALLATION_ID": org_config["installation_id"],
+        ...
+    },
+)
+```
+
+**Your asset doesn't need any code changes to support partition_key.** The framework handles lock and watermark scoping automatically via composite keys `(asset_name, partition_key)` on the operational tables.
+
+**Entity-parallel scoping**: For assets like `github_pull_requests` that fan out by repository, the `GITHUB_ORGS` env var is set per-run by the DAG. The base class `filter_entity_keys()` in `assets/github/helpers.py` reads it to scope extraction to only that org's repos.
+
+**DAG pattern**: Create one DAG per org. See `example_dags/flowkit_dags.py` for the production pattern, or `example_dags/dag_factory.py` for auto-generated DAGs from an Airflow Connection.
+
+For the full explanation of partition_key semantics, see [user-guide.md](user-guide.md#multi-org-runs-partitionkey).
+
 ---
 
 ## 8. Quick Reference: Adding Endpoints by Source

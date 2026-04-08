@@ -163,5 +163,6 @@ run_asset(
     max_workers=2,                # Reduce parallelism
     start_date=some_datetime,     # Override date window
     end_date=some_datetime,
+    partition_key="org-one",      # Multi-org: scope locks + watermarks
 )
 ```
