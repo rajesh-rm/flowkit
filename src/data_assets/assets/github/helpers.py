@@ -63,6 +63,14 @@ class GitHubOrgAsset(APIAsset):
     # Extra query params for build_request (e.g., {"type": "all"} for repos)
     org_request_params: dict[str, Any] = {}
 
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if "org_endpoint" in cls.__dict__ and not cls.org_endpoint:
+            raise ValueError(
+                f"{cls.__name__} sets org_endpoint to empty string. "
+                "Set it to the org-relative API path (e.g., '/repos')."
+            )
+
     def build_request(
         self, context: RunContext, checkpoint: dict[str, Any] | None = None
     ) -> RequestSpec:
