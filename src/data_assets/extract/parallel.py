@@ -136,15 +136,13 @@ def _fetch_pages(
             break
 
         # Time-based progress logging (sequential mode)
-        if log_interval_seconds is not None:
-            now = time.monotonic()
-            if now - last_log_time >= log_interval_seconds:
-                elapsed = now - start_time
-                logger.info(
-                    "Progress: %d rows (%d pages, %.0fs elapsed)",
-                    rows, page_count, elapsed,
-                )
-                last_log_time = now
+        if log_interval_seconds is not None and time.monotonic() - last_log_time >= log_interval_seconds:
+            elapsed = time.monotonic() - start_time
+            logger.info(
+                "Progress: %d rows (%d pages, %.0fs elapsed)",
+                rows, page_count, elapsed,
+            )
+            last_log_time = time.monotonic()
 
         # Watermark-based early stop (e.g., GitHub PRs sorted by updated desc)
         if asset.should_stop(df, context):
@@ -265,6 +263,24 @@ def extract_sequential(
 # Public: Page-parallel extraction
 # ---------------------------------------------------------------------------
 
+def _discover_total_pages(
+    asset: APIAsset, client: APIClient, engine: Engine,
+    temp_table: str, context: RunContext,
+) -> tuple[int, int | None]:
+    """Fetch page 1 and derive total_pages. Returns (rows_written, total_pages)."""
+    first_spec = asset.build_request(context, checkpoint=None)
+    first_data = client.request(first_spec)
+    first_df, first_state = asset.parse_response(first_data)
+    rows = write_to_temp(engine, temp_table, first_df)
+
+    total_pages = first_state.total_pages
+    if total_pages is None and first_state.total_records is not None:
+        total_pages = math.ceil(
+            first_state.total_records / asset.pagination_config.page_size
+        )
+    return rows, total_pages
+
+
 def extract_page_parallel(
     asset: APIAsset,
     client: APIClient,
@@ -281,18 +297,9 @@ def extract_page_parallel(
     """
     existing_checkpoints = existing_checkpoints or {}
 
-    # Discovery call — page 1
-    first_spec = asset.build_request(context, checkpoint=None)
-    first_data = client.request(first_spec)
-    first_df, first_state = asset.parse_response(first_data)
-    rows_total = write_to_temp(engine, temp_table, first_df)
-
-    total_pages = first_state.total_pages
-    if total_pages is None and first_state.total_records is not None:
-        total_pages = math.ceil(
-            first_state.total_records / asset.pagination_config.page_size
-        )
-
+    rows_total, total_pages = _discover_total_pages(
+        asset, client, engine, temp_table, context
+    )
     if not total_pages or total_pages <= 1:
         return rows_total
 
@@ -380,6 +387,19 @@ def extract_page_parallel(
 # Public: Entity-parallel extraction
 # ---------------------------------------------------------------------------
 
+def _parse_entity_resume(
+    cp_value: dict | None,
+) -> tuple[set[str], str | None, dict | None]:
+    """Parse entity-parallel resume state from checkpoint value."""
+    if not cp_value:
+        return set(), None, None
+    return (
+        set(cp_value.get("completed_entities", [])),
+        cp_value.get("current_entity"),
+        cp_value.get("pagination_state"),
+    )
+
+
 def extract_entity_parallel(
     asset: APIAsset,
     client: APIClient,
@@ -408,15 +428,7 @@ def extract_entity_parallel(
             logger.info("Worker %s already completed, skipping", worker_id)
             return prior_rows
 
-        # Resume state
-        completed: set[str] = set()
-        resume_entity: str | None = None
-        resume_pagination: dict | None = None
-
-        if cp_value:
-            completed = set(cp_value.get("completed_entities", []))
-            resume_entity = cp_value.get("current_entity")
-            resume_pagination = cp_value.get("pagination_state")
+        completed, resume_entity, resume_pagination = _parse_entity_resume(cp_value)
 
         worker_rows = prior_rows
         total_entities = len(entities)
@@ -430,9 +442,8 @@ def extract_entity_parallel(
                 continue
 
             # Resume pagination within this entity if applicable
-            page_cp = None
-            if entity_str == resume_entity and resume_pagination:
-                page_cp = resume_pagination
+            page_cp = resume_pagination if entity_str == resume_entity else None
+            if page_cp:
                 resume_entity = None  # Only apply once
 
             # Callback saves unified checkpoint: entity progress + page position.

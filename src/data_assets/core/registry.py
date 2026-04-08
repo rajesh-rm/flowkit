@@ -93,27 +93,31 @@ def _validate_dependencies() -> None:
                     name, table,
                 )
 
-        # Check indexes — every asset must declare at least one
-        if not asset.indexes:
-            raise ValueError(
-                f"Asset '{name}' has no indexes defined. Every asset must "
-                f"declare at least one Index in its 'indexes' class attribute."
-            )
+        _validate_indexes(name, asset)
 
-        column_names = {c.name for c in asset.columns}
-        for idx in asset.indexes:
-            bad = [c for c in idx.columns if c not in column_names]
-            if bad:
+
+def _validate_indexes(name: str, asset) -> None:
+    """Check that every asset has at least one index with valid columns."""
+    if not asset.indexes:
+        raise ValueError(
+            f"Asset '{name}' has no indexes defined. Every asset must "
+            f"declare at least one Index in its 'indexes' class attribute."
+        )
+
+    column_names = {c.name for c in asset.columns}
+    for idx in asset.indexes:
+        bad = [c for c in idx.columns if c not in column_names]
+        if bad:
+            raise ValueError(
+                f"Asset '{name}' has index referencing non-existent "
+                f"columns: {bad}. Known columns: {sorted(column_names)}"
+            )
+        if idx.include:
+            bad_inc = [c for c in idx.include if c not in column_names]
+            if bad_inc:
                 raise ValueError(
-                    f"Asset '{name}' has index referencing non-existent "
-                    f"columns: {bad}. Known columns: {sorted(column_names)}"
+                    f"Asset '{name}' has index with INCLUDE referencing "
+                    f"non-existent columns: {bad_inc}."
                 )
-            if idx.include:
-                bad_inc = [c for c in idx.include if c not in column_names]
-                if bad_inc:
-                    raise ValueError(
-                        f"Asset '{name}' has index with INCLUDE referencing "
-                        f"non-existent columns: {bad_inc}."
-                    )
 
 
