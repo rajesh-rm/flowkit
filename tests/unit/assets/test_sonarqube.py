@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pandas as pd
 
 from tests.unit.conftest import make_ctx
 
@@ -172,3 +176,430 @@ class TestSonarQubeMeasures:
         from data_assets.assets.sonarqube.measures import SonarQubeMeasures
 
         assert SonarQubeMeasures().primary_key == ["project_key"]
+
+
+# ---------------------------------------------------------------------------
+# SonarQubeProjects — Sharded extraction for the 10k ES limit
+# ---------------------------------------------------------------------------
+
+
+def _make_probe_response(total: int) -> dict:
+    """Build a minimal probe response (ps=1) with the given total."""
+    components = []
+    if total > 0:
+        components.append({"key": "probe-key", "name": "Probe", "qualifier": "TRK"})
+    return {"paging": {"pageIndex": 1, "pageSize": 1, "total": total}, "components": components}
+
+
+def _make_page_response(
+    projects: list[tuple[str, str]],
+    page_index: int = 1,
+    page_size: int = 100,
+    total: int | None = None,
+) -> dict:
+    """Build a paginated response from a list of (key, name) tuples."""
+    if total is None:
+        total = len(projects)
+    return {
+        "paging": {"pageIndex": page_index, "pageSize": page_size, "total": total},
+        "components": [
+            {"key": k, "name": n, "qualifier": "TRK"} for k, n in projects
+        ],
+    }
+
+
+class TestSonarQubeProjectsSharding:
+    """Tests for the sharded extraction logic in SonarQubeProjects.extract()."""
+
+    def _make_asset(self):
+        from data_assets.assets.sonarqube.projects import SonarQubeProjects
+        return SonarQubeProjects()
+
+    # -- attribute / config tests --------------------------------------
+
+    def test_parallel_mode_is_none(self, sonarqube_env):
+        from data_assets.core.enums import ParallelMode
+        assert self._make_asset().parallel_mode == ParallelMode.NONE
+
+    # -- normal path (below threshold) ---------------------------------
+
+    def test_extract_below_threshold_paginates_normally(self, sonarqube_env):
+        """When total <= 9900, extract paginates without the q param."""
+        asset = self._make_asset()
+        projects = [("k1", "Name One"), ("k2", "Name Two"), ("k3", "Name Three")]
+        page_resp = _make_page_response(projects, total=3)
+
+        mock_client = MagicMock()
+        # First call: probe (ps=1), second: paginate page 1
+        mock_client.request.side_effect = [
+            _make_probe_response(total=3),
+            page_resp,
+        ]
+
+        engine = MagicMock()
+        ctx = make_ctx()
+
+        with patch.object(asset, "_create_client", return_value=mock_client), \
+             patch("data_assets.assets.sonarqube.projects.write_to_temp", return_value=3):
+            rows = asset.extract(engine, "tmp_tbl", ctx)
+
+        assert rows == 3
+        # Paginate call should NOT have a 'q' param
+        paginate_spec = mock_client.request.call_args_list[1][0][0]
+        assert "q" not in paginate_spec.params
+
+    # -- sharded path (above threshold) --------------------------------
+
+    def test_extract_above_threshold_triggers_sharding(self, sonarqube_env):
+        """When total > 9900, extract uses q-param shard probes."""
+        import pytest
+
+        asset = self._make_asset()
+
+        # Probe returns large total; all shard probes return 0 except 'aa'
+        def mock_request(spec):
+            params = spec.params
+            if params.get("ps") == 1 and "q" not in params:
+                return _make_probe_response(total=10_500)
+            if params.get("ps") == 1 and "q" in params:
+                if params["q"] == "aa":
+                    return _make_probe_response(total=50)
+                return _make_probe_response(total=0)
+            return _make_page_response(
+                [("aa-1", "Project AA One"), ("aa-2", "Project AA Two")],
+                total=2,
+            )
+
+        mock_client = MagicMock()
+        mock_client.request.side_effect = mock_request
+        engine = MagicMock()
+
+        # Only 2 of 10,500 found → shortfall guard raises; we verify shard probes happened
+        with patch.object(asset, "_create_client", return_value=mock_client), \
+             patch("data_assets.assets.sonarqube.projects.write_to_temp", return_value=2), \
+             pytest.raises(ValueError, match="shortfall"):
+            asset.extract(engine, "tmp_tbl", make_ctx())
+
+        shard_calls = [
+            c[0][0] for c in mock_client.request.call_args_list
+            if c[0][0].params.get("ps") == 1 and "q" in c[0][0].params
+        ]
+        assert len(shard_calls) > 0
+        assert all("q" in c.params for c in shard_calls)
+
+    # -- deduplication -------------------------------------------------
+
+    def test_dedup_across_shards(self, sonarqube_env):
+        """Same project key from multiple shards is written only once."""
+        asset = self._make_asset()
+        seen_keys: set[str] = set()
+        engine = MagicMock()
+
+        resp1 = _make_page_response([("proj-dup", "Dup Proj"), ("proj-a", "A Proj")])
+        resp2 = _make_page_response([("proj-dup", "Dup Proj"), ("proj-b", "B Proj")])
+
+        mock_client = MagicMock()
+        written_frames: list[pd.DataFrame] = []
+
+        def capture_write(_engine, _table, df):
+            written_frames.append(df.copy())
+            return len(df)
+
+        with patch("data_assets.assets.sonarqube.projects.write_to_temp", side_effect=capture_write):
+            mock_client.request.return_value = resp1
+            asset._paginate_shard(mock_client, engine, "tmp", make_ctx(), "ab", seen_keys)
+
+            mock_client.request.return_value = resp2
+            asset._paginate_shard(mock_client, engine, "tmp", make_ctx(), "du", seen_keys)
+
+        all_keys = pd.concat(written_frames)["key"].tolist()
+        assert sorted(all_keys) == ["proj-a", "proj-b", "proj-dup"]
+        assert len(all_keys) == 3  # no duplicates
+
+    # -- multi-page pagination -----------------------------------------
+
+    def test_paginate_shard_handles_multiple_pages(self, sonarqube_env):
+        """Pagination loop fetches all pages and deduplicates across them."""
+        asset = self._make_asset()
+        seen_keys: set[str] = set()
+        written_frames: list[pd.DataFrame] = []
+
+        call_count = [0]
+
+        def mock_request(spec):
+            call_count[0] += 1
+            page = spec.params.get("p", 1)
+            if page == 1:
+                # total=200 so total_pages=ceil(200/100)=2 → has_more=True
+                return _make_page_response(
+                    [("k1", "Name 1"), ("k2", "Name 2")],
+                    page_index=1, total=200,
+                )
+            # Page 2: k2 appears again (cross-page dupe) + k3 is new
+            return _make_page_response(
+                [("k2", "Name 2"), ("k3", "Name 3")],
+                page_index=2, total=200,
+            )
+
+        mock_client = MagicMock()
+        mock_client.request.side_effect = mock_request
+
+        def capture_write(_engine, _table, df):
+            written_frames.append(df.copy())
+            return len(df)
+
+        with patch("data_assets.assets.sonarqube.projects.write_to_temp", side_effect=capture_write):
+            names = asset._paginate_shard(
+                mock_client, MagicMock(), "tmp", make_ctx(), "ab", seen_keys,
+            )
+
+        # Should have fetched 2 pages
+        assert call_count[0] == 2
+        # k2 appeared on both pages but should be written only once
+        all_keys = pd.concat(written_frames)["key"].tolist()
+        assert sorted(all_keys) == ["k1", "k2", "k3"]
+        assert len(all_keys) == 3
+        # Names returned for early-termination tracking
+        assert names == {"Name 1", "Name 2", "Name 3"}
+
+    # -- zero result shard skipped -------------------------------------
+
+    def test_zero_result_shard_skipped(self, sonarqube_env):
+        """Shard probe returning 0 triggers no pagination calls."""
+        asset = self._make_asset()
+        mock_client = MagicMock()
+        mock_client.request.return_value = _make_probe_response(total=0)
+
+        result = asset._probe(mock_client, make_ctx(), q="zz")
+        assert result == 0
+
+    # -- deep shard (extends to 3-char) --------------------------------
+
+    def test_deep_shard_extends_to_three_chars(self, sonarqube_env):
+        """2-char prefix with total > 9900 extends to 3-char sub-prefixes."""
+        asset = self._make_asset()
+        seen_keys: set[str] = set()
+
+        call_log: list[str] = []
+
+        def mock_request(spec):
+            q = spec.params.get("q", "")
+            ps = spec.params.get("ps")
+            if ps == 1:
+                call_log.append(f"probe:{q}")
+                if len(q) == 3:
+                    if q == "aba":
+                        return _make_probe_response(total=50)
+                    return _make_probe_response(total=0)
+                return _make_probe_response(total=0)
+            call_log.append(f"paginate:{q}")
+            return _make_page_response(
+                [("aba-1", "ABA One"), ("aba-2", "ABA Two")], total=2,
+            )
+
+        mock_client = MagicMock()
+        mock_client.request.side_effect = mock_request
+        engine = MagicMock()
+
+        with patch("data_assets.assets.sonarqube.projects.write_to_temp", return_value=2):
+            names = asset._extend_shard(
+                mock_client, engine, "tmp", make_ctx(),
+                parent_prefix="ab", parent_total=50, seen_keys=seen_keys,
+            )
+
+        three_char_probes = [c for c in call_log if c.startswith("probe:ab") and len(c.split(":")[1]) == 3]
+        assert len(three_char_probes) > 0
+        assert "paginate:aba" in call_log
+        assert "ABA One" in names
+
+    # -- early termination ---------------------------------------------
+
+    def test_early_termination_stops_when_n_names_collected(self, sonarqube_env):
+        """Stops iterating sub-prefixes once parent_total unique names reached."""
+        asset = self._make_asset()
+        seen_keys: set[str] = set()
+        probed_prefixes: list[str] = []
+
+        def mock_request(spec):
+            q = spec.params.get("q", "")
+            ps = spec.params.get("ps")
+            if ps == 1:
+                probed_prefixes.append(q)
+                if len(q) == 3:
+                    return _make_probe_response(total=3)
+                return _make_probe_response(total=0)
+            return _make_page_response([
+                (f"{q}-1", f"Name {q} 1"),
+                (f"{q}-2", f"Name {q} 2"),
+                (f"{q}-3", f"Name {q} 3"),
+            ], total=3)
+
+        mock_client = MagicMock()
+        mock_client.request.side_effect = mock_request
+        engine = MagicMock()
+
+        with patch("data_assets.assets.sonarqube.projects.write_to_temp", return_value=3):
+            names = asset._extend_shard(
+                mock_client, engine, "tmp", make_ctx(),
+                parent_prefix="ab", parent_total=6, seen_keys=seen_keys,
+            )
+
+        assert len(names) >= 6
+        three_char_probes = [p for p in probed_prefixes if len(p) == 3]
+        assert len(three_char_probes) < 36
+
+    # -- reconciliation ------------------------------------------------
+    # Patch _SAFE_LIMIT to 2 so sharding triggers with small totals,
+    # while shard results (≤ 2) still get paginated instead of extended.
+
+    def test_reconciliation_warns_on_small_shortfall(self, sonarqube_env, caplog):
+        """Logs a warning (but succeeds) when shortfall is within 5% tolerance."""
+        asset = self._make_asset()
+
+        def mock_request(spec):
+            params = spec.params
+            if params.get("ps") == 1 and "q" not in params:
+                # Expect 4 projects but only 'aa' shard returns data (2 of 4 = 50%).
+                # With _SAFE_LIMIT patched to 50, total=52 triggers sharding
+                # and the 2-project shortfall is ~3.8%, within 5% tolerance.
+                return _make_probe_response(total=52)
+            if params.get("ps") == 1:
+                if params.get("q") == "aa":
+                    return _make_probe_response(total=50)
+                return _make_probe_response(total=0)
+            # Paginate 'aa' — return 50 unique projects
+            page = params.get("p", 1)
+            start = (page - 1) * 100
+            projects = [(f"p-{i}", f"Proj {i}") for i in range(start, min(start + 100, 50))]
+            return _make_page_response(projects, page_index=page, total=50)
+
+        mock_client = MagicMock()
+        mock_client.request.side_effect = mock_request
+        engine = MagicMock()
+
+        with patch.object(asset, "_create_client", return_value=mock_client), \
+             patch("data_assets.assets.sonarqube.projects.write_to_temp", return_value=50), \
+             patch("data_assets.assets.sonarqube.projects._SAFE_LIMIT", 50), \
+             caplog.at_level(logging.WARNING):
+            rows = asset.extract(engine, "tmp", make_ctx())
+
+        # Collected 50 of 52 expected (3.8% shortfall) — within 5% tolerance
+        assert rows == 50
+        assert any("within 5%" in r.message for r in caplog.records)
+
+    def test_reconciliation_accepts_surplus(self, sonarqube_env, caplog):
+        """No warning when collected count >= initial total."""
+        asset = self._make_asset()
+
+        def mock_request(spec):
+            params = spec.params
+            if params.get("ps") == 1 and "q" not in params:
+                return _make_probe_response(total=3)
+            if params.get("ps") == 1:
+                if params.get("q") in ("aa", "ab"):
+                    return _make_probe_response(total=2)
+                return _make_probe_response(total=0)
+            q = params.get("q", "xx")
+            return _make_page_response(
+                [(f"{q}-1", f"Name {q} 1"), (f"{q}-2", f"Name {q} 2")], total=2,
+            )
+
+        mock_client = MagicMock()
+        mock_client.request.side_effect = mock_request
+        engine = MagicMock()
+
+        with patch.object(asset, "_create_client", return_value=mock_client), \
+             patch("data_assets.assets.sonarqube.projects.write_to_temp", return_value=2), \
+             patch("data_assets.assets.sonarqube.projects._SAFE_LIMIT", 2), \
+             caplog.at_level(logging.WARNING):
+            rows = asset.extract(engine, "tmp", make_ctx())
+
+        assert rows >= 3
+        warning_msgs = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+        assert not any("expected" in m for m in warning_msgs)
+
+    # -- max_pages safety limit ----------------------------------------
+
+    def test_max_pages_safety_limit_stops_runaway_pagination(self, sonarqube_env, caplog):
+        """The pagination loop stops at max_pages even if API always says has_more."""
+        asset = self._make_asset()
+        seen_keys: set[str] = set()
+        pages_fetched = []
+
+        def mock_request(spec):
+            page = spec.params.get("p", 1)
+            pages_fetched.append(page)
+            return _make_page_response(
+                [(f"k-{page}", f"Name {page}")],
+                page_index=page, page_size=100, total=999_999,
+            )
+
+        mock_client = MagicMock()
+        mock_client.request.side_effect = mock_request
+        engine = MagicMock()
+
+        with patch("data_assets.assets.sonarqube.projects.write_to_temp", return_value=1), \
+             caplog.at_level(logging.WARNING):
+            asset._paginate_shard(
+                mock_client, engine, "tmp", make_ctx(),
+                q_param="ab", seen_keys=seen_keys,
+            )
+
+        from data_assets.assets.sonarqube.projects import _SAFE_LIMIT
+        expected_max = (_SAFE_LIMIT // asset.pagination_config.page_size) + 1
+        assert len(pages_fetched) == expected_max
+        assert any("max_pages limit" in r.message for r in caplog.records)
+
+    # -- max_depth safety limit ----------------------------------------
+
+    def test_max_depth_guard_stops_runaway_recursion(self, sonarqube_env, caplog):
+        """_extend_shard stops recursing at _MAX_SHARD_DEPTH."""
+        asset = self._make_asset()
+        seen_keys: set[str] = set()
+
+        def mock_request(spec):
+            # Every probe returns > _SAFE_LIMIT to force recursion at every level
+            if spec.params.get("ps") == 1:
+                return _make_probe_response(total=10_000)
+            return _make_page_response([], total=0)
+
+        mock_client = MagicMock()
+        mock_client.request.side_effect = mock_request
+        engine = MagicMock()
+
+        with patch("data_assets.assets.sonarqube.projects.write_to_temp", return_value=0), \
+             caplog.at_level(logging.WARNING):
+            asset._extend_shard(
+                mock_client, engine, "tmp", make_ctx(),
+                parent_prefix="ab", parent_total=10_000, seen_keys=seen_keys,
+            )
+
+        assert any("reached max depth" in r.message for r in caplog.records)
+
+    # -- reconciliation shortfall guard --------------------------------
+
+    def test_shortfall_over_5pct_raises(self, sonarqube_env):
+        """Extraction aborts when sharding finds far fewer projects than expected."""
+        import pytest
+
+        asset = self._make_asset()
+
+        def mock_request(spec):
+            params = spec.params
+            if params.get("ps") == 1 and "q" not in params:
+                return _make_probe_response(total=100)
+            if params.get("ps") == 1:
+                if params.get("q") == "aa":
+                    return _make_probe_response(total=1)
+                return _make_probe_response(total=0)
+            return _make_page_response([("only-one", "Only One")], total=1)
+
+        mock_client = MagicMock()
+        mock_client.request.side_effect = mock_request
+        engine = MagicMock()
+
+        with patch.object(asset, "_create_client", return_value=mock_client), \
+             patch("data_assets.assets.sonarqube.projects.write_to_temp", return_value=1), \
+             patch("data_assets.assets.sonarqube.projects._SAFE_LIMIT", 2), \
+             pytest.raises(ValueError, match="shortfall"):
+            asset.extract(engine, "tmp", make_ctx())

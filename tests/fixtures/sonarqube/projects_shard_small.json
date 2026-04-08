@@ -1,0 +1,19 @@
+{
+  "paging": {
+    "pageIndex": 1,
+    "pageSize": 100,
+    "total": 2
+  },
+  "components": [
+    {
+      "key": "proj-shard-1",
+      "name": "Shard Project One",
+      "qualifier": "TRK"
+    },
+    {
+      "key": "proj-shard-2",
+      "name": "Shard Project Two",
+      "qualifier": "TRK"
+    }
+  ]
+}
