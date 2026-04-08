@@ -174,25 +174,7 @@ class RestAsset(APIAsset):
         page_size = self.pagination_config.page_size
 
         if strategy == "page_number":
-            total_path = self.pagination_config.total_path
-            total = _get_nested(response, total_path) if total_path else None
-            if total is not None:
-                total_pages = math.ceil(int(total) / page_size)
-                # Read current page index from response if path is configured
-                page_index_path = self.pagination_config.page_index_path
-                if page_index_path:
-                    raw = _get_nested(response, page_index_path)
-                    page_index = raw if raw is not None else 1
-                else:
-                    page_index = 1
-                return PaginationState(
-                    has_more=page_index < total_pages,
-                    next_page=page_index + 1,
-                    total_pages=total_pages,
-                    total_records=int(total),
-                )
-            # No total — use result count heuristic
-            return PaginationState(has_more=result_count >= page_size)
+            return self._parse_page_number_state(response, result_count, page_size)
 
         if strategy == "offset":
             return PaginationState(
@@ -215,4 +197,27 @@ class RestAsset(APIAsset):
             f"Unknown pagination strategy '{strategy}' for RestAsset. "
             "Supported: page_number, offset, cursor, none. "
             "For keyset pagination, use APIAsset directly."
+        )
+
+    def _parse_page_number_state(
+        self, response: Any, result_count: int, page_size: int,
+    ) -> PaginationState:
+        """Parse pagination state for page_number strategy."""
+        total_path = self.pagination_config.total_path
+        total = _get_nested(response, total_path) if total_path else None
+        if total is None:
+            return PaginationState(has_more=result_count >= page_size)
+
+        total_pages = math.ceil(int(total) / page_size)
+        page_index_path = self.pagination_config.page_index_path
+        if page_index_path:
+            raw = _get_nested(response, page_index_path)
+            page_index = raw if raw is not None else 1
+        else:
+            page_index = 1
+        return PaginationState(
+            has_more=page_index < total_pages,
+            next_page=page_index + 1,
+            total_pages=total_pages,
+            total_records=int(total),
         )

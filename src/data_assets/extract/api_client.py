@@ -100,46 +100,11 @@ class APIClient:
 
             # Check for errors using classifier
             if response.status_code >= 400:
-                action = self._classify(
-                    response.status_code, dict(response.headers)
+                should_continue = self._handle_error_response(
+                    response, spec, attempt
                 )
-
-                if action == "skip":
-                    self._stats["skips"] += 1
-                    logger.warning(
-                        "Skipping request: HTTP %d for %s",
-                        response.status_code, spec.url,
-                    )
-                    raise SkippedRequestError(
-                        f"HTTP {response.status_code} for {spec.url}"
-                    )
-
-                if action == "retry" and attempt < self._max_retries:
-                    self._stats["retries"] += 1
-                    if response.status_code == 429:
-                        raw_retry = response.headers.get("Retry-After", "30")
-                        try:
-                            retry_after = float(raw_retry)
-                        except ValueError:
-                            retry_after = 30.0
-                        self._rate_limiter.pause_for(retry_after)
-                        self._stats["rate_limit_pauses"] += 1
-                        logger.warning(
-                            "HTTP 429 — pausing %.1fs (attempt %d/%d)",
-                            retry_after, attempt + 1, self._max_retries + 1,
-                        )
-                    else:
-                        wait = BACKOFF_BASE ** (attempt + 1)
-                        logger.warning(
-                            "HTTP %d attempt %d/%d. Retrying in %.1fs",
-                            response.status_code, attempt + 1,
-                            self._max_retries + 1, wait,
-                        )
-                        time.sleep(wait)
+                if should_continue:
                     continue
-
-                # action == "fail" or retries exhausted
-                response.raise_for_status()
 
             # Success — count and check rate limit headers
             self._stats["api_calls"] += 1
@@ -153,6 +118,50 @@ class APIClient:
                     f"(HTTP {response.status_code}): "
                     f"{response.text[:200]}"
                 ) from exc
+
+    def _handle_error_response(
+        self, response: httpx.Response, spec: RequestSpec, attempt: int,
+    ) -> bool:
+        """Classify and handle an HTTP error. Returns True if caller should retry."""
+        action = self._classify(response.status_code, dict(response.headers))
+
+        if action == "skip":
+            self._stats["skips"] += 1
+            logger.warning(
+                "Skipping request: HTTP %d for %s",
+                response.status_code, spec.url,
+            )
+            raise SkippedRequestError(
+                f"HTTP {response.status_code} for {spec.url}"
+            )
+
+        if action == "retry" and attempt < self._max_retries:
+            self._stats["retries"] += 1
+            if response.status_code == 429:
+                raw_retry = response.headers.get("Retry-After", "30")
+                try:
+                    retry_after = float(raw_retry)
+                except ValueError:
+                    retry_after = 30.0
+                self._rate_limiter.pause_for(retry_after)
+                self._stats["rate_limit_pauses"] += 1
+                logger.warning(
+                    "HTTP 429 — pausing %.1fs (attempt %d/%d)",
+                    retry_after, attempt + 1, self._max_retries + 1,
+                )
+            else:
+                wait = BACKOFF_BASE ** (attempt + 1)
+                logger.warning(
+                    "HTTP %d attempt %d/%d. Retrying in %.1fs",
+                    response.status_code, attempt + 1,
+                    self._max_retries + 1, wait,
+                )
+                time.sleep(wait)
+            return True  # caller should continue the retry loop
+
+        # action == "fail" or retries exhausted
+        response.raise_for_status()
+        return False  # unreachable but satisfies type checker
 
     def _check_rate_limit_headers(self, response: httpx.Response) -> None:
         """If rate limit is nearly exhausted, preemptively pause."""
