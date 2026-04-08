@@ -18,4 +18,10 @@ class JiraAsset(APIAsset):
     rate_limit_per_second = 5.0
 
     def get_jira_url(self) -> str:
-        return os.environ.get("JIRA_URL", self.base_url)
+        url = os.environ.get("JIRA_URL", self.base_url)
+        if not url:
+            raise RuntimeError(
+                "Jira URL not configured. Set the JIRA_URL environment variable "
+                "or override base_url on your asset class."
+            )
+        return url
