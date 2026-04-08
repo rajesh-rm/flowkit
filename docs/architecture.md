@@ -134,6 +134,7 @@ The limiter is shared. Workers wait their turn.
 | Parallelism | Thread pool for page/entity fan-out | Shared rate limiter + token manager |
 | DB layer | SQLAlchemy ORM (metadata) + Core (DDL) | Best of both worlds |
 | In-memory format | pandas DataFrames | Standard, well-supported |
+| Multi-org isolation | `partition_key` on locks + watermarks | Same asset, concurrent orgs, no lock collision |
 
 ## Postgres Schema Layout
 
@@ -142,7 +143,7 @@ The limiter is shared. Workers wait their turn.
 | `raw` | Default landing zone for API-sourced assets |
 | `mart` | Transformed / derived assets |
 | `temp_store` | Unlogged temp tables (one per active run) |
-| `data_ops` | Operational metadata: locks, history, checkpoints, registry, coverage |
+| `data_ops` | Operational metadata: locks, history, checkpoints, registry, coverage. Locks and coverage use composite PK `(asset_name, partition_key)` for multi-org isolation. |
 
 ## Parallel Extraction Modes
 
@@ -184,3 +185,10 @@ For child resources (PRs per repo, issues per project). Parent entity keys are l
 - **Stale-run takeover** — if a worker dies, the next retry detects the abandoned run (no heartbeat in `stale_heartbeat_minutes` (default 20) OR exceeded `max_run_hours` (default 5)), inherits its temp table and checkpoints, and resumes extraction. Both thresholds are configurable per asset on the base `Asset` class.
 - **Secrets injection** — `run_asset(secrets={...})` injects credentials as env vars for the run duration. Cleaned up in `finally` block. Airflow DAGs use this to pass secrets from Connections.
 - **Entity-parallel unified checkpoint** — each checkpoint saves completed entities + current entity + pagination position, enabling exact mid-entity resume.
+- **Partition isolation** — `partition_key` on `run_asset()` scopes locks, watermarks, and checkpoints to `(asset_name, partition_key)`. Multiple orgs run concurrently without interference.
+
+## See also
+
+- [User Guide](user-guide.md) — run modes, watermarks, multi-org pattern
+- [Extending](extending.md) — how to implement new data sources
+- [Testing Guide](testing.md) — test structure, fixtures, patterns

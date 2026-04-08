@@ -87,9 +87,90 @@ See [configuration.md](configuration.md) for connection setup commands.
 | `backfill` | Fill in historical data going backwards |
 | `transform` | Run SQL transforms (Postgres-to-Postgres) |
 
+### Which mode should I use?
+
+```
+Is this the first time loading this asset?
+  └─ YES → full
+  └─ NO
+      ├─ Do you need to catch up on new/updated data since last run?
+      │     └─ YES → forward
+      ├─ Do you need historical data from before your first load?
+      │     └─ YES → backfill
+      └─ Is this a derived table computed from other tables?
+            └─ YES → transform
+```
+
+### How watermarks work
+
+The framework tracks **what time range each asset has covered** in the `data_ops.coverage_tracker` table. Each asset has a `forward_watermark` (newest data loaded) and `backward_watermark` (oldest data loaded).
+
+When you run in `forward` mode:
+- `start_date` = the asset's `forward_watermark` (where the last run left off)
+- `end_date` = now
+
+When you run in `backfill` mode:
+- `start_date` = None (beginning of time)
+- `end_date` = the asset's `backward_watermark` (where the last backfill stopped)
+
+In `full` mode, both are None — fetch everything.
+
+**Important**: The framework computes this date window and passes it in `context.start_date` / `context.end_date`, but the **asset's `build_request()` must actually use it** to filter API calls. The framework does not automatically append date filters. If an asset's API has no date filter (e.g., GitHub branches), the asset uses `full` mode and re-fetches everything each run.
+
+### Example: running the same asset across modes
+
+```python
+# Day 1: First load — fetches all SonarQube projects
+run_asset("sonarqube_projects", run_mode="full")
+# forward_watermark → 2026-04-01T12:00:00Z
+
+# Day 2: Incremental — only projects updated since last run
+run_asset("sonarqube_projects", run_mode="forward")
+# start_date = 2026-04-01T12:00:00Z, end_date = now
+# forward_watermark → 2026-04-02T08:00:00Z
+```
+
+For the full lifecycle, see [architecture.md](architecture.md). For which assets support incremental mode, see [assets-catalog.md](assets-catalog.md).
+
+---
+
+## Multi-Org Runs (partition_key)
+
+If you have multiple GitHub organizations (or any multi-tenant setup), use `partition_key` to run the same asset for each org **concurrently and independently**.
+
+```python
+run_asset(
+    "github_repos",
+    run_mode="full",
+    partition_key="org-one",        # Scopes locks + watermarks to this org
+    secrets={
+        "GITHUB_APP_ID": "...",
+        "GITHUB_INSTALLATION_ID": "111",
+        "GITHUB_ORGS": "org-one",
+    },
+)
+```
+
+**What gets scoped per partition**: locks, watermarks, checkpoints, run history. Each org gets its own progress tracking — org-one's watermark doesn't affect org-two.
+
+**What stays shared**: the target table. Both orgs write to `raw.github_repos` via UPSERT. Primary keys are org-scoped (e.g., `full_name = "org-one/repo-a"`), so there are no data conflicts.
+
+**Without partition_key**, both orgs compete for the same lock and share a single watermark — org-two would block until org-one finishes, and incremental mode may over-fetch or under-fetch.
+
+The example DAGs in `example_dags/flowkit_dags.py` already pass `partition_key=org_config["org"]` for all GitHub assets. See [extending.md](extending.md) for how to implement this pattern for new sources.
+
+---
+
 ## Monitoring
 
 - **Airflow UI**: Each asset is a separate DAG with tags by source
 - **Run history**: Query `data_ops.run_history` for run metrics
 - **Coverage**: Query `data_ops.coverage_tracker` to see watermarks
 - **Logs**: All output goes to stdout (captured by Airflow task logs)
+
+## See also
+
+- [Architecture](architecture.md) — how the ETL lifecycle works under the hood
+- [Configuration](configuration.md) — all credential and runtime settings
+- [Assets Catalog](assets-catalog.md) — every built-in asset and its design choices
+- [Extending](extending.md) — how to add new data sources
