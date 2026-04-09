@@ -86,6 +86,41 @@ def _ensure_initialized(engine: Engine) -> None:
         _initialized = True
 
 
+def _inject_secrets(secrets: dict[str, str] | None) -> list[str]:
+    """Inject secrets as env vars for this run. Returns list of keys for cleanup."""
+    if not secrets:
+        return []
+    injected: list[str] = []
+    for key, value in secrets.items():
+        os.environ[key] = value
+        injected.append(key)
+    return injected
+
+
+def _cleanup_secrets(injected_keys: list[str]) -> None:
+    """Remove injected secrets so they don't leak to other tasks in the same worker."""
+    for key in injected_keys:
+        os.environ.pop(key, None)
+
+
+def _handle_run_failure(
+    engine: Engine, run_id, asset_name: str, partition_key: str,
+    exc: Exception, temp_tbl: str | None = None,
+) -> None:
+    """Log the failure, record it in run history, and clean up resources."""
+    error_msg = str(exc)
+    logger.exception("Run failed: asset=%s error=%s", asset_name, error_msg)
+    try:
+        record_run_failure(engine, run_id, error_msg)
+    finally:
+        if temp_tbl:
+            try:
+                drop_temp_table(engine, temp_tbl)
+            except Exception:
+                logger.warning("Failed to drop temp table on error cleanup", exc_info=True)
+        release_lock(engine, asset_name, partition_key=partition_key)
+
+
 def run_asset(
     asset_name: str,
     run_mode: str = "full",
@@ -145,13 +180,7 @@ def run_asset(
     dry_run = overrides.pop("dry_run", False)
     dag_fingerprint = overrides.pop("asset_fingerprint", None)
 
-    # Inject secrets as env vars for this run — cleaned up in finally block
-    _injected_secrets: list[str] = []
-    if secrets:
-        for key, value in secrets.items():
-            os.environ[key] = value
-            _injected_secrets.append(key)
-
+    _injected_secrets = _inject_secrets(secrets)
     try:
         engine = get_engine()
         _ensure_initialized(engine)
@@ -286,23 +315,13 @@ def run_asset(
             }
 
         except Exception as exc:
-            error_msg = str(exc)
-            logger.exception("Run failed: asset=%s error=%s", asset_name, error_msg)
-            try:
-                record_run_failure(engine, run_id, error_msg)
-            finally:
-                if "temp_tbl" in locals():
-                    try:
-                        drop_temp_table(engine, temp_tbl)
-                    except Exception:
-                        logger.warning("Failed to drop temp table on error cleanup", exc_info=True)
-                release_lock(engine, asset_name, partition_key=partition_key)
+            _handle_run_failure(
+                engine, run_id, asset_name, partition_key, exc,
+                temp_tbl=locals().get("temp_tbl"),
+            )
             raise
     finally:
-        # Clean up injected secrets so they don't leak to other tasks
-        # in the same worker process
-        for key in _injected_secrets:
-            os.environ.pop(key, None)
+        _cleanup_secrets(_injected_secrets)
 
 
 def _prepare_temp_table(

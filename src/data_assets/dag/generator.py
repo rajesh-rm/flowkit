@@ -45,31 +45,46 @@ def sync(output_dir: Path) -> SyncResult:
     overrides = load_overrides(output_dir)
     result = SyncResult()
 
-    # Track which managed filenames belong to current assets
     expected_files: set[str] = set()
 
     for name, asset_cls in sorted(assets.items()):
         config = merge_config(asset_cls, overrides)
         fingerprint = compute_fingerprint(asset_cls)
+        _generate_asset_dags(
+            asset_cls, name, config, fingerprint, output_dir, expected_files, result,
+        )
 
-        orgs = config.get("orgs")
-        if orgs and isinstance(orgs, list):
-            # Multi-org: one DAG file per org
-            for org_cfg in orgs:
-                org_name = org_cfg["org"]
-                org_slug = org_name.lower().replace("-", "_").replace("/", "_")
-                filename = f"dag_{name}_{org_slug}.py"
-                expected_files.add(filename)
-                content = _render_multi_org(asset_cls, config, fingerprint, org_cfg)
-                _write_dag(output_dir, filename, content, result)
-        else:
-            filename = f"dag_{name}.py"
+    _warn_orphan_overrides(overrides, set(assets.keys()))
+    _disable_orphan_files(output_dir, expected_files, result)
+    return result
+
+
+def _generate_asset_dags(
+    asset_cls: type[Asset], name: str, config: dict[str, Any],
+    fingerprint: str, output_dir: Path, expected_files: set[str],
+    result: SyncResult,
+) -> None:
+    """Generate DAG file(s) for one asset — multi-org or single-tenant."""
+    orgs = config.get("orgs")
+    if orgs and isinstance(orgs, list):
+        for org_cfg in orgs:
+            org_name = org_cfg["org"]
+            org_slug = org_name.lower().replace("-", "_").replace("/", "_")
+            filename = f"dag_{name}_{org_slug}.py"
             expected_files.add(filename)
-            content = _render_dag(asset_cls, config, fingerprint)
+            content = _render_multi_org(asset_cls, config, fingerprint, org_cfg)
             _write_dag(output_dir, filename, content, result)
+    else:
+        filename = f"dag_{name}.py"
+        expected_files.add(filename)
+        content = _render_dag(asset_cls, config, fingerprint)
+        _write_dag(output_dir, filename, content, result)
 
-    # Warn about orphan override entries
-    registered_names = set(assets.keys())
+
+def _warn_orphan_overrides(
+    overrides: dict[str, Any], registered_names: set[str],
+) -> None:
+    """Warn about override entries for unregistered assets."""
     for key in overrides:
         if key not in registered_names and key != "defaults":
             logger.warning(
@@ -78,16 +93,16 @@ def sync(output_dir: Path) -> SyncResult:
                 key,
             )
 
-    # Disable orphan managed files
+
+def _disable_orphan_files(
+    output_dir: Path, expected_files: set[str], result: SyncResult,
+) -> None:
+    """Disable managed DAG files whose asset is no longer registered."""
     for path in sorted(output_dir.glob("dag_*.py")):
-        if path.name in expected_files:
-            continue
-        if path.name.startswith("z_"):
+        if path.name in expected_files or path.name.startswith("z_"):
             continue
         if _is_managed(path):
             _disable_orphan(path, result)
-
-    return result
 
 
 def _write_dag(
