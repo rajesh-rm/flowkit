@@ -35,6 +35,75 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+_SAFETY_CAP = 10_000
+
+
+def _check_page_limit(
+    page_count: int, max_pages: int | None, worker_id: str,
+) -> bool:
+    """Return True if the page limit has been reached (caller should break)."""
+    effective = max_pages if max_pages is not None else _SAFETY_CAP
+    if page_count < effective:
+        return False
+    if max_pages is not None:
+        logger.info(
+            "Worker %s: max_pages=%d reached — developer override, stopping.",
+            worker_id, max_pages,
+        )
+    else:
+        logger.warning(
+            "Worker %s: reached max_pages safety limit (%d). Stopping extraction.",
+            worker_id, _SAFETY_CAP,
+        )
+    return True
+
+
+def _log_progress(
+    start_time: float,
+    last_log_time: float,
+    log_interval_seconds: float | None,
+    rows: int,
+    page_count: int,
+) -> float:
+    """Log time-based progress if the interval has elapsed. Returns new last_log_time."""
+    if log_interval_seconds is None:
+        return last_log_time
+    now = time.monotonic()
+    if now - last_log_time >= log_interval_seconds:
+        logger.info(
+            "Progress: %d rows (%d pages, %.0fs elapsed)",
+            rows, page_count, now - start_time,
+        )
+        return now
+    return last_log_time
+
+
+def _save_or_delegate_checkpoint(
+    on_page_complete: Callable[[dict, int], None] | None,
+    engine: Engine,
+    context: RunContext,
+    asset: APIAsset,
+    worker_id: str,
+    checkpoint_value: dict,
+    rows: int,
+) -> None:
+    """Delegate to on_page_complete callback, or save checkpoint directly."""
+    if on_page_complete:
+        on_page_complete(checkpoint_value, rows)
+    else:
+        save_checkpoint(
+            engine,
+            run_id=context.run_id,
+            asset_name=asset.name,
+            worker_id=worker_id,
+            checkpoint_type=CheckpointType.SEQUENTIAL,
+            checkpoint_value=checkpoint_value,
+            rows_so_far=rows,
+            status="in_progress",
+            partition_key=context.partition_key,
+        )
+
+
 def _next_checkpoint(
     current: dict | None, state: "PaginationState", page_size: int
 ) -> dict:
@@ -105,9 +174,6 @@ def _fetch_pages(
     Returns:
         Number of rows written to temp table.
     """
-    _safety_cap = 10_000
-    _effective_max = max_pages if max_pages is not None else _safety_cap
-    _user_set = max_pages is not None
     rows = 0
     cp = initial_checkpoint
     page_count = 0
@@ -115,17 +181,7 @@ def _fetch_pages(
     last_log_time = start_time
 
     while True:
-        if page_count >= _effective_max:
-            if _user_set:
-                logger.info(
-                    "Worker %s: max_pages=%d reached — developer override, stopping.",
-                    worker_id, max_pages,
-                )
-            else:
-                logger.warning(
-                    "Worker %s: reached max_pages safety limit (%d). Stopping extraction.",
-                    worker_id, _safety_cap,
-                )
+        if _check_page_limit(page_count, max_pages, worker_id):
             break
 
         spec = request_builder(cp)
@@ -144,36 +200,18 @@ def _fetch_pages(
         if not state.has_more:
             break
 
-        # Time-based progress logging (sequential mode)
-        if log_interval_seconds is not None and time.monotonic() - last_log_time >= log_interval_seconds:
-            elapsed = time.monotonic() - start_time
-            logger.info(
-                "Progress: %d rows (%d pages, %.0fs elapsed)",
-                rows, page_count, elapsed,
-            )
-            last_log_time = time.monotonic()
+        last_log_time = _log_progress(
+            start_time, last_log_time, log_interval_seconds, rows, page_count,
+        )
 
-        # Watermark-based early stop (e.g., GitHub PRs sorted by updated desc)
         if asset.should_stop(df, context):
             logger.info("Worker %s: should_stop() triggered, ending extraction", worker_id)
             break
 
         cp = _next_checkpoint(cp, state, asset.pagination_config.page_size)
-
-        if on_page_complete:
-            on_page_complete(cp, rows)
-        else:
-            save_checkpoint(
-                engine,
-                run_id=context.run_id,
-                asset_name=asset.name,
-                worker_id=worker_id,
-                checkpoint_type=CheckpointType.SEQUENTIAL,
-                checkpoint_value=cp,
-                rows_so_far=rows,
-                status="in_progress",
-                partition_key=context.partition_key,
-            )
+        _save_or_delegate_checkpoint(
+            on_page_complete, engine, context, asset, worker_id, cp, rows,
+        )
 
     return rows
 
@@ -274,6 +312,74 @@ def extract_sequential(
 # Public: Page-parallel extraction
 # ---------------------------------------------------------------------------
 
+def _apply_max_pages_limit(
+    remaining: list[int], max_pages: int | None, total_pages: int,
+) -> list[int]:
+    """Truncate remaining pages list by max_pages (total semantics). Returns [] to stop."""
+    if max_pages is None:
+        return remaining
+    remaining = remaining[:max(0, max_pages - 1)]
+    if not remaining:
+        logger.info("max_pages=1: only discovery page fetched, stopping.")
+        return []
+    logger.info(
+        "max_pages=%d: limiting to pages 1..%d (of %d total)",
+        max_pages, remaining[-1], total_pages,
+    )
+    return remaining
+
+
+def _page_resume_start(
+    cp_value: dict | None, first_page: int, worker_id: str,
+) -> int:
+    """Determine which page to resume from based on checkpoint. Returns start page."""
+    if not cp_value:
+        return first_page
+    start = cp_value.get("last_page", 0) + 1
+    logger.info("Worker %s resuming from page %d", worker_id, start)
+    return start
+
+
+def _fetch_single_page(
+    asset: APIAsset, client: APIClient, engine: Engine,
+    temp_table: str, context: RunContext, page_num: int,
+) -> int:
+    """Fetch one page and write to temp table. Returns rows written."""
+    spec = asset.build_request(context, checkpoint={"next_page": page_num})
+    data = client.request(spec)
+    df, _ = asset.parse_response(data)
+    return write_to_temp(engine, temp_table, df)
+
+
+def _log_page_progress(
+    worker_id: str, pages_done: int, total_pages: int, rows: int,
+) -> None:
+    """Log page worker progress every 10 pages or at completion."""
+    if pages_done % 10 == 0 or pages_done == total_pages:
+        logger.info(
+            "Worker %s: page %d/%d (%d rows)",
+            worker_id, pages_done, total_pages, rows,
+        )
+
+
+def _save_page_checkpoint(
+    engine: Engine, context: RunContext, asset: APIAsset,
+    worker_id: str, last_page: int, rows: int, is_final: bool = False,
+) -> None:
+    """Save a page-parallel worker checkpoint."""
+    save_checkpoint(
+        engine,
+        run_id=context.run_id,
+        asset_name=asset.name,
+        worker_id=worker_id,
+        checkpoint_type=CheckpointType.PAGE_PARALLEL,
+        checkpoint_value={"last_page": last_page},
+        rows_so_far=rows,
+        status="completed" if is_final else "in_progress",
+        partition_key=context.partition_key,
+    )
+
+
 def _discover_total_pages(
     asset: APIAsset, client: APIClient, engine: Engine,
     temp_table: str, context: RunContext,
@@ -318,18 +424,11 @@ def extract_page_parallel(
     if not total_pages or total_pages <= 1:
         return rows_total
 
-    # Build remaining pages list (pages 2..N), then optionally truncate for max_pages.
-    # max_pages counts total pages including the discovery page already fetched.
-    remaining = list(range(2, total_pages + 1))
-    if max_pages is not None:
-        remaining = remaining[:max(0, max_pages - 1)]
-        if not remaining:
-            logger.info("max_pages=1: only discovery page fetched, stopping.")
-            return rows_total
-        logger.info(
-            "max_pages=%d: limiting to pages 1..%d (of %d total)",
-            max_pages, remaining[-1], total_pages,
-        )
+    remaining = _apply_max_pages_limit(
+        list(range(2, total_pages + 1)), max_pages, total_pages,
+    )
+    if not remaining:
+        return rows_total
 
     pool_size = min(asset.max_workers, len(remaining))
     logger.info(
@@ -351,54 +450,24 @@ def extract_page_parallel(
             logger.debug("Worker %s already completed, skipping", worker_id)
             return prior_rows
 
-        # Resume: skip pages already fetched
-        start_page = pages[0]
-        if cp_value:
-            last_page = cp_value.get("last_page", 0)
-            start_page = last_page + 1
-            logger.info("Worker %s resuming from page %d", worker_id, start_page)
-
+        start_page = _page_resume_start(cp_value, pages[0], worker_id)
         worker_rows = prior_rows
-        pages_done = 0
         total_worker_pages = sum(1 for p in pages if p >= start_page)
+        pages_done = 0
+
         for page_num in pages:
             if page_num < start_page:
                 continue
 
-            spec = asset.build_request(context, checkpoint={"next_page": page_num})
-            data = client.request(spec)
-            df, _ = asset.parse_response(data)
-            worker_rows += write_to_temp(engine, temp_table, df)
-            pages_done += 1
-
-            if pages_done % 10 == 0 or pages_done == total_worker_pages:
-                logger.info(
-                    "Worker %s: page %d/%d (%d rows)",
-                    worker_id, pages_done, total_worker_pages, worker_rows,
-                )
-
-            save_checkpoint(
-                engine,
-                run_id=context.run_id,
-                asset_name=asset.name,
-                worker_id=worker_id,
-                checkpoint_type=CheckpointType.PAGE_PARALLEL,
-                checkpoint_value={"last_page": page_num},
-                rows_so_far=worker_rows,
-                status="in_progress",
-                partition_key=context.partition_key,
+            worker_rows += _fetch_single_page(
+                asset, client, engine, temp_table, context, page_num,
             )
+            pages_done += 1
+            _log_page_progress(worker_id, pages_done, total_worker_pages, worker_rows)
+            _save_page_checkpoint(engine, context, asset, worker_id, page_num, worker_rows)
 
-        save_checkpoint(
-            engine,
-            run_id=context.run_id,
-            asset_name=asset.name,
-            worker_id=worker_id,
-            checkpoint_type=CheckpointType.PAGE_PARALLEL,
-            checkpoint_value={"last_page": pages[-1]},
-            rows_so_far=worker_rows,
-            status="completed",
-            partition_key=context.partition_key,
+        _save_page_checkpoint(
+            engine, context, asset, worker_id, pages[-1], worker_rows, is_final=True,
         )
         return worker_rows
 
@@ -412,6 +481,37 @@ def extract_page_parallel(
 # ---------------------------------------------------------------------------
 # Public: Entity-parallel extraction
 # ---------------------------------------------------------------------------
+
+def _log_entity_progress(
+    entities_done: int, total_entities: int, log_interval: int,
+    worker_id: str, worker_rows: int,
+) -> None:
+    """Log entity worker progress at interval boundaries."""
+    if entities_done % log_interval == 0 or entities_done == total_entities:
+        logger.info(
+            "Worker %s: %d/%d entities (%d rows)",
+            worker_id, entities_done, total_entities, worker_rows,
+        )
+
+
+def _save_entity_checkpoint(
+    engine: Engine, context: RunContext, asset: APIAsset,
+    worker_id: str, completed: set[str], rows: int,
+    is_final: bool = False,
+) -> None:
+    """Save an entity-parallel worker checkpoint."""
+    save_checkpoint(
+        engine,
+        run_id=context.run_id,
+        asset_name=asset.name,
+        worker_id=worker_id,
+        checkpoint_type=CheckpointType.ENTITY_PARALLEL,
+        checkpoint_value={"completed_entities": list(completed)},
+        rows_so_far=rows,
+        status="completed" if is_final else "in_progress",
+        partition_key=context.partition_key,
+    )
+
 
 def _parse_entity_resume(
     cp_value: dict | None,
@@ -513,34 +613,16 @@ def extract_entity_parallel(
             completed.add(entity_str)
             entities_done += 1
 
-            if entities_done % log_interval == 0 or entities_done == total_entities:
-                logger.info(
-                    "Worker %s: %d/%d entities (%d rows)",
-                    worker_id, entities_done, total_entities, worker_rows,
-                )
-
-            save_checkpoint(
-                engine,
-                run_id=context.run_id,
-                asset_name=asset.name,
-                worker_id=worker_id,
-                checkpoint_type=CheckpointType.ENTITY_PARALLEL,
-                checkpoint_value={"completed_entities": list(completed)},
-                rows_so_far=worker_rows,
-                status="in_progress",
-                partition_key=context.partition_key,
+            _log_entity_progress(
+                entities_done, total_entities, log_interval, worker_id, worker_rows,
+            )
+            _save_entity_checkpoint(
+                engine, context, asset, worker_id, completed, worker_rows,
             )
 
-        save_checkpoint(
-            engine,
-            run_id=context.run_id,
-            asset_name=asset.name,
-            worker_id=worker_id,
-            checkpoint_type=CheckpointType.ENTITY_PARALLEL,
-            checkpoint_value={"completed_entities": list(completed)},
-            rows_so_far=worker_rows,
-            status="completed",
-            partition_key=context.partition_key,
+        _save_entity_checkpoint(
+            engine, context, asset, worker_id, completed, worker_rows,
+            is_final=True,
         )
         return worker_rows
 

@@ -1,0 +1,13 @@
+{
+  "component": {
+    "key": "proj-alpha",
+    "name": "Project Alpha",
+    "qualifier": "TRK",
+    "description": "Main backend service",
+    "visibility": "public",
+    "version": "2.1.0",
+    "analysisDate": "2025-04-08T15:30:00+0000",
+    "leakPeriodDate": "2025-03-01T00:00:00+0000",
+    "tags": ["backend", "production"]
+  }
+}

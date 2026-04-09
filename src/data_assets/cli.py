@@ -134,7 +134,6 @@ def _cmd_setup_systemd(args: argparse.Namespace) -> None:
     from data_assets.dag.systemd import generate_systemd_units
 
     service, timer, setup = generate_systemd_units(
-        output_dir=str(args.output_dir),
         dag_dir=args.dag_dir,
         venv_path=args.venv_path,
         pip_index_url=args.pip_index_url,

@@ -1,0 +1,24 @@
+{
+  "branches": [
+    {
+      "name": "main",
+      "isMain": true,
+      "type": "LONG",
+      "status": {
+        "qualityGateStatus": "OK"
+      },
+      "analysisDate": "2025-04-08T15:30:00+0000",
+      "excludedFromPurge": true
+    },
+    {
+      "name": "develop",
+      "isMain": false,
+      "type": "LONG",
+      "status": {
+        "qualityGateStatus": "ERROR"
+      },
+      "analysisDate": "2025-04-07T10:15:00+0000",
+      "excludedFromPurge": false
+    }
+  ]
+}

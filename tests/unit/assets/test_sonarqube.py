@@ -654,3 +654,248 @@ class TestSonarQubeProjectsSharding:
             rows = asset.extract(MagicMock(), "tmp", ctx)
 
         assert rows == 2  # just the 'aa' shard's 2 projects
+
+
+# ---------------------------------------------------------------------------
+# SonarQubeBranches (entity-parallel, /api/project_branches/list)
+# ---------------------------------------------------------------------------
+
+
+class TestSonarQubeBranches:
+    def test_build_entity_request(self, sonarqube_env):
+        from data_assets.assets.sonarqube.branches import SonarQubeBranches
+
+        spec = SonarQubeBranches().build_entity_request("proj-alpha", make_ctx())
+        assert spec.url == "https://sonar.test/api/project_branches/list"
+        assert spec.params["project"] == "proj-alpha"
+
+    def test_parse_response(self, sonarqube_env):
+        from data_assets.assets.sonarqube.branches import SonarQubeBranches
+
+        data = json.loads((FIXTURES / "branches_proj_alpha.json").read_text())
+        df, state = SonarQubeBranches().parse_response(data)
+        assert len(df) == 2
+        assert df.iloc[0]["name"] == "main"
+        assert df.iloc[0]["is_main"] == True  # noqa: E712 (numpy bool)
+        assert df.iloc[0]["quality_gate_status"] == "OK"
+        assert df.iloc[1]["name"] == "develop"
+        assert df.iloc[1]["is_main"] == False  # noqa: E712
+        assert not state.has_more
+
+    def test_parse_response_empty(self, sonarqube_env):
+        from data_assets.assets.sonarqube.branches import SonarQubeBranches
+
+        df, state = SonarQubeBranches().parse_response({"branches": []})
+        assert len(df) == 0
+        assert "project_key" in df.columns
+        assert "name" in df.columns
+
+    def test_entity_parallel_config(self, sonarqube_env):
+        from data_assets.assets.sonarqube.branches import SonarQubeBranches
+        from data_assets.core.enums import ParallelMode
+
+        asset = SonarQubeBranches()
+        assert asset.parallel_mode == ParallelMode.ENTITY_PARALLEL
+        assert asset.parent_asset_name == "sonarqube_projects"
+        assert asset.entity_key_column == "project_key"
+        assert asset.primary_key == ["project_key", "name"]
+
+
+# ---------------------------------------------------------------------------
+# SonarQubeProjectDetails (entity-parallel, /api/components/show)
+# ---------------------------------------------------------------------------
+
+
+class TestSonarQubeProjectDetails:
+    def test_build_entity_request(self, sonarqube_env):
+        from data_assets.assets.sonarqube.project_details import SonarQubeProjectDetails
+
+        spec = SonarQubeProjectDetails().build_entity_request("proj-alpha", make_ctx())
+        assert spec.url == "https://sonar.test/api/components/show"
+        assert spec.params["component"] == "proj-alpha"
+
+    def test_parse_response(self, sonarqube_env):
+        from data_assets.assets.sonarqube.project_details import SonarQubeProjectDetails
+
+        data = json.loads((FIXTURES / "component_show_proj_alpha.json").read_text())
+        df, state = SonarQubeProjectDetails().parse_response(data)
+        assert len(df) == 1
+        assert df.iloc[0]["key"] == "proj-alpha"
+        assert df.iloc[0]["description"] == "Main backend service"
+        assert df.iloc[0]["visibility"] == "public"
+        assert df.iloc[0]["version"] == "2.1.0"
+        assert json.loads(df.iloc[0]["tags"]) == ["backend", "production"]
+        assert not state.has_more
+
+    def test_parse_response_empty(self, sonarqube_env):
+        from data_assets.assets.sonarqube.project_details import SonarQubeProjectDetails
+
+        df, state = SonarQubeProjectDetails().parse_response({"component": {}})
+        assert len(df) == 0
+        assert "key" in df.columns
+
+    def test_entity_parallel_config(self, sonarqube_env):
+        from data_assets.assets.sonarqube.project_details import SonarQubeProjectDetails
+        from data_assets.core.enums import ParallelMode
+
+        asset = SonarQubeProjectDetails()
+        assert asset.parallel_mode == ParallelMode.ENTITY_PARALLEL
+        assert asset.parent_asset_name == "sonarqube_projects"
+        assert asset.primary_key == ["key"]
+
+
+# ---------------------------------------------------------------------------
+# SonarQubeAnalyses (entity-parallel, /api/project_analyses/search)
+# ---------------------------------------------------------------------------
+
+
+class TestSonarQubeAnalyses:
+    def test_build_entity_request(self, sonarqube_env):
+        from data_assets.assets.sonarqube.analyses import SonarQubeAnalyses
+
+        spec = SonarQubeAnalyses().build_entity_request("proj-alpha", make_ctx())
+        assert spec.url == "https://sonar.test/api/project_analyses/search"
+        assert spec.params["project"] == "proj-alpha"
+        assert spec.params["p"] == 1
+
+    def test_build_entity_request_with_checkpoint(self, sonarqube_env):
+        from data_assets.assets.sonarqube.analyses import SonarQubeAnalyses
+
+        spec = SonarQubeAnalyses().build_entity_request(
+            "proj-alpha", make_ctx(), checkpoint={"next_page": 3}
+        )
+        assert spec.params["p"] == 3
+
+    def test_parse_response(self, sonarqube_env):
+        from data_assets.assets.sonarqube.analyses import SonarQubeAnalyses
+
+        data = json.loads((FIXTURES / "analyses_proj_alpha.json").read_text())
+        df, state = SonarQubeAnalyses().parse_response(data)
+        assert len(df) == 2
+        assert df.iloc[0]["key"] == "AXK1-analysis-001"
+        assert df.iloc[0]["project_version"] == "2.1.0"
+        assert df.iloc[0]["detected_ci"] == "GitHub Actions"
+        assert "events" not in df.columns  # events dropped
+        assert not state.has_more
+
+    def test_parse_response_empty(self, sonarqube_env):
+        from data_assets.assets.sonarqube.analyses import SonarQubeAnalyses
+
+        resp = {"paging": {"pageIndex": 1, "pageSize": 100, "total": 0}, "analyses": []}
+        df, state = SonarQubeAnalyses().parse_response(resp)
+        assert len(df) == 0
+        assert "key" in df.columns
+
+    def test_entity_parallel_config(self, sonarqube_env):
+        from data_assets.assets.sonarqube.analyses import SonarQubeAnalyses
+        from data_assets.core.enums import ParallelMode
+
+        asset = SonarQubeAnalyses()
+        assert asset.parallel_mode == ParallelMode.ENTITY_PARALLEL
+        assert asset.parent_asset_name == "sonarqube_projects"
+        assert asset.entity_key_column == "project_key"
+        assert asset.date_column == "date"
+
+
+# ---------------------------------------------------------------------------
+# SonarQubeAnalysisEvents (entity-parallel, flattened events)
+# ---------------------------------------------------------------------------
+
+
+class TestSonarQubeAnalysisEvents:
+    def test_build_entity_request(self, sonarqube_env):
+        from data_assets.assets.sonarqube.analyses import SonarQubeAnalysisEvents
+
+        spec = SonarQubeAnalysisEvents().build_entity_request("proj-alpha", make_ctx())
+        assert spec.url == "https://sonar.test/api/project_analyses/search"
+        assert spec.params["project"] == "proj-alpha"
+
+    def test_parse_response_extracts_events(self, sonarqube_env):
+        from data_assets.assets.sonarqube.analyses import SonarQubeAnalysisEvents
+
+        data = json.loads((FIXTURES / "analyses_proj_alpha.json").read_text())
+        df, state = SonarQubeAnalysisEvents().parse_response(data)
+        # Only analysis-001 has events; analysis-002 has empty events
+        assert len(df) == 1
+        assert df.iloc[0]["key"] == "EVT-001"
+        assert df.iloc[0]["analysis_key"] == "AXK1-analysis-001"
+        assert df.iloc[0]["category"] == "QUALITY_GATE"
+        details = json.loads(df.iloc[0]["details"])
+        assert details["qualityGate"]["status"] == "OK"
+
+    def test_parse_response_no_events(self, sonarqube_env):
+        from data_assets.assets.sonarqube.analyses import SonarQubeAnalysisEvents
+
+        resp = {
+            "paging": {"pageIndex": 1, "pageSize": 100, "total": 1},
+            "analyses": [{"key": "A1", "date": "2025-01-01", "events": []}],
+        }
+        df, state = SonarQubeAnalysisEvents().parse_response(resp)
+        assert len(df) == 0
+        assert "key" in df.columns
+
+    def test_entity_parallel_config(self, sonarqube_env):
+        from data_assets.assets.sonarqube.analyses import SonarQubeAnalysisEvents
+        from data_assets.core.enums import ParallelMode
+
+        asset = SonarQubeAnalysisEvents()
+        assert asset.parallel_mode == ParallelMode.ENTITY_PARALLEL
+        assert asset.parent_asset_name == "sonarqube_projects"
+        assert asset.primary_key == ["key"]
+
+
+# ---------------------------------------------------------------------------
+# SonarQubeMeasuresHistory (entity-parallel, /api/measures/search_history)
+# ---------------------------------------------------------------------------
+
+
+class TestSonarQubeMeasuresHistory:
+    def test_build_entity_request(self, sonarqube_env):
+        from data_assets.assets.sonarqube.measures_history import SonarQubeMeasuresHistory
+
+        spec = SonarQubeMeasuresHistory().build_entity_request("proj-alpha", make_ctx())
+        assert spec.url == "https://sonar.test/api/measures/search_history"
+        assert spec.params["component"] == "proj-alpha"
+        assert "coverage" in spec.params["metrics"]
+        assert spec.params["p"] == 1
+
+    def test_build_entity_request_with_start_date(self, sonarqube_env):
+        from datetime import UTC, datetime
+
+        from data_assets.assets.sonarqube.measures_history import SonarQubeMeasuresHistory
+
+        ctx = make_ctx(start_date=datetime(2025, 4, 1, tzinfo=UTC))
+        spec = SonarQubeMeasuresHistory().build_entity_request("proj-alpha", ctx)
+        assert "from" in spec.params
+        assert "2025-04-01" in spec.params["from"]
+
+    def test_parse_response(self, sonarqube_env):
+        from data_assets.assets.sonarqube.measures_history import SonarQubeMeasuresHistory
+
+        data = json.loads((FIXTURES / "measures_history_proj_alpha.json").read_text())
+        df, state = SonarQubeMeasuresHistory().parse_response(data)
+        # 2 metrics × 2 dates = 4 rows
+        assert len(df) == 4
+        assert set(df["metric"]) == {"coverage", "bugs"}
+        assert df[df["metric"] == "coverage"].iloc[0]["value"] == "85.5"
+        assert not state.has_more
+
+    def test_parse_response_empty(self, sonarqube_env):
+        from data_assets.assets.sonarqube.measures_history import SonarQubeMeasuresHistory
+
+        resp = {"paging": {"pageIndex": 1, "pageSize": 100, "total": 0}, "measures": []}
+        df, state = SonarQubeMeasuresHistory().parse_response(resp)
+        assert len(df) == 0
+        assert "metric" in df.columns
+        assert "date" in df.columns
+
+    def test_entity_parallel_config(self, sonarqube_env):
+        from data_assets.assets.sonarqube.measures_history import SonarQubeMeasuresHistory
+        from data_assets.core.enums import ParallelMode
+
+        asset = SonarQubeMeasuresHistory()
+        assert asset.parallel_mode == ParallelMode.ENTITY_PARALLEL
+        assert asset.parent_asset_name == "sonarqube_projects"
+        assert asset.entity_key_column == "project_key"
+        assert asset.primary_key == ["project_key", "metric", "date"]
+        assert asset.date_column == "date"

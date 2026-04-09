@@ -10,7 +10,6 @@ we've passed the watermark. This captures all changes, not just new issues.
 from __future__ import annotations
 
 import math
-import os
 
 import pandas as pd
 
@@ -81,9 +80,8 @@ class SonarQubeIssues(SonarQubeAsset):
             "asc": "true",       # Ascending so oldest updates come first
         }
 
-        base = os.environ.get("SONARQUBE_URL", self.base_url)
         return RequestSpec(
-            url=f"{base}/api/issues/search",
+            url=f"{self.api_url}/api/issues/search",
             method="GET",
             params=params,
         )

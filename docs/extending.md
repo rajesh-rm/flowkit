@@ -290,9 +290,10 @@ class GitHubRepos(GitHubOrgAsset):
 ```
 
 **SonarQube** — `SonarQubeAsset` (in `assets/sonarqube/helpers.py`) provides
-shared config for SonarQube assets that use APIAsset. It sets
-`token_manager_class = SonarQubeTokenManager`, `source_name`, `target_schema`,
-and `rate_limit_per_second`:
+shared config for all 7 entity-parallel SonarQube assets. It sets
+`token_manager_class`, `source_name`, `target_schema`, `rate_limit_per_second`,
+an `api_url` property (resolves `SONARQUBE_URL` from env), a shared
+`DEFAULT_METRICS` list, and a `parse_paging()` helper for standard pagination:
 
 ```python
 # assets/sonarqube/helpers.py
@@ -302,12 +303,16 @@ class SonarQubeAsset(APIAsset):
     token_manager_class = SonarQubeTokenManager
     rate_limit_per_second = 5.0
 
-# assets/sonarqube/issues.py — extends SonarQubeAsset
+    @property
+    def api_url(self) -> str:
+        return os.environ.get("SONARQUBE_URL", self.base_url)
+
+# assets/sonarqube/branches.py — extends SonarQubeAsset
 @register
-class SonarQubeIssues(SonarQubeAsset):
-    name = "sonarqube_issues"
-    target_table = "sonarqube_issues"
-    # ... only columns, pagination, and parse_response needed
+class SonarQubeBranches(SonarQubeAsset):
+    name = "sonarqube_branches"
+    target_table = "sonarqube_branches"
+    # ... only columns, build_entity_request, and parse_response needed
 ```
 
 `SonarQubeProjects` uses `RestAsset` instead (for its declarative features)
@@ -2090,14 +2095,21 @@ For the full explanation of partition_key semantics, see [user-guide.md](user-gu
 
 ### Adding a SonarQube endpoint
 
-Copy `sonarqube/measures.py` (APIAsset with entity-parallel) for child-resource endpoints. For listing endpoints, use `sonarqube/projects.py` as a reference — note that it includes sharding logic for the 10k result limit specific to `/api/components/search`. Key settings:
-- `token_manager_class = SonarQubeTokenManager`
-- `base_url_env = "SONARQUBE_URL"`
-- Pagination: `{"strategy": "page_number", "page_size": 100, "total_path": "paging.total", "page_index_path": "paging.pageIndex"}`
-- Response path: check API docs for the key containing the records array
-- Add `qualifiers=TRK` for project-scoped endpoints
+Extend `SonarQubeAsset` (in `helpers.py`) which provides `token_manager_class`, `rate_limit_per_second`, and the `api_url` property. Pick the closest existing asset as your template:
+
+| Pattern | Template | When to use |
+|---------|----------|-------------|
+| Unpaginated per-project | `branches.py` | API returns all data in one call per project |
+| Paginated per-project | `analyses.py` | API uses `p`/`ps` pagination with `paging.total` |
+| Flat response flattening | `measures.py` | One row per project, multiple values to flatten |
+| Nested response flattening | `measures_history.py` | Metric-grouped or time-series response to flatten into rows |
+
+Key settings for all SonarQube entity-parallel assets:
+- `parent_asset_name = "sonarqube_projects"` — fans out by project key
+- `entity_key_column = "project_key"` — injects the project key if the API response doesn't include it
+- Use `self.api_url` (not `os.environ.get(...)`) for the base URL
+- Use `parse_paging()` from `helpers.py` for standard `paging` response extraction
 - SonarQube API docs: https://next.sonarqube.com/sonarqube/web_api
-- Reference endpoints: `/api/components/search`, `/api/issues/search`, `/api/measures/component`, `/api/project_branches/list`, `/api/project_analyses/search`
 
 ### Adding a ServiceNow endpoint
 

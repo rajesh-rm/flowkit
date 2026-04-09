@@ -33,7 +33,7 @@ tests/
 │   ├── github/                     #   12 files (repos, PRs, branches, ...)
 │   ├── jira/                       #   2 files (projects, issues)
 │   ├── servicenow/                 #   13 files (incidents, changes, ...)
-│   └── sonarqube/                  #   5 files (projects, issues, measures + sharding fixtures)
+│   └── sonarqube/                  #   9 files (all 8 assets + sharding fixtures)
 │
 ├── unit/                           # Fast tests — no DB, no network, no Docker
 │   ├── conftest.py                 #   make_ctx() helper + env fixtures
@@ -41,7 +41,7 @@ tests/
 │   │   ├── test_github.py          #     50 tests — all GitHub assets
 │   │   ├── test_servicenow.py      #     60 tests — all ServiceNow assets
 │   │   ├── test_jira.py            #     9 tests — Jira projects + issues
-│   │   └── test_sonarqube.py       #     31 tests — SonarQube projects (incl. sharding + max_pages), issues, measures
+│   │   └── test_sonarqube.py       #     53 tests — all 8 SonarQube assets (projects, issues, measures, branches, analyses, events, details, history)
 │   ├── core/                       #   Framework core
 │   │   ├── test_asset.py           #     Asset base class, classify_error, should_stop
 │   │   ├── test_column.py          #     Column DDL generation
@@ -329,7 +329,7 @@ def test_example(load_fixture):
 | GitHub | 12 | 2-3 each (repos, PRs, branches, commits, workflows, runs, jobs, members, user details, runner groups, properties) |
 | ServiceNow | 13 | 2 each (incidents, changes, change_tasks, problems, users, user_groups, departments, locations, cmdb_cis, hardware_assets, choices, catalog_items, catalog_requests) |
 | Jira | 2 | 2-3 each (projects, issues) |
-| SonarQube | 5 | 2-5 each (projects, issues, measures) + sharding probe/shard fixtures |
+| SonarQube | 9 | 1-5 each (projects, issues, measures, branches, analyses, project details, measures history) + sharding fixtures |
 
 ---
 
