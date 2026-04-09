@@ -30,7 +30,6 @@ class APIAsset(Asset):
     load_strategy: LoadStrategy = LoadStrategy.UPSERT
 
     # --- Source identity ---
-    source_name: str = ""
     base_url: str = ""
 
     # --- Token management ---

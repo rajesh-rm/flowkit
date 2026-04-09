@@ -51,19 +51,21 @@ print(result)
 
 ### 4. Deploy with Airflow
 
-Copy `example_dags/flowkit_dags.py` to your Airflow DAGs folder. Each asset gets its own DAG with sensible defaults.
+Use the built-in CLI to generate DAG files for all registered assets:
 
-Or use the DAG factory for auto-discovery:
+```bash
+# List all available assets
+data-assets list
 
-```python
-# dags/data_assets_all.py
-from example_dags.dag_factory import create_dags
-globals().update(create_dags())
+# Generate DAG files in your Airflow DAGs folder
+data-assets sync --output-dir /opt/airflow/dags/data_assets/
 ```
 
-**Passing secrets:** For production with remote workers (Airflow 3.1+, KubernetesExecutor),
-pass credentials from Airflow Connections via the `secrets` parameter. Workers fetch
-secrets at execution time — no pre-configured env vars needed:
+This creates one DAG file per asset with sensible defaults (schedule, retries, tags). To customise schedules or use Airflow Connections for secrets, create a `dag_overrides.toml` file in the same directory.
+
+For automated zero-touch updates (new package versions automatically generate new DAGs), see the [Airflow Deployment Guide](airflow-deployment.md).
+
+**Passing secrets explicitly** (for remote workers or KubernetesExecutor):
 
 ```python
 from airflow.hooks.base import BaseHook
@@ -170,6 +172,7 @@ The example DAGs in `example_dags/flowkit_dags.py` already pass `partition_key=o
 
 ## See also
 
+- [Airflow Deployment](airflow-deployment.md) — deploy DAGs, zero-touch updates, systemd setup
 - [Architecture](architecture.md) — how the ETL lifecycle works under the hood
 - [Configuration](configuration.md) — all credential and runtime settings
 - [Assets Catalog](assets-catalog.md) — every built-in asset and its design choices
