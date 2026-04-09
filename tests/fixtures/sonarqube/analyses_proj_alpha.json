@@ -1,0 +1,38 @@
+{
+  "paging": {
+    "pageIndex": 1,
+    "pageSize": 100,
+    "total": 2
+  },
+  "analyses": [
+    {
+      "key": "AXK1-analysis-001",
+      "date": "2025-04-08T15:30:00+0000",
+      "projectVersion": "2.1.0",
+      "revision": "abc123def456",
+      "detectedCI": "GitHub Actions",
+      "events": [
+        {
+          "key": "EVT-001",
+          "analysis": "AXK1-analysis-001",
+          "category": "QUALITY_GATE",
+          "name": "Quality Gate is OK",
+          "description": "Quality gate passed",
+          "qualityGate": {
+            "status": "OK",
+            "stillFailing": false,
+            "failingConditions": []
+          }
+        }
+      ]
+    },
+    {
+      "key": "AXK1-analysis-002",
+      "date": "2025-04-07T10:00:00+0000",
+      "projectVersion": "2.0.9",
+      "revision": "789xyz",
+      "detectedCI": "Jenkins",
+      "events": []
+    }
+  ]
+}
