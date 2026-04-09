@@ -140,8 +140,8 @@ class SonarQubeAnalysisEvents(SonarQubeAsset):
     parent_asset_name = "sonarqube_projects"
     entity_key_column = "project_key"
 
-    load_strategy = LoadStrategy.UPSERT
-    default_run_mode = RunMode.FORWARD
+    load_strategy = LoadStrategy.FULL_REPLACE
+    default_run_mode = RunMode.FULL
 
     columns = [
         Column("key", "TEXT", nullable=False),

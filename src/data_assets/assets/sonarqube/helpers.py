@@ -5,6 +5,13 @@ from __future__ import annotations
 from data_assets.core.api_asset import APIAsset
 from data_assets.extract.token_manager import SonarQubeTokenManager
 
+# Quality metrics tracked by SonarQubeMeasures and SonarQubeMeasuresHistory.
+# Single source of truth — both assets import from here.
+DEFAULT_METRICS = [
+    "ncloc", "bugs", "vulnerabilities", "code_smells",
+    "coverage", "duplicated_lines_density", "sqale_index",
+]
+
 
 class SonarQubeAsset(APIAsset):
     """Base class for SonarQube assets using APIAsset.

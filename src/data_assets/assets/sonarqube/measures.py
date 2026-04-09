@@ -17,18 +17,12 @@ from typing import Any
 
 import pandas as pd
 
-from data_assets.assets.sonarqube.helpers import SonarQubeAsset
+from data_assets.assets.sonarqube.helpers import DEFAULT_METRICS, SonarQubeAsset
 from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
-
-# Metrics to fetch — covers the core quality dimensions
-DEFAULT_METRICS = [
-    "ncloc", "bugs", "vulnerabilities", "code_smells",
-    "coverage", "duplicated_lines_density", "sqale_index",
-]
 
 
 @register
