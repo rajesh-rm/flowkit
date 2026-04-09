@@ -603,3 +603,54 @@ class TestSonarQubeProjectsSharding:
              patch("data_assets.assets.sonarqube.projects._SAFE_LIMIT", 2), \
              pytest.raises(ValueError, match="shortfall"):
             asset.extract(engine, "tmp", make_ctx())
+
+    # -- max_pages developer override ----------------------------------
+
+    def test_max_pages_limits_simple_path(self, sonarqube_env):
+        """max_pages=1 via context.params stops after 1 page on the simple path."""
+        asset = self._make_asset()
+
+        mock_client = MagicMock()
+        # Probe: 3 total projects (below _SAFE_LIMIT)
+        mock_client.request.side_effect = [
+            _make_probe_response(total=3),
+            # Page 1 response: 3 projects, total=3 → has_more=False
+            _make_page_response([("k1", "N1"), ("k2", "N2"), ("k3", "N3")], total=3),
+        ]
+
+        ctx = make_ctx(params={"max_pages": 1})
+
+        with patch.object(asset, "_create_client", return_value=mock_client), \
+             patch("data_assets.assets.sonarqube.projects.write_to_temp", return_value=3):
+            rows = asset.extract(MagicMock(), "tmp", ctx)
+
+        assert rows == 3
+        # Only the probe + page 1 should be called (max_pages=1 caps at 1 page)
+        assert mock_client.request.call_count == 2
+
+    def test_max_pages_skips_reconciliation_on_sharded_path(self, sonarqube_env):
+        """max_pages override on the sharded path skips reconciliation check."""
+        asset = self._make_asset()
+
+        def mock_request(spec):
+            params = spec.params
+            if params.get("ps") == 1 and "q" not in params:
+                return _make_probe_response(total=10_500)  # triggers sharding
+            if params.get("ps") == 1:
+                if params.get("q") == "aa":
+                    return _make_probe_response(total=2)
+                return _make_probe_response(total=0)
+            return _make_page_response([("aa-1", "N1"), ("aa-2", "N2")], total=2)
+
+        mock_client = MagicMock()
+        mock_client.request.side_effect = mock_request
+
+        # max_pages=1 — would normally fail reconciliation (collected 2 of 10,500)
+        ctx = make_ctx(params={"max_pages": 1})
+
+        with patch.object(asset, "_create_client", return_value=mock_client), \
+             patch("data_assets.assets.sonarqube.projects.write_to_temp", return_value=2):
+            # Should NOT raise ValueError about shortfall
+            rows = asset.extract(MagicMock(), "tmp", ctx)
+
+        assert rows == 2  # just the 'aa' shard's 2 projects

@@ -106,6 +106,7 @@ class SonarQubeProjects(RestAsset):
 
     def extract(self, engine: Engine, temp_table: str, context: RunContext) -> int:
         """Extract projects, sharding by ``q`` param if total exceeds the safe limit."""
+        user_max_pages = context.params.get("max_pages")
         client = self._create_client()
         try:
             initial_total = self._probe(client, context)
@@ -119,11 +120,13 @@ class SonarQubeProjects(RestAsset):
                 self._paginate_shard(
                     client, engine, temp_table, context,
                     q_param=None, seen_keys=seen_keys,
+                    user_max_pages=user_max_pages,
                 )
                 return len(seen_keys)
 
             return self._extract_sharded(
                 client, engine, temp_table, context, initial_total,
+                user_max_pages=user_max_pages,
             )
         finally:
             logger.info("SonarQube API stats: %s", client.stats)
@@ -166,6 +169,7 @@ class SonarQubeProjects(RestAsset):
         context: RunContext,
         q_param: str | None,
         seen_keys: set[str],
+        user_max_pages: int | None = None,
     ) -> set[str]:
         """Paginate all pages for a ``q`` value, dedup, write to temp.
 
@@ -175,7 +179,8 @@ class SonarQubeProjects(RestAsset):
         names_found: set[str] = set()
         page = 1
         # Safety limit matching _fetch_pages; ceil(_SAFE_LIMIT / page_size).
-        max_pages = (_SAFE_LIMIT // self.pagination_config.page_size) + 1
+        internal_cap = (_SAFE_LIMIT // self.pagination_config.page_size) + 1
+        max_pages = user_max_pages if user_max_pages is not None else internal_cap
 
         while True:
             if page > max_pages:
@@ -216,6 +221,7 @@ class SonarQubeProjects(RestAsset):
         temp_table: str,
         context: RunContext,
         initial_total: int,
+        user_max_pages: int | None = None,
     ) -> int:
         """Shard the query space into 2-char ``q`` prefixes and paginate each."""
         seen_keys: set[str] = set()
@@ -232,11 +238,13 @@ class SonarQubeProjects(RestAsset):
                     self._extend_shard(
                         client, engine, temp_table, context,
                         prefix, shard_total, seen_keys,
+                        user_max_pages=user_max_pages,
                     )
                 elif shard_total > 0:
                     self._paginate_shard(
                         client, engine, temp_table, context,
                         q_param=prefix, seen_keys=seen_keys,
+                        user_max_pages=user_max_pages,
                     )
 
                 prefixes_done += 1
@@ -245,6 +253,14 @@ class SonarQubeProjects(RestAsset):
                         "Shard progress: %d/%d prefixes, %d unique projects so far",
                         prefixes_done, total_prefixes, len(seen_keys),
                     )
+
+        # Skip reconciliation when max_pages is set — partial fetch is intentional.
+        if user_max_pages is not None:
+            logger.info(
+                "SonarQube: max_pages=%d override active — skipping reconciliation check",
+                user_max_pages,
+            )
+            return len(seen_keys)
 
         # Reconciliation — abort if the shortfall is too large to be normal
         # churn.  FULL_REPLACE would overwrite the complete dataset with a
@@ -284,6 +300,7 @@ class SonarQubeProjects(RestAsset):
         parent_total: int,
         seen_keys: set[str],
         depth: int = 0,
+        user_max_pages: int | None = None,
     ) -> set[str]:
         """Extend *parent_prefix* by one character, with early termination.
 
@@ -318,12 +335,14 @@ class SonarQubeProjects(RestAsset):
                     client, engine, temp_table, context,
                     sub_prefix, sub_total, seen_keys,
                     depth=depth + 1,
+                    user_max_pages=user_max_pages,
                 )
                 local_names.update(child_names)
             else:
                 names = self._paginate_shard(
                     client, engine, temp_table, context,
                     q_param=sub_prefix, seen_keys=seen_keys,
+                    user_max_pages=user_max_pages,
                 )
                 local_names.update(names)
 

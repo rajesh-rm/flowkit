@@ -74,7 +74,7 @@ def _fetch_pages(
     initial_checkpoint: dict | None = None,
     on_page_complete: Callable[[dict, int], None] | None = None,
     log_interval_seconds: float | None = None,
-    max_pages: int = 10_000,
+    max_pages: int | None = None,
     entity_key: Any = None,
 ) -> int:
     """Core extraction loop: request → parse → write → checkpoint → repeat.
@@ -105,6 +105,9 @@ def _fetch_pages(
     Returns:
         Number of rows written to temp table.
     """
+    _safety_cap = 10_000
+    _effective_max = max_pages if max_pages is not None else _safety_cap
+    _user_set = max_pages is not None
     rows = 0
     cp = initial_checkpoint
     page_count = 0
@@ -112,11 +115,17 @@ def _fetch_pages(
     last_log_time = start_time
 
     while True:
-        if page_count >= max_pages:
-            logger.warning(
-                "Worker %s: reached max_pages limit (%d). Stopping extraction.",
-                worker_id, max_pages,
-            )
+        if page_count >= _effective_max:
+            if _user_set:
+                logger.info(
+                    "Worker %s: max_pages=%d reached — developer override, stopping.",
+                    worker_id, max_pages,
+                )
+            else:
+                logger.warning(
+                    "Worker %s: reached max_pages safety limit (%d). Stopping extraction.",
+                    worker_id, _safety_cap,
+                )
             break
 
         spec = request_builder(cp)
@@ -239,6 +248,7 @@ def extract_sequential(
     temp_table: str,
     context: RunContext,
     checkpoint: dict | None = None,
+    max_pages: int | None = None,
 ) -> int:
     """Sequential extraction with pagination and checkpoint support.
 
@@ -255,6 +265,7 @@ def extract_sequential(
         request_builder=lambda c: asset.build_request(context, checkpoint=c),
         initial_checkpoint=cp,
         log_interval_seconds=30.0,
+        max_pages=max_pages,
     )
     return rows_so_far + rows
 
@@ -291,11 +302,12 @@ def extract_page_parallel(
     temp_table: str,
     context: RunContext,
     existing_checkpoints: dict[str, dict] | None = None,
+    max_pages: int | None = None,
 ) -> int:
     """Page-parallel: discover total pages from first request, fan out the rest.
 
     Step 1: Fetch page 1, read total_pages from response.
-    Step 2: Partition pages 2..N across max_workers threads.
+    Step 2: Partition pages 2..N across max_workers threads (truncated by max_pages).
     Step 3: Each worker fetches its assigned pages sequentially.
     """
     existing_checkpoints = existing_checkpoints or {}
@@ -306,7 +318,20 @@ def extract_page_parallel(
     if not total_pages or total_pages <= 1:
         return rows_total
 
-    pool_size = min(asset.max_workers, total_pages - 1)
+    # Build remaining pages list (pages 2..N), then optionally truncate for max_pages.
+    # max_pages counts total pages including the discovery page already fetched.
+    remaining = list(range(2, total_pages + 1))
+    if max_pages is not None:
+        remaining = remaining[:max(0, max_pages - 1)]
+        if not remaining:
+            logger.info("max_pages=1: only discovery page fetched, stopping.")
+            return rows_total
+        logger.info(
+            "max_pages=%d: limiting to pages 1..%d (of %d total)",
+            max_pages, remaining[-1], total_pages,
+        )
+
+    pool_size = min(asset.max_workers, len(remaining))
     logger.info(
         "Discovery: %d pages (~%s records), distributing to %d workers",
         total_pages,
@@ -314,8 +339,6 @@ def extract_page_parallel(
         pool_size,
     )
 
-    # Partition remaining pages
-    remaining = list(range(2, total_pages + 1))
     chunk_size = max(1, math.ceil(len(remaining) / asset.max_workers))
     partitions = [
         remaining[i : i + chunk_size]
@@ -411,11 +434,13 @@ def extract_entity_parallel(
     context: RunContext,
     entity_keys: list[Any],
     existing_checkpoints: dict[str, dict] | None = None,
+    max_pages: int | None = None,
 ) -> int:
     """Entity-parallel: fan out parent entity keys across threads.
 
     Each worker iterates its assigned entities, paginating fully within
-    each one. If an entity returns 404, it's skipped (not fatal).
+    each one (capped at max_pages per entity). If an entity returns 404,
+    it's skipped (not fatal).
     """
     existing_checkpoints = existing_checkpoints or {}
 
@@ -470,7 +495,7 @@ def extract_entity_parallel(
                     partition_key=context.partition_key,
                 )
 
-            # Fetch all pages for this entity
+            # Fetch all pages for this entity (capped per-entity by max_pages)
             entity_rows = _fetch_pages(
                 asset, client, engine, temp_table, context,
                 worker_id=worker_id,
@@ -480,6 +505,7 @@ def extract_entity_parallel(
                 initial_checkpoint=page_cp,
                 on_page_complete=on_entity_page,
                 entity_key=entity_key,
+                max_pages=max_pages,
             )
             worker_rows += entity_rows
 

@@ -83,8 +83,10 @@ class ServiceNowTableAsset(APIAsset):
 
         gr.query()
 
+        max_p = context.params.get("max_pages")
         total_rows = 0
         batch: list[dict] = []
+        pages_fetched = 0
         start_time = time.monotonic()
         last_log_time = start_time
 
@@ -95,6 +97,14 @@ class ServiceNowTableAsset(APIAsset):
                 df = self._batch_to_df(batch)
                 total_rows += write_to_temp(engine, temp_table, df)
                 batch = []
+                pages_fetched += 1
+
+                if max_p is not None and pages_fetched >= max_p:
+                    logger.info(
+                        "max_pages=%d reached for %s — stopping early (developer override)",
+                        max_p, self.name,
+                    )
+                    break
 
                 now = time.monotonic()
                 if now - last_log_time >= 30.0:
