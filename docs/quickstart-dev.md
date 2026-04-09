@@ -11,7 +11,7 @@ Get the `data_assets` package running locally in under 5 minutes.
 | Python | 3.11+ | RHEL AppStream (see below) or `uv python install 3.11` |
 | uv | latest | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 | Podman | 4.0+ | Pre-installed on RHEL 8/9. macOS/other: Docker 20+ works too |
-| PostgreSQL | 14+ | Container (recommended) or system install (see section 5) |
+| PostgreSQL | 14+ | Container (recommended) or system install (see section 6) |
 
 ### RHEL 8/9 system packages
 
@@ -393,15 +393,7 @@ print(result)
 # {'rows_extracted': 300, 'rows_loaded': 0, 'status': 'success'}
 ```
 
-`max_pages` works across all extraction modes:
-
-| Mode | What `max_pages=3` means |
-|------|--------------------------|
-| Sequential | Stop after 3 API calls |
-| Page-parallel (e.g., Jira issues) | Fetch pages 1–3 in total, then stop |
-| Entity-parallel (e.g., GitHub PRs per repo) | Each repo gets at most 3 pages |
-| ServiceNow | Stop after 3 batches of 1,000 records |
-| SonarQube Projects | Stop after 3 pages per shard |
+`max_pages` works across all extraction modes (sequential, page-parallel, entity-parallel, ServiceNow, and SonarQube). See [configuration.md](configuration.md#max_pages--developer-testing) for the full per-mode behavior reference.
 
 > **Note:** `max_pages` is a developer testing tool. Do not set it in production DAGs — partial data will overwrite the full dataset when using `FULL_REPLACE` load strategy, and can leave `UPSERT` tables incomplete.
 
@@ -427,7 +419,7 @@ See [docs/configuration.md](configuration.md) for the full list. Minimum for loc
 
 ```bash
 # Required for any run
-export DATABASE_URL="postgresql://localhost:5432/data_assets"
+export DATABASE_URL="postgresql://flowkit:flowkit@localhost:5432/data_assets"
 
 # Per-source (set only what you need)
 export SONARQUBE_URL="..."
