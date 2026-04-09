@@ -7,21 +7,61 @@ This catalog documents every built-in asset. Use it as a reference when building
 **Authentication:** Static API token (Bearer) — `SonarQubeTokenManager`
 **API docs:** https://next.sonarqube.com/sonarqube/web_api
 
+### Project catalog
+
 | Asset | Table | Load | Parallel | Pagination | API Endpoint |
 |-------|-------|------|----------|------------|--------------|
-| `sonarqube_projects` | `raw.sonarqube_projects` | FULL_REPLACE | Custom `extract()` | page_number (`p`, `ps`) + sharded `q` param | `/api/components/search?qualifiers=TRK` |
-| `sonarqube_issues` | `raw.sonarqube_issues` | UPSERT | ENTITY_PARALLEL (3 workers) | page_number (`p`, `ps`) | `/api/issues/search` |
+| `sonarqube_projects` | `raw.sonarqube_projects` | FULL_REPLACE | Custom `extract()` | page_number + sharded `q` param | `/api/components/search?qualifiers=TRK` |
+| `sonarqube_project_details` | `raw.sonarqube_project_details` | FULL_REPLACE | ENTITY_PARALLEL (3 workers) | none (one call per project) | `/api/components/show` |
+
+### Quality metrics
+
+| Asset | Table | Load | Parallel | Pagination | API Endpoint |
+|-------|-------|------|----------|------------|--------------|
 | `sonarqube_measures` | `raw.sonarqube_measures` | FULL_REPLACE | ENTITY_PARALLEL (3 workers) | none (one call per project) | `/api/measures/component` |
+| `sonarqube_measures_history` | `raw.sonarqube_measures_history` | UPSERT | ENTITY_PARALLEL (3 workers) | page_number (`p`, `ps`) | `/api/measures/search_history` |
 
-**SonarQube Issues and Measures** extend `SonarQubeAsset` (in `assets/sonarqube/helpers.py`), a shared base class that sets `token_manager_class`, `source_name`, `target_schema`, and `rate_limit_per_second`. **SonarQube Projects** extends `RestAsset` but overrides `extract()` to handle SonarQube's 10,000-result Elasticsearch limit via query sharding.
+### Issues and analysis
 
-**Why custom `extract()` for projects?** SonarQube's `/api/components/search` endpoint is backed by Elasticsearch, which caps results at 10,000. For instances with >9,900 projects, standard pagination fails at page 101. The custom extraction shards queries using the `q` (name-substring) parameter with 2-character alphanumeric prefixes (1,296 combinations), recursively extending to 3+ characters for hot prefixes, and deduplicates by project key. Safety guards include: max pages per shard (100), max recursion depth (4), and a >5% shortfall abort to prevent FULL_REPLACE from overwriting complete data with partial results.
+| Asset | Table | Load | Parallel | Pagination | API Endpoint |
+|-------|-------|------|----------|------------|--------------|
+| `sonarqube_issues` | `raw.sonarqube_issues` | UPSERT | ENTITY_PARALLEL (3 workers) | page_number (`p`, `ps`) | `/api/issues/search` |
+| `sonarqube_analyses` | `raw.sonarqube_analyses` | UPSERT | ENTITY_PARALLEL (3 workers) | page_number (`p`, `ps`) | `/api/project_analyses/search` |
+| `sonarqube_analysis_events` | `raw.sonarqube_analysis_events` | FULL_REPLACE | ENTITY_PARALLEL (3 workers) | page_number (`p`, `ps`) | `/api/project_analyses/search` |
+| `sonarqube_branches` | `raw.sonarqube_branches` | FULL_REPLACE | ENTITY_PARALLEL (3 workers) | none (all branches in one call) | `/api/project_branches/list` |
 
-**Why ENTITY_PARALLEL for issues?** Issues are scoped per project (`componentKeys` param). We load the list of project keys from `sonarqube_projects` and fetch issues for each project in parallel.
+### Data dependency graph
 
-**Why ENTITY_PARALLEL for measures?** Each project has its own set of measures. One API call per project returns all requested metrics (`ncloc`, `bugs`, `vulnerabilities`, `code_smells`, `coverage`, `duplicated_lines_density`, `sqale_index`).
+All entity-parallel assets depend on `sonarqube_projects` — the runner loads project keys from `raw.sonarqube_projects` and fans out one request per project.
 
-**Why UPSERT for issues?** In FORWARD mode we fetch issues created since the last run. The same issue key might appear in multiple runs if it was updated, so we upsert by PK to avoid duplicates.
+```
+sonarqube_projects
+├── sonarqube_project_details
+├── sonarqube_measures
+├── sonarqube_measures_history
+├── sonarqube_issues
+├── sonarqube_analyses
+├── sonarqube_analysis_events
+└── sonarqube_branches
+```
+
+Run `sonarqube_projects` first (or let the DAG factory handle ordering).
+
+### Key design choices
+
+**Shared base class.** All entity-parallel assets extend `SonarQubeAsset` (in `assets/sonarqube/helpers.py`), which sets `token_manager_class`, `source_name`, `target_schema`, and `rate_limit_per_second` (5 req/s). It also provides an `api_url` property that resolves `SONARQUBE_URL` from env vars, and a shared `DEFAULT_METRICS` constant used by both measures assets. `SonarQubeProjects` uses `RestAsset` instead and overrides `extract()` for the sharding logic.
+
+**Why custom `extract()` for projects?** SonarQube's `/api/components/search` is backed by Elasticsearch, which caps results at 10,000. For instances with >9,900 projects, standard pagination fails. The custom extraction shards queries using the `q` parameter with 2-character alphanumeric prefixes, recursively extending for hot prefixes, and deduplicates by project key. Safety guards: max pages per shard, max recursion depth (4), >5% shortfall abort.
+
+**Why a separate project_details asset?** `/api/components/search` only returns `key`, `name`, `qualifier`. Richer metadata (description, visibility, version, tags, analysis dates) requires a per-project call to `/api/components/show`.
+
+**Why UPSERT for issues, analyses, and measures_history?** These assets run in FORWARD mode — they fetch only data created/updated since the last watermark. The same key may appear in overlapping date windows, so UPSERT by PK prevents duplicates.
+
+**Why FULL_REPLACE for branches and analysis_events?** Branches can be renamed or deleted between runs — FULL_REPLACE ensures stale branches are removed. Analysis events have no date column for incremental tracking, so a full refresh is the correct strategy.
+
+**Why two assets for the same API (analyses + events)?** `/api/project_analyses/search` returns analyses with nested events. Rather than using JSONB or a custom multi-table `extract()` override, the events are extracted as a separate normalized asset. Both assets call the same endpoint independently — the API is hit twice per project, which is acceptable at 5 req/s with 3 workers. This keeps both assets in the standard entity-parallel pipeline with no custom extract logic.
+
+**Measures history flattening.** The API returns metrics grouped by type (`{metric: "coverage", history: [{date, value}, ...]}`). `parse_response()` flattens this into one row per `(project_key, metric, date)`. In FORWARD mode, the `from` parameter filters to only new data points since the last watermark.
 
 ---
 
