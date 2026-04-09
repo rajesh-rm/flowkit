@@ -153,7 +153,7 @@ For **development tooling** proxy setup (uv, pip, git), see [quickstart-dev.md](
 
 ## Runtime Overrides
 
-Pass overrides as keyword arguments to `run_asset()`:
+Pass overrides as keyword arguments to `run_asset()`. All overrides are optional — omitting them uses the asset's class-level defaults.
 
 ```python
 run_asset(
@@ -161,8 +161,48 @@ run_asset(
     run_mode="forward",
     rate_limit_per_second=2.0,   # Slower during business hours
     max_workers=2,                # Reduce parallelism
+    max_pages=5,                  # Developer testing: fetch only 5 pages
+    dry_run=True,                 # Skip DB write (extract + validate only)
     start_date=some_datetime,     # Override date window
     end_date=some_datetime,
     partition_key="org-one",      # Multi-org: scope locks + watermarks
 )
 ```
+
+### All supported overrides
+
+| Override | Type | Description |
+|----------|------|-------------|
+| `run_mode` | `str` | `"full"`, `"forward"`, `"backfill"`, or `"transform"` |
+| `partition_key` | `str` | Scope locks/watermarks/checkpoints to a partition (multi-org) |
+| `secrets` | `dict` | Env vars injected for this run (from Airflow Connections, etc.) |
+| `dry_run` | `bool` | Extract and validate but skip promotion to target table |
+| `max_pages` | `int` | **Developer testing**: stop after N pages (see below) |
+| `rate_limit_per_second` | `float` | Override the asset's API rate limit |
+| `max_workers` | `int` | Override thread count for parallel extraction modes |
+| `request_timeout` | `float` | HTTP request timeout in seconds |
+| `max_retries` | `int` | Max retry attempts on transient errors |
+| `start_date` | `datetime` | Override the computed start of the extraction window |
+| `end_date` | `datetime` | Override the computed end of the extraction window |
+| `airflow_run_id` | `str` | Links this run to an Airflow DAG run in `run_history` |
+
+### max_pages — developer testing
+
+`max_pages` limits how many pages the extractor fetches before stopping. This is useful when validating a new asset or debugging against a real API without waiting for a full multi-hour run.
+
+```python
+# Fetch at most 3 pages, skip the DB write
+run_asset("github_prs", max_pages=3, dry_run=True)
+```
+
+Behavior per extraction mode:
+
+| Mode | What `max_pages=N` means |
+|------|--------------------------|
+| Sequential | Stop after N API calls |
+| Page-parallel (e.g., Jira issues) | Fetch N pages total across all workers |
+| Entity-parallel (e.g., GitHub PRs) | Each entity (repo) gets at most N pages |
+| ServiceNow | Stop after N batches of 1,000 records |
+| SonarQube Projects | Cap each pagination shard at N pages |
+
+> **Do not use `max_pages` in production.** Partial data will overwrite the full dataset with `FULL_REPLACE`, and can leave `UPSERT` tables incomplete. Use `dry_run=True` alongside `max_pages` to prevent any writes to the target table.

@@ -39,9 +39,9 @@ tests/
 │   ├── conftest.py                 #   make_ctx() helper + env fixtures
 │   ├── assets/                     #   Asset-level tests (build_request, parse_response)
 │   │   ├── test_github.py          #     50 tests — all GitHub assets
-│   │   ├── test_servicenow.py      #     59 tests — all ServiceNow assets
+│   │   ├── test_servicenow.py      #     60 tests — all ServiceNow assets
 │   │   ├── test_jira.py            #     9 tests — Jira projects + issues
-│   │   └── test_sonarqube.py       #     29 tests — SonarQube projects (incl. 14 sharding tests), issues, measures
+│   │   └── test_sonarqube.py       #     31 tests — SonarQube projects (incl. sharding + max_pages), issues, measures
 │   ├── core/                       #   Framework core
 │   │   ├── test_asset.py           #     Asset base class, classify_error, should_stop
 │   │   ├── test_column.py          #     Column DDL generation
@@ -52,7 +52,7 @@ tests/
 │   │   └── test_types.py           #     PaginationState, RequestSpec, etc.
 │   ├── extract/                    #   Extraction layer
 │   │   ├── test_api_client.py      #     HTTP retries, error handling (respx)
-│   │   ├── test_parallel.py        #     Parallel extraction, checkpoints
+│   │   ├── test_parallel.py        #     Parallel extraction, checkpoints, max_pages
 │   │   ├── test_rate_limiter.py    #     Sliding-window rate limiter
 │   │   └── test_token_manager.py   #     All token managers (GitHub, ServiceNow, Jira, SonarQube)
 │   ├── runner/
@@ -353,6 +353,7 @@ def test_example(load_fixture):
 - [ ] Happy path works
 - [ ] Error paths raise expected exceptions
 - [ ] Edge cases (empty input, None values, boundary conditions)
+- [ ] If adding a new `run_asset()` override: test that it propagates through `_extract_api()` to all three extraction modes
 - [ ] Existing tests still pass (`make test-unit`)
 
 ### Before submitting a PR
