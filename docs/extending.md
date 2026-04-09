@@ -126,6 +126,14 @@ computed query parameters like JQL, keyset pagination with composite keys).
 
 ### Real example: SonarQube Projects
 
+> **Note:** `SonarQubeProjects` extends `RestAsset` for its declarative config
+> (endpoint, pagination, response_path) but overrides `extract()` to handle
+> SonarQube's 10,000-result Elasticsearch limit. For instances with ≤9,900
+> projects the `extract()` override uses standard pagination. For larger
+> instances it shards queries using the `q` (name-substring) parameter.
+> The code below shows the declarative config — see `sonarqube/projects.py`
+> for the full sharding implementation.
+
 ```python
 from data_assets.core.column import Column
 from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
@@ -156,9 +164,9 @@ class SonarQubeProjects(RestAsset):
         "page_index_path": "paging.pageIndex",
     }
 
-    # Parallelism + load behavior
-    parallel_mode = ParallelMode.PAGE_PARALLEL
-    max_workers = 3
+    # extract() handles its own pagination/sharding; the standard parallel
+    # dispatch in the runner is bypassed.
+    parallel_mode = ParallelMode.NONE
     load_strategy = LoadStrategy.FULL_REPLACE
     default_run_mode = RunMode.FULL
 
@@ -174,10 +182,16 @@ class SonarQubeProjects(RestAsset):
         spec = super().build_request(context, checkpoint)
         spec.params["qualifiers"] = "TRK"  # Filter to projects only
         return spec
+
+    def extract(self, engine, temp_table, context):
+        # Custom extraction: probes total, shards if >9,900.
+        # See sonarqube/projects.py for full implementation.
+        ...
 ```
 
-That's it. No `build_request()`. No `parse_response()`. RestAsset generates both
-from the class attributes.
+RestAsset generates `build_request()` and `parse_response()` from the class
+attributes. The `extract()` override reuses both internally while adding
+sharding logic on top.
 
 ### RestAsset attributes reference
 
@@ -2072,11 +2086,11 @@ For the full explanation of partition_key semantics, see [user-guide.md](user-gu
 | Field mapping is just renames | Response parsing needs nested extraction or type conversion |
 | No incremental date filter needed (FULL_REPLACE) | Incremental needs sort-by-update or should_stop() |
 
-**Example:** `sonarqube_projects` uses RestAsset (simple list). `sonarqube_issues` uses APIAsset (needs UPDATE_DATE sort).
+**Example:** `sonarqube_projects` uses RestAsset with a custom `extract()` override (handles the 10k ES limit via query sharding). `sonarqube_issues` uses APIAsset (needs UPDATE_DATE sort).
 
 ### Adding a SonarQube endpoint
 
-Copy `sonarqube/projects.py` (RestAsset pattern) or `sonarqube/measures.py` (APIAsset with entity-parallel). Key settings:
+Copy `sonarqube/measures.py` (APIAsset with entity-parallel) for child-resource endpoints. For listing endpoints, use `sonarqube/projects.py` as a reference — note that it includes sharding logic for the 10k result limit specific to `/api/components/search`. Key settings:
 - `token_manager_class = SonarQubeTokenManager`
 - `base_url_env = "SONARQUBE_URL"`
 - Pagination: `{"strategy": "page_number", "page_size": 100, "total_path": "paging.total", "page_index_path": "paging.pageIndex"}`

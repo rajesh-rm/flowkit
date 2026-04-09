@@ -77,9 +77,9 @@ This diagram shows how data flows through a single extraction cycle:
                        │  NO  → proceed to transform & validate
 ```
 
-**Alternative path — `extract()` hook (e.g., ServiceNow/pysnc):**
+**Alternative path — `extract()` hook (e.g., ServiceNow/pysnc, SonarQube Projects):**
 
-Assets that override `extract()` bypass the diagram above. The runner calls `asset.extract(engine, temp_table, context)` directly, and the asset handles fetching and writing to the temp table using its own client. For example, ServiceNow assets use pysnc with credentials from `ServiceNowTokenManager.get_pysnc_auth()`:
+Assets that override `extract()` bypass the diagram above. The runner calls `asset.extract(engine, temp_table, context)` directly, and the asset handles fetching and writing to the temp table using its own client. Two examples: ServiceNow assets use pysnc with credentials from `ServiceNowTokenManager.get_pysnc_auth()`. SonarQube Projects overrides `extract()` to shard queries via the `q` parameter (working around a 10k Elasticsearch result limit) while reusing `build_request()`/`parse_response()` from `RestAsset` internally:
 
 ```
                     ┌──────────────┐
@@ -171,7 +171,7 @@ For child resources (PRs per repo, issues per project). Parent entity keys are l
 
 ## Asset Definition: Four Paths
 
-- **RestAsset** (declarative) — for standard REST APIs. Declare endpoint, pagination, field_map as class attributes. No `build_request()`/`parse_response()` needed. See `sonarqube/projects.py`.
+- **RestAsset** (declarative) — for standard REST APIs. Declare endpoint, pagination, field_map as class attributes. No `build_request()`/`parse_response()` needed. Can be combined with an `extract()` override for APIs with special constraints (e.g., `sonarqube/projects.py` shards queries to work around a 10k result limit while reusing RestAsset's `build_request`/`parse_response` internally).
 - **APIAsset** (custom) — for APIs needing custom logic (JQL construction, keyset pagination, multi-org iteration). Override `parse_response()` and either `build_request()` (sequential) or `build_entity_request()` (entity-parallel).
 - **GitHubRepoAsset** (shared base) — for GitHub repo-scoped entity-parallel assets. Provides token manager, pagination, org filtering, and response parsing helpers. See `assets/github/helpers.py`.
 - **GitHubOrgAsset** (shared base) — for GitHub org-scoped sequential assets (repos, members, runner groups). Provides shared `build_request()` with org-level pagination. Subclasses set `org_endpoint` and optionally `org_request_params`. See `assets/github/helpers.py`.

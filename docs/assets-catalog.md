@@ -9,13 +9,13 @@ This catalog documents every built-in asset. Use it as a reference when building
 
 | Asset | Table | Load | Parallel | Pagination | API Endpoint |
 |-------|-------|------|----------|------------|--------------|
-| `sonarqube_projects` | `raw.sonarqube_projects` | FULL_REPLACE | PAGE_PARALLEL (3 workers) | page_number (`p`, `ps`) | `/api/components/search?qualifiers=TRK` | **RestAsset** |
+| `sonarqube_projects` | `raw.sonarqube_projects` | FULL_REPLACE | Custom `extract()` | page_number (`p`, `ps`) + sharded `q` param | `/api/components/search?qualifiers=TRK` |
 | `sonarqube_issues` | `raw.sonarqube_issues` | UPSERT | ENTITY_PARALLEL (3 workers) | page_number (`p`, `ps`) | `/api/issues/search` |
 | `sonarqube_measures` | `raw.sonarqube_measures` | FULL_REPLACE | ENTITY_PARALLEL (3 workers) | none (one call per project) | `/api/measures/component` |
 
-**SonarQube Issues and Measures** extend `SonarQubeAsset` (in `assets/sonarqube/helpers.py`), a shared base class that sets `token_manager_class`, `source_name`, `target_schema`, and `rate_limit_per_second`. **SonarQube Projects** uses `RestAsset` (declarative) with a `build_request` override to add `qualifiers=TRK` and sets the shared config directly.
+**SonarQube Issues and Measures** extend `SonarQubeAsset` (in `assets/sonarqube/helpers.py`), a shared base class that sets `token_manager_class`, `source_name`, `target_schema`, and `rate_limit_per_second`. **SonarQube Projects** extends `RestAsset` but overrides `extract()` to handle SonarQube's 10,000-result Elasticsearch limit via query sharding.
 
-**Why PAGE_PARALLEL for projects?** The first response includes `paging.total` so we know how many pages exist upfront and can fan out.
+**Why custom `extract()` for projects?** SonarQube's `/api/components/search` endpoint is backed by Elasticsearch, which caps results at 10,000. For instances with >9,900 projects, standard pagination fails at page 101. The custom extraction shards queries using the `q` (name-substring) parameter with 2-character alphanumeric prefixes (1,296 combinations), recursively extending to 3+ characters for hot prefixes, and deduplicates by project key. Safety guards include: max pages per shard (100), max recursion depth (4), and a >5% shortfall abort to prevent FULL_REPLACE from overwriting complete data with partial results.
 
 **Why ENTITY_PARALLEL for issues?** Issues are scoped per project (`componentKeys` param). We load the list of project keys from `sonarqube_projects` and fetch issues for each project in parallel.
 
