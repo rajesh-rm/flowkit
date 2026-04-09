@@ -328,273 +328,54 @@ class TestServiceNowTokenManagerValidation:
 
 
 # ---------------------------------------------------------------------------
-# New assets: Users
+# Table assets — parametrized (add new table assets here)
 # ---------------------------------------------------------------------------
 
+# Each entry: (class_name, table_name, fixture_file, expected_rows, field_checks)
+_TABLE_ASSET_SPECS = [
+    ("ServiceNowUsers", "sys_user", "users.json", 2, {"user_name": "john.doe"}),
+    ("ServiceNowUserGroups", "sys_user_group", "user_groups.json", 2, {"name": "Network Team"}),
+    ("ServiceNowLocations", "cmn_location", "locations.json", 2, {"city": "New York"}),
+    ("ServiceNowDepartments", "cmn_department", "departments.json", 1, {"name": "Engineering"}),
+    ("ServiceNowCmdbCIs", "cmdb_ci", "cmdb_cis.json", 2, {"name": "web-server-01", "sys_class_name": "cmdb_ci_server"}),
+    ("ServiceNowHardwareAssets", "alm_hardware", "hardware_assets.json", 1, {"display_name": "Dell PowerEdge R740"}),
+    ("ServiceNowProblems", "problem", "problems.json", 2, {"number": "PRB0010001"}),
+    ("ServiceNowChangeTasks", "change_task", "change_tasks.json", 1, {"number": "CTASK0010001", "change_request": "chg001abc"}),
+    ("ServiceNowCatalogRequests", "sc_request", "catalog_requests.json", 1, {"number": "REQ0010001"}),
+    ("ServiceNowCatalogItems", "sc_req_item", "catalog_items.json", 1, {"number": "RITM0010001", "quantity": "1"}),
+]
 
-class TestServiceNowUsers:
-    def test_table_name(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowUsers
 
-        assert ServiceNowUsers().table_name == "sys_user"
+def _get_sn_cls(cls_name: str):
+    """Import a ServiceNow asset class by name."""
+    import data_assets.assets.servicenow as mod
 
-    def test_primary_key(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowUsers
+    return getattr(mod, cls_name)
 
-        assert ServiceNowUsers().primary_key == ["sys_id"]
 
-    def test_parse_response(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowUsers
+@pytest.mark.parametrize(
+    "cls_name,table,fixture,rows,checks",
+    _TABLE_ASSET_SPECS,
+    ids=[s[0] for s in _TABLE_ASSET_SPECS],
+)
+class TestServiceNowTableAssets:
+    def test_table_name(self, cls_name, table, fixture, rows, checks, servicenow_env):
+        assert _get_sn_cls(cls_name)().table_name == table
 
-        data = json.loads((FIXTURES / "users.json").read_text())
-        df, state = ServiceNowUsers().parse_response(data)
-        assert len(df) == 2
-        assert "user_name" in df.columns
-        assert df.iloc[0]["user_name"] == "john.doe"
+    def test_primary_key(self, cls_name, table, fixture, rows, checks, servicenow_env):
+        assert _get_sn_cls(cls_name)().primary_key == ["sys_id"]
+
+    def test_parse_response(self, cls_name, table, fixture, rows, checks, servicenow_env):
+        data = json.loads((FIXTURES / fixture).read_text())
+        df, state = _get_sn_cls(cls_name)().parse_response(data)
+        assert len(df) == rows
+        for field, value in checks.items():
+            assert df.iloc[0][field] == value
         assert not state.has_more
 
-    def test_build_request_url(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowUsers
-
-        spec = ServiceNowUsers().build_request(make_ctx())
-        assert spec.url.endswith("/api/now/table/sys_user")
-
-
-# ---------------------------------------------------------------------------
-# New assets: User Groups
-# ---------------------------------------------------------------------------
-
-
-class TestServiceNowUserGroups:
-    def test_table_name(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowUserGroups
-
-        assert ServiceNowUserGroups().table_name == "sys_user_group"
-
-    def test_primary_key(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowUserGroups
-
-        assert ServiceNowUserGroups().primary_key == ["sys_id"]
-
-    def test_parse_response(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowUserGroups
-
-        data = json.loads((FIXTURES / "user_groups.json").read_text())
-        df, state = ServiceNowUserGroups().parse_response(data)
-        assert len(df) == 2
-        assert df.iloc[0]["name"] == "Network Team"
-        assert not state.has_more
-
-
-# ---------------------------------------------------------------------------
-# New assets: Locations
-# ---------------------------------------------------------------------------
-
-
-class TestServiceNowLocations:
-    def test_table_name(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowLocations
-
-        assert ServiceNowLocations().table_name == "cmn_location"
-
-    def test_primary_key(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowLocations
-
-        assert ServiceNowLocations().primary_key == ["sys_id"]
-
-    def test_parse_response(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowLocations
-
-        data = json.loads((FIXTURES / "locations.json").read_text())
-        df, state = ServiceNowLocations().parse_response(data)
-        assert len(df) == 2
-        assert df.iloc[0]["city"] == "New York"
-        assert not state.has_more
-
-
-# ---------------------------------------------------------------------------
-# New assets: Departments
-# ---------------------------------------------------------------------------
-
-
-class TestServiceNowDepartments:
-    def test_table_name(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowDepartments
-
-        assert ServiceNowDepartments().table_name == "cmn_department"
-
-    def test_primary_key(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowDepartments
-
-        assert ServiceNowDepartments().primary_key == ["sys_id"]
-
-    def test_parse_response(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowDepartments
-
-        data = json.loads((FIXTURES / "departments.json").read_text())
-        df, state = ServiceNowDepartments().parse_response(data)
-        assert len(df) == 1
-        assert df.iloc[0]["name"] == "Engineering"
-        assert not state.has_more
-
-
-# ---------------------------------------------------------------------------
-# New assets: CMDB CIs
-# ---------------------------------------------------------------------------
-
-
-class TestServiceNowCmdbCIs:
-    def test_table_name(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowCmdbCIs
-
-        assert ServiceNowCmdbCIs().table_name == "cmdb_ci"
-
-    def test_primary_key(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowCmdbCIs
-
-        assert ServiceNowCmdbCIs().primary_key == ["sys_id"]
-
-    def test_parse_response(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowCmdbCIs
-
-        data = json.loads((FIXTURES / "cmdb_cis.json").read_text())
-        df, state = ServiceNowCmdbCIs().parse_response(data)
-        assert len(df) == 2
-        assert df.iloc[0]["name"] == "web-server-01"
-        assert df.iloc[0]["sys_class_name"] == "cmdb_ci_server"
-        assert not state.has_more
-
-
-# ---------------------------------------------------------------------------
-# New assets: Hardware Assets
-# ---------------------------------------------------------------------------
-
-
-class TestServiceNowHardwareAssets:
-    def test_table_name(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowHardwareAssets
-
-        assert ServiceNowHardwareAssets().table_name == "alm_hardware"
-
-    def test_primary_key(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowHardwareAssets
-
-        assert ServiceNowHardwareAssets().primary_key == ["sys_id"]
-
-    def test_parse_response(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowHardwareAssets
-
-        data = json.loads((FIXTURES / "hardware_assets.json").read_text())
-        df, state = ServiceNowHardwareAssets().parse_response(data)
-        assert len(df) == 1
-        assert df.iloc[0]["display_name"] == "Dell PowerEdge R740"
-        assert not state.has_more
-
-
-# ---------------------------------------------------------------------------
-# New assets: Problems
-# ---------------------------------------------------------------------------
-
-
-class TestServiceNowProblems:
-    def test_table_name(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowProblems
-
-        assert ServiceNowProblems().table_name == "problem"
-
-    def test_primary_key(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowProblems
-
-        assert ServiceNowProblems().primary_key == ["sys_id"]
-
-    def test_parse_response(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowProblems
-
-        data = json.loads((FIXTURES / "problems.json").read_text())
-        df, state = ServiceNowProblems().parse_response(data)
-        assert len(df) == 2
-        assert df.iloc[0]["number"] == "PRB0010001"
-        assert not state.has_more
-
-
-# ---------------------------------------------------------------------------
-# New assets: Change Tasks
-# ---------------------------------------------------------------------------
-
-
-class TestServiceNowChangeTasks:
-    def test_table_name(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowChangeTasks
-
-        assert ServiceNowChangeTasks().table_name == "change_task"
-
-    def test_primary_key(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowChangeTasks
-
-        assert ServiceNowChangeTasks().primary_key == ["sys_id"]
-
-    def test_parse_response(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowChangeTasks
-
-        data = json.loads((FIXTURES / "change_tasks.json").read_text())
-        df, state = ServiceNowChangeTasks().parse_response(data)
-        assert len(df) == 1
-        assert df.iloc[0]["number"] == "CTASK0010001"
-        assert df.iloc[0]["change_request"] == "chg001abc"
-        assert not state.has_more
-
-
-# ---------------------------------------------------------------------------
-# New assets: Catalog Requests
-# ---------------------------------------------------------------------------
-
-
-class TestServiceNowCatalogRequests:
-    def test_table_name(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowCatalogRequests
-
-        assert ServiceNowCatalogRequests().table_name == "sc_request"
-
-    def test_primary_key(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowCatalogRequests
-
-        assert ServiceNowCatalogRequests().primary_key == ["sys_id"]
-
-    def test_parse_response(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowCatalogRequests
-
-        data = json.loads((FIXTURES / "catalog_requests.json").read_text())
-        df, state = ServiceNowCatalogRequests().parse_response(data)
-        assert len(df) == 1
-        assert df.iloc[0]["number"] == "REQ0010001"
-        assert not state.has_more
-
-
-# ---------------------------------------------------------------------------
-# New assets: Catalog Items
-# ---------------------------------------------------------------------------
-
-
-class TestServiceNowCatalogItems:
-    def test_table_name(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowCatalogItems
-
-        assert ServiceNowCatalogItems().table_name == "sc_req_item"
-
-    def test_primary_key(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowCatalogItems
-
-        assert ServiceNowCatalogItems().primary_key == ["sys_id"]
-
-    def test_parse_response(self, servicenow_env):
-        from data_assets.assets.servicenow import ServiceNowCatalogItems
-
-        data = json.loads((FIXTURES / "catalog_items.json").read_text())
-        df, state = ServiceNowCatalogItems().parse_response(data)
-        assert len(df) == 1
-        assert df.iloc[0]["number"] == "RITM0010001"
-        assert df.iloc[0]["quantity"] == "1"
-        assert not state.has_more
+    def test_build_request_url(self, cls_name, table, fixture, rows, checks, servicenow_env):
+        spec = _get_sn_cls(cls_name)().build_request(make_ctx())
+        assert spec.url.endswith(f"/api/now/table/{table}")
 
 
 # ---------------------------------------------------------------------------
