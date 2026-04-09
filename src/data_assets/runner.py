@@ -203,6 +203,11 @@ def run_asset(
             existing_cp_map = checkpoints_by_worker(
                 get_checkpoints(engine, asset_name, partition_key=partition_key)
             )
+            if existing_cp_map:
+                logger.info(
+                    "Resuming with %d checkpoint(s) from prior run",
+                    len(existing_cp_map),
+                )
 
             context = RunContext(
                 run_id=run_id, mode=mode, asset_name=asset_name,

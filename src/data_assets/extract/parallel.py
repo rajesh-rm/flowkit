@@ -266,8 +266,11 @@ def extract_sequential(
 def _discover_total_pages(
     asset: APIAsset, client: APIClient, engine: Engine,
     temp_table: str, context: RunContext,
-) -> tuple[int, int | None]:
-    """Fetch page 1 and derive total_pages. Returns (rows_written, total_pages)."""
+) -> tuple[int, int | None, int | None]:
+    """Fetch page 1 and derive total_pages.
+
+    Returns (rows_written, total_pages, total_records).
+    """
     first_spec = asset.build_request(context, checkpoint=None)
     first_data = client.request(first_spec)
     first_df, first_state = asset.parse_response(first_data)
@@ -278,7 +281,7 @@ def _discover_total_pages(
         total_pages = math.ceil(
             first_state.total_records / asset.pagination_config.page_size
         )
-    return rows, total_pages
+    return rows, total_pages, first_state.total_records
 
 
 def extract_page_parallel(
@@ -297,7 +300,7 @@ def extract_page_parallel(
     """
     existing_checkpoints = existing_checkpoints or {}
 
-    rows_total, total_pages = _discover_total_pages(
+    rows_total, total_pages, total_records = _discover_total_pages(
         asset, client, engine, temp_table, context
     )
     if not total_pages or total_pages <= 1:
@@ -307,7 +310,7 @@ def extract_page_parallel(
     logger.info(
         "Discovery: %d pages (~%s records), distributing to %d workers",
         total_pages,
-        str(first_state.total_records) if first_state.total_records else "unknown",
+        str(total_records) if total_records else "unknown",
         pool_size,
     )
 
@@ -322,7 +325,7 @@ def extract_page_parallel(
     def page_worker(worker_id: str, pages: list[int]) -> int:
         skip, prior_rows, cp_value = _resume_info(existing_checkpoints, worker_id)
         if skip:
-            logger.info("Worker %s already completed, skipping", worker_id)
+            logger.debug("Worker %s already completed, skipping", worker_id)
             return prior_rows
 
         # Resume: skip pages already fetched
@@ -425,7 +428,7 @@ def extract_entity_parallel(
     def entity_worker(worker_id: str, entities: list[Any]) -> int:
         skip, prior_rows, cp_value = _resume_info(existing_checkpoints, worker_id)
         if skip:
-            logger.info("Worker %s already completed, skipping", worker_id)
+            logger.debug("Worker %s already completed, skipping", worker_id)
             return prior_rows
 
         completed, resume_entity, resume_pagination = _parse_entity_resume(cp_value)
