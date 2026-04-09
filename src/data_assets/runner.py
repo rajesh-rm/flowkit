@@ -142,6 +142,7 @@ def run_asset(
     run_id = uuid7()
     mode = RunMode(run_mode)
     dry_run = overrides.pop("dry_run", False)
+    dag_fingerprint = overrides.pop("asset_fingerprint", None)
 
     # Inject secrets as env vars for this run — cleaned up in finally block
     _injected_secrets: list[str] = []
@@ -156,6 +157,19 @@ def run_asset(
 
         asset_cls = get(asset_name)
         asset = asset_cls()
+
+        # Drift detection: warn if DAG file fingerprint doesn't match
+        if dag_fingerprint:
+            from data_assets.dag.fingerprint import compute_fingerprint
+
+            current_fp = compute_fingerprint(asset_cls)
+            if dag_fingerprint != current_fp:
+                logger.warning(
+                    "DAG fingerprint mismatch for '%s': DAG file has %s, "
+                    "current asset definition produces %s. "
+                    "Regenerate DAG files with: data-assets sync",
+                    asset_name, dag_fingerprint, current_fp,
+                )
 
         logger.info(
             "Starting run: asset=%s mode=%s run_id=%s dry_run=%s",

@@ -126,7 +126,7 @@ def register_asset_metadata(engine: Engine, assets: dict[str, type]) -> None:
     rows = []
     for name, cls in assets.items():
         asset = cls()
-        source = getattr(asset, "source_name", "") or None  # normalize "" to None
+        source = asset.source_name or None  # normalize "" to None
         desc = asset.description or None  # normalize "" to None
         rows.append({
             "asset_name": name,

@@ -23,6 +23,7 @@ class Asset(ABC):
     # --- Identity ---
     name: str
     description: str = ""
+    source_name: str = ""
 
     # --- Target ---
     target_schema: str = "raw"
@@ -45,6 +46,9 @@ class Asset(ABC):
 
     # --- Incremental support ---
     date_column: str | None = None
+
+    # --- DAG generation ---
+    dag_config: dict = {}
 
     def extract(
         self, engine: Engine, temp_table: str, context: RunContext,

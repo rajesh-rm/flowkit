@@ -40,11 +40,12 @@ Read in this order:
 
 1. [**Local Dev Quickstart**](docs/quickstart-dev.md) — get running in 5 minutes
 2. [**User Guide**](docs/user-guide.md) — run assets, understand run modes
-3. [**Architecture**](docs/architecture.md) — how the ETL lifecycle works
-4. [**Configuration**](docs/configuration.md) — credentials and runtime overrides
-5. [**Assets Catalog**](docs/assets-catalog.md) — all built-in assets and their design choices
-6. [**Extending**](docs/extending.md) — adding new sources, transforms, and token managers
-7. [**Testing Guide**](docs/testing.md) — test structure, patterns, fixtures, and how to write tests
+3. [**Airflow Deployment**](docs/airflow-deployment.md) — deploy DAGs, zero-touch updates, admin overrides
+4. [**Architecture**](docs/architecture.md) — how the ETL lifecycle works
+5. [**Configuration**](docs/configuration.md) — credentials and runtime overrides
+6. [**Assets Catalog**](docs/assets-catalog.md) — all built-in assets and their design choices
+7. [**Extending**](docs/extending.md) — adding new sources, transforms, and token managers
+8. [**Testing Guide**](docs/testing.md) — test structure, patterns, fixtures, and how to write tests
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow, code style, and PR guidelines.
 
