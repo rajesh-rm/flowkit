@@ -329,6 +329,39 @@ def _apply_max_pages_limit(
     return remaining
 
 
+def _page_resume_start(
+    cp_value: dict | None, first_page: int, worker_id: str,
+) -> int:
+    """Determine which page to resume from based on checkpoint. Returns start page."""
+    if not cp_value:
+        return first_page
+    start = cp_value.get("last_page", 0) + 1
+    logger.info("Worker %s resuming from page %d", worker_id, start)
+    return start
+
+
+def _fetch_single_page(
+    asset: APIAsset, client: APIClient, engine: Engine,
+    temp_table: str, context: RunContext, page_num: int,
+) -> int:
+    """Fetch one page and write to temp table. Returns rows written."""
+    spec = asset.build_request(context, checkpoint={"next_page": page_num})
+    data = client.request(spec)
+    df, _ = asset.parse_response(data)
+    return write_to_temp(engine, temp_table, df)
+
+
+def _log_page_progress(
+    worker_id: str, pages_done: int, total_pages: int, rows: int,
+) -> None:
+    """Log page worker progress every 10 pages or at completion."""
+    if pages_done % 10 == 0 or pages_done == total_pages:
+        logger.info(
+            "Worker %s: page %d/%d (%d rows)",
+            worker_id, pages_done, total_pages, rows,
+        )
+
+
 def _save_page_checkpoint(
     engine: Engine, context: RunContext, asset: APIAsset,
     worker_id: str, last_page: int, rows: int, is_final: bool = False,
@@ -417,39 +450,24 @@ def extract_page_parallel(
             logger.debug("Worker %s already completed, skipping", worker_id)
             return prior_rows
 
-        # Resume: skip pages already fetched
-        start_page = pages[0]
-        if cp_value:
-            last_page = cp_value.get("last_page", 0)
-            start_page = last_page + 1
-            logger.info("Worker %s resuming from page %d", worker_id, start_page)
-
+        start_page = _page_resume_start(cp_value, pages[0], worker_id)
         worker_rows = prior_rows
-        pages_done = 0
         total_worker_pages = sum(1 for p in pages if p >= start_page)
+        pages_done = 0
+
         for page_num in pages:
             if page_num < start_page:
                 continue
 
-            spec = asset.build_request(context, checkpoint={"next_page": page_num})
-            data = client.request(spec)
-            df, _ = asset.parse_response(data)
-            worker_rows += write_to_temp(engine, temp_table, df)
-            pages_done += 1
-
-            if pages_done % 10 == 0 or pages_done == total_worker_pages:
-                logger.info(
-                    "Worker %s: page %d/%d (%d rows)",
-                    worker_id, pages_done, total_worker_pages, worker_rows,
-                )
-
-            _save_page_checkpoint(
-                engine, context, asset, worker_id, page_num, worker_rows,
+            worker_rows += _fetch_single_page(
+                asset, client, engine, temp_table, context, page_num,
             )
+            pages_done += 1
+            _log_page_progress(worker_id, pages_done, total_worker_pages, worker_rows)
+            _save_page_checkpoint(engine, context, asset, worker_id, page_num, worker_rows)
 
         _save_page_checkpoint(
-            engine, context, asset, worker_id, pages[-1], worker_rows,
-            is_final=True,
+            engine, context, asset, worker_id, pages[-1], worker_rows, is_final=True,
         )
         return worker_rows
 
