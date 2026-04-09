@@ -63,7 +63,6 @@ echo "  journalctl -u data-assets-sync.service"
 
 
 def generate_systemd_units(
-    output_dir: str,
     dag_dir: str,
     *,
     venv_path: str = "/opt/airflow/venv",
@@ -74,7 +73,6 @@ def generate_systemd_units(
     """Return (service_content, timer_content, setup_script) for systemd.
 
     Args:
-        output_dir: Directory where the generated files will be written.
         dag_dir: Airflow DAGs directory (passed to ``data-assets sync --output-dir``).
         venv_path: Path to the Python virtual environment (contains bin/pip, bin/data-assets).
         pip_index_url: Custom PyPI index URL (e.g. corporate Nexus). If None, uses default.
