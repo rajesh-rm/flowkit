@@ -7,7 +7,6 @@ sonarqube_projects.
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 import pandas as pd
@@ -56,10 +55,9 @@ class SonarQubeBranches(SonarQubeAsset):
     def build_entity_request(
         self, entity_key: str, context: RunContext, checkpoint: dict | None = None
     ) -> RequestSpec:
-        base = os.environ.get("SONARQUBE_URL", self.base_url)
         return RequestSpec(
             method="GET",
-            url=f"{base}/api/project_branches/list",
+            url=f"{self.api_url}/api/project_branches/list",
             params={"project": entity_key},
         )
 

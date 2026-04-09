@@ -13,50 +13,16 @@ both assets in the standard extraction pipeline without custom extract overrides
 from __future__ import annotations
 
 import json
-import math
-import os
 from typing import Any
 
 import pandas as pd
 
-from data_assets.assets.sonarqube.helpers import SonarQubeAsset
+from data_assets.assets.sonarqube.helpers import SonarQubeAsset, parse_paging
 from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
-
-
-# ---------------------------------------------------------------------------
-# Shared request builder
-# ---------------------------------------------------------------------------
-
-def _build_analyses_request(
-    entity_key: str, context: RunContext, checkpoint: dict | None, base_url: str
-) -> RequestSpec:
-    """Build request for /api/project_analyses/search (shared by both assets)."""
-    page = (checkpoint.get("next_page") or 1) if checkpoint else 1
-    base = os.environ.get("SONARQUBE_URL", base_url)
-    return RequestSpec(
-        method="GET",
-        url=f"{base}/api/project_analyses/search",
-        params={"project": entity_key, "ps": 100, "p": page},
-    )
-
-
-def _parse_paging(response: dict) -> PaginationState:
-    """Extract standard paging state from response."""
-    paging = response.get("paging", {})
-    total = paging.get("total", 0)
-    page_index = paging.get("pageIndex", 1)
-    page_size = paging.get("pageSize", 100)
-    total_pages = math.ceil(total / page_size) if page_size else 1
-    return PaginationState(
-        has_more=page_index < total_pages,
-        next_page=page_index + 1,
-        total_pages=total_pages,
-        total_records=total,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -102,12 +68,17 @@ class SonarQubeAnalyses(SonarQubeAsset):
     def build_entity_request(
         self, entity_key: str, context: RunContext, checkpoint: dict | None = None
     ) -> RequestSpec:
-        return _build_analyses_request(entity_key, context, checkpoint, self.base_url)
+        page = (checkpoint.get("next_page") or 1) if checkpoint else 1
+        return RequestSpec(
+            method="GET",
+            url=f"{self.api_url}/api/project_analyses/search",
+            params={"project": entity_key, "ps": 100, "p": page},
+        )
 
     def parse_response(self, response: Any) -> tuple[pd.DataFrame, PaginationState]:
         analyses = response.get("analyses", [])
         if not analyses:
-            return pd.DataFrame(columns=[c.name for c in self.columns]), _parse_paging(response)
+            return pd.DataFrame(columns=[c.name for c in self.columns]), parse_paging(response)
 
         rename = {"projectVersion": "project_version", "detectedCI": "detected_ci"}
         df = pd.DataFrame(analyses)
@@ -116,7 +87,7 @@ class SonarQubeAnalyses(SonarQubeAsset):
         keep = [c for c in df.columns if c in {col.name for col in self.columns}]
         df = df[keep]
 
-        return df, _parse_paging(response)
+        return df, parse_paging(response)
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +137,12 @@ class SonarQubeAnalysisEvents(SonarQubeAsset):
     def build_entity_request(
         self, entity_key: str, context: RunContext, checkpoint: dict | None = None
     ) -> RequestSpec:
-        return _build_analyses_request(entity_key, context, checkpoint, self.base_url)
+        page = (checkpoint.get("next_page") or 1) if checkpoint else 1
+        return RequestSpec(
+            method="GET",
+            url=f"{self.api_url}/api/project_analyses/search",
+            params={"project": entity_key, "ps": 100, "p": page},
+        )
 
     def parse_response(self, response: Any) -> tuple[pd.DataFrame, PaginationState]:
         analyses = response.get("analyses", [])
@@ -188,6 +164,6 @@ class SonarQubeAnalysisEvents(SonarQubeAsset):
                 })
 
         if not rows:
-            return pd.DataFrame(columns=[c.name for c in self.columns]), _parse_paging(response)
+            return pd.DataFrame(columns=[c.name for c in self.columns]), parse_paging(response)
 
-        return pd.DataFrame(rows), _parse_paging(response)
+        return pd.DataFrame(rows), parse_paging(response)

@@ -11,13 +11,11 @@ since the last watermark.
 
 from __future__ import annotations
 
-import math
-import os
 from typing import Any
 
 import pandas as pd
 
-from data_assets.assets.sonarqube.helpers import DEFAULT_METRICS, SonarQubeAsset
+from data_assets.assets.sonarqube.helpers import DEFAULT_METRICS, SonarQubeAsset, parse_paging
 from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.registry import register
@@ -63,7 +61,6 @@ class SonarQubeMeasuresHistory(SonarQubeAsset):
         self, entity_key: str, context: RunContext, checkpoint: dict | None = None
     ) -> RequestSpec:
         page = (checkpoint.get("next_page") or 1) if checkpoint else 1
-        base = os.environ.get("SONARQUBE_URL", self.base_url)
         params: dict[str, Any] = {
             "component": entity_key,
             "metrics": ",".join(DEFAULT_METRICS),
@@ -73,15 +70,9 @@ class SonarQubeMeasuresHistory(SonarQubeAsset):
         if context.start_date:
             params["from"] = context.start_date.strftime("%Y-%m-%dT%H:%M:%S%z")
 
-        return RequestSpec(method="GET", url=f"{base}/api/measures/search_history", params=params)
+        return RequestSpec(method="GET", url=f"{self.api_url}/api/measures/search_history", params=params)
 
     def parse_response(self, response: Any) -> tuple[pd.DataFrame, PaginationState]:
-        paging = response.get("paging", {})
-        total = paging.get("total", 0)
-        page_index = paging.get("pageIndex", 1)
-        page_size = paging.get("pageSize", 100)
-        total_pages = math.ceil(total / page_size) if page_size else 1
-
         rows: list[dict] = []
         for measure in response.get("measures", []):
             metric = measure.get("metric", "")
@@ -93,13 +84,6 @@ class SonarQubeMeasuresHistory(SonarQubeAsset):
                 })
 
         if not rows:
-            return pd.DataFrame(columns=[c.name for c in self.columns]), PaginationState(
-                has_more=False, total_records=total,
-            )
+            return pd.DataFrame(columns=[c.name for c in self.columns]), parse_paging(response)
 
-        return pd.DataFrame(rows), PaginationState(
-            has_more=page_index < total_pages,
-            next_page=page_index + 1,
-            total_pages=total_pages,
-            total_records=total,
-        )
+        return pd.DataFrame(rows), parse_paging(response)

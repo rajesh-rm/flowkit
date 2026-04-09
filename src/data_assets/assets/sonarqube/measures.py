@@ -12,7 +12,6 @@ Each measure is flattened into one row per project with metric columns.
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 import pandas as pd
@@ -62,10 +61,9 @@ class SonarQubeMeasures(SonarQubeAsset):
     def build_entity_request(
         self, entity_key: str, context: RunContext, checkpoint: dict | None = None
     ) -> RequestSpec:
-        base = os.environ.get("SONARQUBE_URL", self.base_url)
         return RequestSpec(
             method="GET",
-            url=f"{base}/api/measures/component",
+            url=f"{self.api_url}/api/measures/component",
             params={
                 "component": entity_key,
                 "metricKeys": ",".join(DEFAULT_METRICS),

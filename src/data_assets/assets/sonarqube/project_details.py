@@ -8,7 +8,6 @@ SonarQubeProjects. Entity-parallel: fans out by project key.
 from __future__ import annotations
 
 import json
-import os
 from typing import Any
 
 import pandas as pd
@@ -57,10 +56,9 @@ class SonarQubeProjectDetails(SonarQubeAsset):
     def build_entity_request(
         self, entity_key: str, context: RunContext, checkpoint: dict | None = None
     ) -> RequestSpec:
-        base = os.environ.get("SONARQUBE_URL", self.base_url)
         return RequestSpec(
             method="GET",
-            url=f"{base}/api/components/show",
+            url=f"{self.api_url}/api/components/show",
             params={"component": entity_key},
         )
 
