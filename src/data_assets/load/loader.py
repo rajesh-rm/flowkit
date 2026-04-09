@@ -133,7 +133,7 @@ def ensure_indexes(
             ddl += f" WHERE {idx.where}"
         with engine.begin() as conn:
             conn.execute(text(ddl))
-        logger.info("Ensured index %s on %s.%s", name, schema, table_name)
+        logger.debug("Ensured index %s on %s.%s", name, schema, table_name)
 
 
 def drop_table(engine: Engine, schema: str, table_name: str) -> None:
@@ -161,7 +161,7 @@ def create_temp_table(
     """Create an UNLOGGED temp table in temp_store. Returns the table name."""
     tname = temp_table_name(asset_name, run_id)
     create_table(engine, TEMP_SCHEMA, tname, columns, primary_key=None, unlogged=True)
-    logger.info("Created temp table %s.%s", TEMP_SCHEMA, tname)
+    logger.debug("Created temp table %s.%s", TEMP_SCHEMA, tname)
     return tname
 
 

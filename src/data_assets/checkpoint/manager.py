@@ -272,6 +272,10 @@ def save_checkpoint(
         )
 
         session.commit()
+    logger.debug(
+        "Saved checkpoint for '%s' worker=%s rows=%d status=%s",
+        asset_name, worker_id, rows_so_far, status,
+    )
 
 
 def clear_checkpoints(engine: Engine, asset_name: str, partition_key: str = "") -> None:
