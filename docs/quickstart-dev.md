@@ -197,13 +197,12 @@ sudo dnf install postgresql-server postgresql -y
 sudo postgresql-setup --initdb
 sudo systemctl enable --now postgresql
 
-# Create the database and user
+# Create the database and user (OWNER grants full DDL rights)
 sudo -u postgres psql -c "CREATE USER flowkit WITH PASSWORD 'flowkit';"
 sudo -u postgres psql -c "CREATE DATABASE data_assets OWNER flowkit;"
-sudo -u postgres psql -c "GRANT ALL ON DATABASE data_assets TO flowkit;"
 
-# Switch pg_hba.conf from ident to password authentication
-sudo sed -i 's/ident$/md5/' /var/lib/pgsql/data/pg_hba.conf
+# Allow password auth for TCP connections (instead of ident)
+sudo sed -i '/^host/s/ident$/md5/' /var/lib/pgsql/data/pg_hba.conf
 sudo systemctl restart postgresql
 ```
 
