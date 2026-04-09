@@ -114,6 +114,7 @@ def run_asset(
             - start_date, end_date (override computed date window)
             - airflow_run_id (links to Airflow)
             - dry_run=True (extract + validate, skip promotion)
+            - max_pages=N (limit pages fetched; for developer testing only)
 
     Returns:
         Dict with run metrics.
@@ -439,6 +440,7 @@ def _extract_api(
     rate = overrides.get("rate_limit_per_second", asset.rate_limit_per_second)
     timeout = overrides.get("request_timeout", asset.request_timeout)
     retries = overrides.get("max_retries", asset.max_retries)
+    max_pages = overrides.get("max_pages")
 
     if not asset.token_manager_class:
         raise ValueError(
@@ -458,7 +460,8 @@ def _extract_api(
         if asset.parallel_mode == ParallelMode.PAGE_PARALLEL:
             logger.info("Extracting %s (page-parallel, %d workers)", asset.name, asset.max_workers)
             rows = extract_page_parallel(
-                asset, client, engine, temp_tbl, context, existing_cp_map
+                asset, client, engine, temp_tbl, context, existing_cp_map,
+                max_pages=max_pages,
             )
         elif asset.parallel_mode == ParallelMode.ENTITY_PARALLEL:
             entity_keys = _load_entity_keys(engine, asset)
@@ -468,13 +471,15 @@ def _extract_api(
                 asset.name, len(entity_keys), asset.max_workers,
             )
             rows = extract_entity_parallel(
-                asset, client, engine, temp_tbl, context, entity_keys, existing_cp_map
+                asset, client, engine, temp_tbl, context, entity_keys, existing_cp_map,
+                max_pages=max_pages,
             )
         else:
             logger.info("Extracting %s (sequential)", asset.name)
             main_cp = existing_cp_map.get("main")
             rows = extract_sequential(
-                asset, client, engine, temp_tbl, context, main_cp
+                asset, client, engine, temp_tbl, context, main_cp,
+                max_pages=max_pages,
             )
 
         duration = time.monotonic() - extract_start

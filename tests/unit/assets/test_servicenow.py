@@ -300,6 +300,44 @@ class TestPysncExtract:
         # Can't instantiate ABC, but can test the method exists
         assert Asset.extract(MagicMock(), MagicMock(), "t", make_ctx()) is None
 
+    def test_extract_max_pages_stops_after_n_batches(self, servicenow_env):
+        """max_pages=1 in context.params stops extraction after first full batch."""
+        from data_assets.assets.servicenow import ServiceNowIncidents
+
+        batch_size = 1000
+        # Build 2 full batches + 1 partial — only the first should be written
+        records = [
+            {"sys_id": f"id{i}", "number": f"INC{i:04d}", "state": "1",
+             "sys_updated_on": "2025-12-01T10:00:00Z"}
+            for i in range(batch_size * 2 + 5)
+        ]
+        mock_gr = self._make_mock_gr(records)
+        mock_client = MagicMock()
+        mock_client.GlideRecord.return_value = mock_gr
+
+        asset = ServiceNowIncidents()
+        ctx = make_ctx(params={"max_pages": 1})
+
+        write_calls = []
+
+        def capture_write(engine, table, df):
+            write_calls.append(len(df))
+            return len(df)
+
+        with (
+            patch.object(asset, "_create_pysnc_client", return_value=mock_client),
+            patch(
+                "data_assets.assets.servicenow.base.write_to_temp",
+                side_effect=capture_write,
+            ),
+        ):
+            rows = asset.extract(MagicMock(), "temp_incidents", ctx)
+
+        # Only 1 full batch written; break leaves batch empty so no partial flush
+        assert write_calls[0] == batch_size
+        assert len(write_calls) == 1
+        assert rows == batch_size
+
 
 # ---------------------------------------------------------------------------
 # Credential validation

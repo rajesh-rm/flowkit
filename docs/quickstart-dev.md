@@ -220,18 +220,48 @@ See [docs/extending.md](extending.md) for the comprehensive step-by-step guide. 
 | `pip install` downloads from wrong index | Internal mirror not configured — set `UV_INDEX_URL` or `PIP_INDEX_URL` (see section 2b) |
 | `LockError: Asset 'X' is locked by run ...` | Previous run still active or crashed — wait for `stale_heartbeat_minutes` (default 20) or delete the row from `data_ops.run_locks` manually |
 | `RuntimeError: Checkpoint rejected` | Another worker took over your run (stale-run takeover). Normal recovery — retry the task. |
+| Asset runs for hours locally | Use `max_pages=3, dry_run=True` to validate the flow against a small slice of real data — see "Testing with limited data" above |
 
 ### Running a single asset locally
 
 ```bash
-# Set credentials
 export DATABASE_URL="postgresql://user:pass@localhost:5432/data_assets"
 export SONARQUBE_URL="https://sonar.example.com"
 export SONARQUBE_TOKEN="sqa_xxxxx"
-
-# Run from Python
-python -c "from data_assets import run_asset; print(run_asset('sonarqube_projects', 'full'))"
 ```
+
+```python
+from data_assets import run_asset
+
+result = run_asset("sonarqube_projects", "full")
+print(result)
+# {'rows_extracted': 42, 'rows_loaded': 42, 'duration_seconds': 3.2, 'status': 'success'}
+```
+
+### Testing with limited data
+
+Assets like `github_prs` or `servicenow_incidents` can take hours to run in full against a real org. Use `max_pages` to fetch a small slice of data and validate the flow without waiting:
+
+```python
+from data_assets import run_asset
+
+# Fetch at most 3 pages — then stop.  dry_run skips the DB write.
+result = run_asset("github_prs", run_mode="full", max_pages=3, dry_run=True)
+print(result)
+# {'rows_extracted': 300, 'rows_loaded': 0, 'status': 'success'}
+```
+
+`max_pages` works across all extraction modes:
+
+| Mode | What `max_pages=3` means |
+|------|--------------------------|
+| Sequential | Stop after 3 API calls |
+| Page-parallel (e.g., Jira issues) | Fetch pages 1–3 in total, then stop |
+| Entity-parallel (e.g., GitHub PRs per repo) | Each repo gets at most 3 pages |
+| ServiceNow | Stop after 3 batches of 1,000 records |
+| SonarQube Projects | Stop after 3 pages per shard |
+
+> **Note:** `max_pages` is a developer testing tool. Do not set it in production DAGs — partial data will overwrite the full dataset when using `FULL_REPLACE` load strategy, and can leave `UPSERT` tables incomplete.
 
 ### Resetting local state
 
