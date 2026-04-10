@@ -1,6 +1,7 @@
 """Shared pytest fixtures for data_assets tests.
 
-Uses testcontainers for a real Postgres instance in integration tests.
+Uses testcontainers for real database instances in integration tests.
+Set TEST_DATABASE=mariadb to test against MariaDB (default: postgres).
 Unit tests use a lightweight in-memory approach where possible.
 """
 
@@ -12,7 +13,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 
 from data_assets.core.registry import _registry
@@ -98,61 +99,72 @@ def _find_docker_socket() -> str | None:
     return None
 
 
+def _setup_container_runtime() -> None:
+    """Configure Docker/Podman socket for testcontainers."""
+    socket_path = _find_docker_socket()
+    if socket_path:
+        os.environ.setdefault("DOCKER_HOST", f"unix://{socket_path}")
+        os.environ.setdefault(
+            "TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE", socket_path,
+        )
+    if "podman" in os.environ.get("DOCKER_HOST", ""):
+        os.environ.setdefault("TESTCONTAINERS_RYUK_DISABLED", "true")
+
+
 # ---------------------------------------------------------------------------
-# Postgres fixture (integration tests)
+# Database engine fixtures (integration tests)
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(scope="session")
-def pg_engine():
-    """Create a test Postgres engine via testcontainers.
+def _test_database() -> str:
+    """Return the test database backend: 'postgres' or 'mariadb'."""
+    return os.environ.get("TEST_DATABASE", "postgres").lower().strip()
 
-    Falls back to DATABASE_URL env var if testcontainers/Docker is not available.
+
+_DB_CONFIGS = {
+    "postgres": {
+        "import": "testcontainers.postgres",
+        "class": "PostgresContainer",
+        "image": "postgres:16-alpine",
+        "label": "Postgres",
+    },
+    "mariadb": {
+        "import": "testcontainers.mysql",
+        "class": "MySqlContainer",
+        "image": "mariadb:10.11",
+        "label": "MariaDB",
+    },
+}
+
+
+def _create_db_engine(backend: str) -> tuple[Engine, object | None]:
+    """Create a database engine via testcontainers or DATABASE_URL.
+
+    Returns (engine, container_or_None).
     """
-    # Try testcontainers first (requires Docker or Podman)
+    cfg = _DB_CONFIGS[backend]
     try:
-        from testcontainers.postgres import PostgresContainer
+        import importlib
+        mod = importlib.import_module(cfg["import"])
+        container_cls = getattr(mod, cfg["class"])
 
-        # Ensure the container runtime socket is discoverable
-        socket_path = _find_docker_socket()
-        if socket_path:
-            # DOCKER_HOST needs the unix:// scheme (for docker-py)
-            os.environ.setdefault("DOCKER_HOST", f"unix://{socket_path}")
-            # TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE needs the bare path
-            # (mounted as a volume into the Ryuk cleanup container)
-            os.environ.setdefault(
-                "TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE", socket_path,
-            )
-
-        # Podman doesn't support Ryuk (the cleanup sidecar)
-        if "podman" in os.environ.get("DOCKER_HOST", ""):
-            os.environ.setdefault("TESTCONTAINERS_RYUK_DISABLED", "true")
-
-        with PostgresContainer("postgres:16-alpine") as pg:
-            url = pg.get_connection_url()
-            engine = create_engine(url)
-            _setup_schemas(engine)
-            yield engine
-            return
+        _setup_container_runtime()
+        container = container_cls(cfg["image"])
+        container.start()
+        url = container.get_connection_url()
+        return create_engine(url), container
     except Exception as exc:
-        _container_error = str(exc)
-
-    # Fallback to DATABASE_URL
-    url = os.environ.get("DATABASE_URL")
-    if url:
-        engine = create_engine(url)
-        _setup_schemas(engine)
-        yield engine
-        return
-
-    pytest.skip(
-        f"No Postgres available for integration tests.\n"
-        f"  Container error: {_container_error}\n"
-        f"Options:\n"
-        f"  1. Start Docker Desktop (macOS) or enable podman.socket (RHEL)\n"
-        f"  2. Set DATABASE_URL env var to an existing Postgres instance\n"
-        f"  3. Set DOCKER_HOST to a custom Docker/Podman socket URI"
-    )
+        url = os.environ.get("DATABASE_URL")
+        if url:
+            return create_engine(url), None
+        pytest.skip(
+            f"No {cfg['label']} available for integration tests.\n"
+            f"  Container error: {exc}\n"
+            f"Options:\n"
+            f"  1. Start Docker Desktop (macOS) or enable podman.socket (RHEL)\n"
+            f"  2. Set DATABASE_URL env var to a {cfg['label']} instance\n"
+            f"  3. Set DOCKER_HOST to a custom Docker/Podman socket URI"
+        )
 
 
 def _setup_schemas(engine: Engine) -> None:
@@ -165,23 +177,49 @@ def _setup_schemas(engine: Engine) -> None:
     create_all_tables(engine)
 
 
+@pytest.fixture(scope="session")
+def db_engine():
+    """Create a test database engine via testcontainers.
+
+    Respects TEST_DATABASE env var:
+    - 'postgres' (default): PostgreSQL 16 via testcontainers
+    - 'mariadb': MariaDB 10.11 via testcontainers
+    """
+    backend = _test_database()
+    engine, container = _create_db_engine(backend)
+
+    _setup_schemas(engine)
+    yield engine
+
+    if container:
+        container.stop()
+
+
+# Backward-compat alias — existing tests use pg_engine
+pg_engine = db_engine
+
+
 @pytest.fixture
-def clean_db(pg_engine):
-    """Clean all tables before each test, return the engine."""
-    with pg_engine.begin() as conn:
+def clean_db(db_engine):
+    """Clean all tables before each test, return the engine.
+
+    Uses SQLAlchemy inspect() for dialect-agnostic table discovery
+    and dialect.drop_table_ddl() for dialect-correct DROP TABLE.
+    """
+    from data_assets.db.dialect import get_dialect
+
+    d = get_dialect(db_engine)
+    insp = inspect(db_engine)
+    with db_engine.begin() as conn:
         conn.execute(text("DELETE FROM data_ops.run_locks"))
         conn.execute(text("DELETE FROM data_ops.run_history"))
         conn.execute(text("DELETE FROM data_ops.checkpoints"))
         conn.execute(text("DELETE FROM data_ops.asset_registry"))
         conn.execute(text("DELETE FROM data_ops.coverage_tracker"))
-        # Drop all tables in raw, mart, temp_store
         for schema in ["raw", "mart", "temp_store"]:
-            tables = conn.execute(text(
-                f"SELECT tablename FROM pg_tables WHERE schemaname = '{schema}'"
-            )).fetchall()
-            for (t,) in tables:
-                conn.execute(text(f'DROP TABLE IF EXISTS "{schema}"."{t}" CASCADE'))
-    return pg_engine
+            for table_name in insp.get_table_names(schema=schema):
+                conn.execute(text(d.drop_table_ddl(schema, table_name)))
+    return db_engine
 
 
 # ---------------------------------------------------------------------------
