@@ -35,7 +35,8 @@ The `data-assets sync` command:
 
 - RHEL 8 or 9 (or compatible: CentOS Stream, Rocky, Alma)
 - Python 3.11+ installed (AppStream or custom build)
-- Apache Airflow 2.x+ with CeleryExecutor or EdgeExecutor
+- Apache Airflow 3.0+ with CeleryExecutor or EdgeExecutor
+- `apache-airflow-providers-standard` package (included in the default `apache-airflow[standard]` install)
 - A Python virtual environment for Airflow (e.g., `/opt/airflow/venv`)
 - Network access to your package registry (Nexus, PyPI, etc.)
 
@@ -404,6 +405,7 @@ The sync regenerates all DAGs from the downgraded package. Previously disabled a
 
 ## See Also
 
+- [Running DAGs Locally](local-airflow.md) — try the full DAG pipeline on your local machine first
 - [User Guide](user-guide.md) — running assets, run modes, watermarks
 - [Configuration](configuration.md) — credentials and Airflow Connection setup
 - [Assets Catalog](assets-catalog.md) — all built-in assets

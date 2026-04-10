@@ -21,9 +21,8 @@ Airflow Connection setup for GitHub multi-org:
 
 from datetime import timedelta
 
-from airflow import DAG
-from airflow.hooks.base import BaseHook
-from airflow.operators.python import PythonOperator
+from airflow.sdk import DAG, BaseHook
+from airflow.providers.standard.operators.python import PythonOperator
 
 default_args = {
     "owner": "data-engineering",

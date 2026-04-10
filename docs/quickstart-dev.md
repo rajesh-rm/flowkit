@@ -319,6 +319,10 @@ flowkit/
 
 ## Common development workflows
 
+### Testing DAGs locally with Airflow
+
+See [Running DAGs Locally](local-airflow.md) for a step-by-step guide to install Airflow locally, generate DAGs from the package, and trigger runs through the Airflow UI.
+
 ### Adding a new asset
 
 See [docs/extending.md](extending.md) for the comprehensive step-by-step guide. Quick summary:

@@ -42,13 +42,14 @@ See the [Assets Catalog](docs/assets-catalog.md) for the full reference.
 ## Documentation
 
 1. [Local Dev Quickstart](docs/quickstart-dev.md) -- get running locally
-2. [User Guide](docs/user-guide.md) -- run modes, watermarks, runtime overrides
-3. [Airflow Deployment](docs/airflow-deployment.md) -- DAG generation, systemd automation, admin overrides
-4. [Architecture](docs/architecture.md) -- ETL lifecycle and component design
-5. [Configuration](docs/configuration.md) -- credentials, Airflow Connections, proxy setup
-6. [Assets Catalog](docs/assets-catalog.md) -- all built-in assets with API details
-7. [Extending](docs/extending.md) -- adding new sources, transforms, and token managers
-8. [Testing Guide](docs/testing.md) -- test structure, fixtures, and coverage
+2. [Running DAGs Locally](docs/local-airflow.md) -- install Airflow, generate DAGs, trigger runs
+3. [User Guide](docs/user-guide.md) -- run modes, watermarks, runtime overrides
+4. [Airflow Deployment](docs/airflow-deployment.md) -- DAG generation, systemd automation, admin overrides
+5. [Architecture](docs/architecture.md) -- ETL lifecycle and component design
+6. [Configuration](docs/configuration.md) -- credentials, Airflow Connections, proxy setup
+7. [Assets Catalog](docs/assets-catalog.md) -- all built-in assets with API details
+8. [Extending](docs/extending.md) -- adding new sources, transforms, and token managers
+9. [Testing Guide](docs/testing.md) -- test structure, fixtures, and coverage
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow and PR guidelines.
 
@@ -56,7 +57,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow and PR guideline
 
 - Python 3.11+
 - PostgreSQL 14+
-- Apache Airflow 2.x+ (for scheduling)
+- Apache Airflow 3.0+ (for scheduling)
 
 ## License
 

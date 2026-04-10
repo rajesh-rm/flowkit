@@ -97,7 +97,7 @@ class TestCredentialResolver:
         import sys
         fake_module = MagicMock()
         fake_module.BaseHook = fake_base_hook
-        monkeypatch.setitem(sys.modules, "airflow.hooks.base", fake_module)
+        monkeypatch.setitem(sys.modules, "airflow.sdk", fake_module)
 
         # Ensure env var doesn't shadow the test
         monkeypatch.delenv("MY_AIRFLOW_KEY", raising=False)
@@ -114,7 +114,7 @@ class TestCredentialResolver:
 
         # Make sure airflow is NOT importable by removing any cached module
         import sys
-        monkeypatch.delitem(sys.modules, "airflow.hooks.base", raising=False)
+        monkeypatch.delitem(sys.modules, "airflow.sdk", raising=False)
         monkeypatch.delitem(sys.modules, "airflow", raising=False)
 
         monkeypatch.setenv("SOME_KEY", "from-env")
@@ -133,7 +133,7 @@ class TestCredentialResolver:
         import sys
         fake_module = MagicMock()
         fake_module.BaseHook = fake_base_hook
-        monkeypatch.setitem(sys.modules, "airflow.hooks.base", fake_module)
+        monkeypatch.setitem(sys.modules, "airflow.sdk", fake_module)
 
         monkeypatch.setenv("FAIL_KEY", "env-fallback")
         assert resolver.resolve("FAIL_KEY") == "env-fallback"
