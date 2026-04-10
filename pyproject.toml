@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "data-assets"
 version = "0.1.0"
-description = "Self-contained ETL engine for data assets, backed by PostgreSQL, orchestrated by Apache Airflow"
+description = "Self-contained ETL engine for data assets, backed by PostgreSQL or MariaDB, orchestrated by Apache Airflow"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.11"
