@@ -12,7 +12,33 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash -c '$pip_install && $sync_command'
+ExecStart=/bin/bash -c '\\
+  TOML="$dag_dir/dag_overrides.toml"; \\
+  BACKUP_DIR="$dag_dir/.toml_backups"; \\
+  \\
+  # --- TOML corruption guard --- \\
+  if [ -f "$$TOML" ]; then \\
+    $venv_bin/python -c "import tomllib, sys; tomllib.load(open(sys.argv[1], sys.argv[2]))" "$$TOML" rb 2>/dev/null; \\
+    if [ $$? -ne 0 ]; then \\
+      logger -p user.err -t data-assets-sync "dag_overrides.toml is corrupt — skipping sync. Restore from $$BACKUP_DIR"; \\
+      exit 1; \\
+    fi; \\
+  fi; \\
+  \\
+  # --- TOML backup (4/day, 30-day retention) --- \\
+  if [ -f "$$TOML" ]; then \\
+    mkdir -p "$$BACKUP_DIR"; \\
+    HOUR=$$(date +%H); \\
+    BUCKET=$$((HOUR / 6)); \\
+    STAMP=$$(date +%Y-%m-%d)_q$$BUCKET; \\
+    DEST="$$BACKUP_DIR/dag_overrides.$$STAMP.toml.bak"; \\
+    if [ ! -f "$$DEST" ]; then \\
+      cp "$$TOML" "$$DEST"; \\
+    fi; \\
+    find "$$BACKUP_DIR" -name "dag_overrides.*.toml.bak" -mtime +30 -delete 2>/dev/null || true; \\
+  fi; \\
+  \\
+  $pip_install && $sync_command'
 User=$user
 Environment="PATH=$venv_bin:/usr/local/bin:/usr/bin:/bin"
 StandardOutput=journal
@@ -93,6 +119,7 @@ def generate_systemd_units(
     service = SERVICE_TEMPLATE.substitute(
         pip_install=pip_install,
         sync_command=sync_command,
+        dag_dir=dag_dir,
         user=user,
         venv_bin=venv_bin,
     )
