@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pandas as pd
+from sqlalchemy import Integer, Text
 
 from data_assets.core.asset import Asset
 from data_assets.core.column import Column
@@ -13,8 +14,8 @@ class StubAsset(Asset):
     name = "stub"
     target_table = "stub"
     columns = [
-        Column("id", "INTEGER", nullable=False),
-        Column("value", "TEXT"),
+        Column("id", Integer(), nullable=False),
+        Column("value", Text()),
     ]
     primary_key = ["id"]
 
@@ -64,6 +65,7 @@ def test_default_validate_fails_missing_pk_column():
 
 from data_assets.core.api_asset import APIAsset
 from data_assets.core.types import PaginationState
+from sqlalchemy import Integer, Text
 
 
 class ConcreteAPIAsset(APIAsset):
@@ -71,7 +73,7 @@ class ConcreteAPIAsset(APIAsset):
 
     name = "test_api"
     target_table = "test_api"
-    columns = [Column("id", "INTEGER", nullable=False)]
+    columns = [Column("id", Integer(), nullable=False)]
     primary_key = ["id"]
 
     def parse_response(self, response):

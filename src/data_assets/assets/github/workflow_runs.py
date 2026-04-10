@@ -12,6 +12,7 @@ from data_assets.core.enums import LoadStrategy, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationState, RequestSpec
+from sqlalchemy import BigInteger, DateTime, Integer, Text
 
 
 @register
@@ -25,21 +26,21 @@ class GitHubWorkflowRuns(GitHubRepoAsset):
     default_run_mode = RunMode.FORWARD
 
     columns = [
-        Column("id", "BIGINT", nullable=False),
-        Column("repo_full_name", "TEXT"),
-        Column("name", "TEXT"),
-        Column("workflow_id", "INTEGER"),
-        Column("status", "TEXT"),
-        Column("conclusion", "TEXT"),
-        Column("head_branch", "TEXT"),
-        Column("head_sha", "TEXT"),
-        Column("event", "TEXT"),
-        Column("run_number", "INTEGER"),
-        Column("run_attempt", "INTEGER"),
-        Column("created_at", "TIMESTAMPTZ"),
-        Column("updated_at", "TIMESTAMPTZ"),
-        Column("run_started_at", "TIMESTAMPTZ"),
-        Column("html_url", "TEXT"),
+        Column("id", BigInteger(), nullable=False),
+        Column("repo_full_name", Text()),
+        Column("name", Text()),
+        Column("workflow_id", Integer()),
+        Column("status", Text()),
+        Column("conclusion", Text()),
+        Column("head_branch", Text()),
+        Column("head_sha", Text()),
+        Column("event", Text()),
+        Column("run_number", Integer()),
+        Column("run_attempt", Integer()),
+        Column("created_at", DateTime(timezone=True)),
+        Column("updated_at", DateTime(timezone=True)),
+        Column("run_started_at", DateTime(timezone=True)),
+        Column("html_url", Text()),
     ]
     primary_key = ["id"]
     indexes = [

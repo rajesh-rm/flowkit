@@ -15,6 +15,7 @@ from data_assets.core.column import Column, Index
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationState, RequestSpec
+from sqlalchemy import Integer, Text
 
 
 @register
@@ -30,9 +31,9 @@ class GitHubRunnerGroupRepos(GitHubRepoAsset):
     entity_key_column = "runner_group_id"
 
     columns = [
-        Column("runner_group_id", "INTEGER", nullable=False),
-        Column("repo_id", "INTEGER", nullable=False),
-        Column("repo_full_name", "TEXT"),
+        Column("runner_group_id", Integer(), nullable=False),
+        Column("repo_id", Integer(), nullable=False),
+        Column("repo_full_name", Text()),
     ]
     primary_key = ["runner_group_id", "repo_id"]
     indexes = [

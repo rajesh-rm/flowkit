@@ -7,6 +7,7 @@ from data_assets.core.enums import LoadStrategy, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.transform_asset import TransformAsset
+from sqlalchemy import Date, Integer, Text
 
 
 @register
@@ -20,10 +21,10 @@ class IncidentSummary(TransformAsset):
     load_strategy = LoadStrategy.FULL_REPLACE
 
     columns = [
-        Column("report_date", "DATE", nullable=False),
-        Column("priority", "TEXT", nullable=False),
-        Column("state", "TEXT", nullable=False),
-        Column("incident_count", "INTEGER", nullable=False),
+        Column("report_date", Date(), nullable=False),
+        Column("priority", Text(), nullable=False),
+        Column("state", Text(), nullable=False),
+        Column("incident_count", Integer(), nullable=False),
     ]
     primary_key = ["report_date", "priority", "state"]
     indexes = [

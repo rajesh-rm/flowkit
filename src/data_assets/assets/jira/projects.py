@@ -10,6 +10,7 @@ from data_assets.core.enums import LoadStrategy, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
+from sqlalchemy import Text
 
 
 @register
@@ -24,12 +25,12 @@ class JiraProjects(JiraAsset):
     default_run_mode = RunMode.FULL
 
     columns = [
-        Column("id", "TEXT", nullable=False),
-        Column("key", "TEXT", nullable=False),
-        Column("name", "TEXT"),
-        Column("project_type_key", "TEXT"),
-        Column("style", "TEXT"),
-        Column("is_private", "TEXT"),
+        Column("id", Text(), nullable=False),
+        Column("key", Text(), nullable=False),
+        Column("name", Text()),
+        Column("project_type_key", Text()),
+        Column("style", Text()),
+        Column("is_private", Text()),
     ]
 
     # PK is "key" (not "id") because jira_issues uses project key in JQL

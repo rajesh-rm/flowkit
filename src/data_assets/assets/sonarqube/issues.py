@@ -19,6 +19,7 @@ from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
+from sqlalchemy import DateTime, Integer, Text
 
 
 @register
@@ -43,17 +44,17 @@ class SonarQubeIssues(SonarQubeAsset):
     default_run_mode = RunMode.FORWARD
 
     columns = [
-        Column("key", "TEXT", nullable=False),
-        Column("rule", "TEXT"),
-        Column("severity", "TEXT"),
-        Column("component", "TEXT"),
-        Column("project", "TEXT"),
-        Column("line", "INTEGER", nullable=True),
-        Column("message", "TEXT"),
-        Column("status", "TEXT"),
-        Column("type", "TEXT"),
-        Column("creation_date", "TIMESTAMPTZ"),
-        Column("update_date", "TIMESTAMPTZ"),
+        Column("key", Text(), nullable=False),
+        Column("rule", Text()),
+        Column("severity", Text()),
+        Column("component", Text()),
+        Column("project", Text()),
+        Column("line", Integer(), nullable=True),
+        Column("message", Text()),
+        Column("status", Text()),
+        Column("type", Text()),
+        Column("creation_date", DateTime(timezone=True)),
+        Column("update_date", DateTime(timezone=True)),
     ]
 
     primary_key = ["key"]

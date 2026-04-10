@@ -21,6 +21,7 @@ from data_assets.core.enums import RunMode
 from data_assets.core.registry import all_assets, discover
 from data_assets.core.run_context import RunContext
 from data_assets.core.transform_asset import TransformAsset
+from sqlalchemy import Text
 
 
 # ---------------------------------------------------------------------------
@@ -212,7 +213,7 @@ class TestRegistryTransformValidation:
             name = "bad_transform"
             target_table = "bad_transform"
             source_tables = ["nonexistent_table"]
-            columns = [Column("id", "TEXT")]
+            columns = [Column("id", Text())]
             primary_key = ["id"]
             indexes = [Index(columns=("id",))]
 
@@ -234,7 +235,7 @@ class TestRegistryTransformValidation:
             name = "cycle_a"
             target_table = "cycle_a"
             source_tables = ["cycle_b"]
-            columns = [Column("id", "TEXT")]
+            columns = [Column("id", Text())]
             primary_key = ["id"]
             indexes = [Index(columns=("id",))]
 
@@ -245,7 +246,7 @@ class TestRegistryTransformValidation:
             name = "cycle_b"
             target_table = "cycle_b"
             source_tables = ["cycle_a"]
-            columns = [Column("id", "TEXT")]
+            columns = [Column("id", Text())]
             primary_key = ["id"]
             indexes = [Index(columns=("id",))]
 

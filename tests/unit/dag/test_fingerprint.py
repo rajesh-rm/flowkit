@@ -8,12 +8,13 @@ from data_assets.core.asset import Asset
 from data_assets.core.column import Column, Index
 from data_assets.core.enums import RunMode
 from data_assets.dag.fingerprint import compute_fingerprint
+from sqlalchemy import Text
 
 
 class _StubAsset(Asset):
     name = "stub_fp"
     target_table = "stub_fp"
-    columns = [Column("id", "text")]
+    columns = [Column("id", Text())]
     primary_key = ["id"]
     indexes = [Index(columns=["id"])]
 
@@ -21,7 +22,7 @@ class _StubAsset(Asset):
 class _StubAssetAlt(Asset):
     name = "stub_fp_alt"
     target_table = "stub_fp_alt"
-    columns = [Column("id", "text")]
+    columns = [Column("id", Text())]
     primary_key = ["id"]
     indexes = [Index(columns=["id"])]
     dag_config = {"schedule": "@hourly"}
@@ -50,7 +51,7 @@ def test_changes_on_run_mode():
         name = "stub_mode"
         target_table = "stub_mode"
         default_run_mode = RunMode.FULL
-        columns = [Column("id", "text")]
+        columns = [Column("id", Text())]
         primary_key = ["id"]
         indexes = [Index(columns=["id"])]
 
@@ -58,7 +59,7 @@ def test_changes_on_run_mode():
         name = "stub_mode"
         target_table = "stub_mode"
         default_run_mode = RunMode.FORWARD
-        columns = [Column("id", "text")]
+        columns = [Column("id", Text())]
         primary_key = ["id"]
         indexes = [Index(columns=["id"])]
 

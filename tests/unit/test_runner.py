@@ -575,7 +575,7 @@ class TestRunTransformAndValidateCustomTransform:
             name = "test_custom"
             target_schema = "raw"
             target_table = "test_custom"
-            columns = [Column("id", "INTEGER"), Column("value", "TEXT")]
+            columns = [Column("id", Integer()), Column("value", Text())]
             primary_key = ["id"]
 
             def transform(self, df):
@@ -607,6 +607,7 @@ class TestRunTransformAndValidateCustomTransform:
 # ---------------------------------------------------------------------------
 
 from data_assets.runner import _extract_api
+from sqlalchemy import Integer, Text
 
 
 class TestExtractApiTokenManagerNone:

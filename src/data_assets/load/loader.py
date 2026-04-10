@@ -27,9 +27,17 @@ TEMP_SCHEMA = "temp_store"
 # DDL helpers
 # ---------------------------------------------------------------------------
 
-def _column_ddl(col: Column) -> str:
-    """Build the DDL fragment for a single column."""
-    parts = [f'"{col.name}" {col.pg_type}']
+def _column_ddl(col: Column, dialect=None) -> str:
+    """Build the DDL fragment for a single column.
+
+    If dialect is provided, compiles the type for that specific database.
+    Otherwise defaults to Postgres (backward compatible).
+    """
+    if dialect is None:
+        from sqlalchemy.dialects import postgresql
+        dialect = postgresql.dialect()
+    type_str = col.sa_type.compile(dialect=dialect)
+    parts = [f'"{col.name}" {type_str}']
     if not col.nullable:
         parts.append("NOT NULL")
     if col.default is not None:

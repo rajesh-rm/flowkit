@@ -14,7 +14,7 @@ Usage:
         token_manager_class = MyTokenManager
         response_path = "items"           # JSON path to records list
         pagination = {"strategy": "offset", "page_size": 100}
-        columns = [Column("id", "TEXT", nullable=False), ...]
+        columns = [Column("id", Text(), nullable=False), ...]
         primary_key = ["id"]
         field_map = {"api_field": "column_name"}  # Optional renames
 

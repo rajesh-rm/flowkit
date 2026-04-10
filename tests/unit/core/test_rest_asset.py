@@ -6,6 +6,7 @@ from data_assets.core.column import Column
 from data_assets.core.enums import LoadStrategy
 from data_assets.core.rest_asset import RestAsset, _get_nested
 from tests.unit.conftest import make_ctx
+from sqlalchemy import DateTime, Integer, Text
 
 
 # --- Define a test asset using RestAsset ---
@@ -30,9 +31,9 @@ class ItemsAsset(RestAsset):
     load_strategy = LoadStrategy.FULL_REPLACE
 
     columns = [
-        Column("id", "INTEGER", nullable=False),
-        Column("item_name", "TEXT"),
-        Column("created_at", "TIMESTAMPTZ"),
+        Column("id", Integer(), nullable=False),
+        Column("item_name", Text()),
+        Column("created_at", DateTime(timezone=True)),
     ]
     primary_key = ["id"]
     field_map = {"name": "item_name"}  # API returns "name", we store as "item_name"
@@ -49,8 +50,8 @@ class PageNumberAsset(RestAsset):
     pagination = {"strategy": "page_number", "page_size": 10, "total_path": "meta.total"}
 
     columns = [
-        Column("id", "TEXT", nullable=False),
-        Column("value", "TEXT"),
+        Column("id", Text(), nullable=False),
+        Column("value", Text()),
     ]
     primary_key = ["id"]
 
@@ -67,7 +68,7 @@ class ListResponseAsset(RestAsset):
     response_path = ""  # Response IS the list
     pagination = {"strategy": "none"}
 
-    columns = [Column("id", "INTEGER", nullable=False), Column("label", "TEXT")]
+    columns = [Column("id", Integer(), nullable=False), Column("label", Text())]
     primary_key = ["id"]
 
 
@@ -163,7 +164,7 @@ class CursorAsset(RestAsset):
     token_manager_class = FakeTokenManager
     response_path = "items"
     pagination = {"strategy": "cursor", "cursor_field": "next_cursor"}
-    columns = [Column("id", "TEXT", nullable=False)]
+    columns = [Column("id", Text(), nullable=False)]
     primary_key = ["id"]
 
 
@@ -218,7 +219,7 @@ class IncrementalAsset(RestAsset):
     response_path = "items"
     pagination = {"strategy": "none"}
     api_date_param = "updated_since"
-    columns = [Column("id", "TEXT", nullable=False)]
+    columns = [Column("id", Text(), nullable=False)]
     primary_key = ["id"]
 
 
@@ -269,7 +270,7 @@ class CustomParamAsset(RestAsset):
         "page_number_param": "page",
         "page_index_path": "meta.current_page",
     }
-    columns = [Column("id", "TEXT", nullable=False)]
+    columns = [Column("id", Text(), nullable=False)]
     primary_key = ["id"]
 
 
@@ -333,7 +334,7 @@ class CustomOffsetAsset(RestAsset):
         "limit_param": "count",
         "offset_param": "skip",
     }
-    columns = [Column("id", "TEXT", nullable=False)]
+    columns = [Column("id", Text(), nullable=False)]
     primary_key = ["id"]
 
 

@@ -7,6 +7,7 @@ from data_assets.core.column import Column, Index
 from data_assets.core.registry import _registry, register
 from data_assets.dag.generator import sync
 from data_assets.dag.templates import MANAGED_MARKER
+from sqlalchemy import Text
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -17,7 +18,7 @@ def _make_stub(name: str, **kwargs):
     attrs = {
         "name": name,
         "target_table": name,
-        "columns": [Column("id", "text")],
+        "columns": [Column("id", Text())],
         "primary_key": ["id"],
         "indexes": [Index(columns=["id"])],
         **kwargs,

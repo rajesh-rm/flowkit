@@ -23,6 +23,7 @@ from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
+from sqlalchemy import DateTime, JSON, Text
 
 
 # ---------------------------------------------------------------------------
@@ -51,12 +52,12 @@ class SonarQubeAnalyses(SonarQubeAsset):
     date_column = "date"
 
     columns = [
-        Column("key", "TEXT", nullable=False),
-        Column("project_key", "TEXT", nullable=False),
-        Column("date", "TIMESTAMPTZ"),
-        Column("project_version", "TEXT"),
-        Column("revision", "TEXT"),
-        Column("detected_ci", "TEXT"),
+        Column("key", Text(), nullable=False),
+        Column("project_key", Text(), nullable=False),
+        Column("date", DateTime(timezone=True)),
+        Column("project_version", Text()),
+        Column("revision", Text()),
+        Column("detected_ci", Text()),
     ]
 
     primary_key = ["key"]
@@ -115,13 +116,13 @@ class SonarQubeAnalysisEvents(SonarQubeAsset):
     default_run_mode = RunMode.FULL
 
     columns = [
-        Column("key", "TEXT", nullable=False),
-        Column("analysis_key", "TEXT", nullable=False),
-        Column("project_key", "TEXT", nullable=False),
-        Column("category", "TEXT"),
-        Column("name", "TEXT"),
-        Column("description", "TEXT"),
-        Column("details", "JSONB"),
+        Column("key", Text(), nullable=False),
+        Column("analysis_key", Text(), nullable=False),
+        Column("project_key", Text(), nullable=False),
+        Column("category", Text()),
+        Column("name", Text()),
+        Column("description", Text()),
+        Column("details", JSON()),
     ]
 
     primary_key = ["key"]
