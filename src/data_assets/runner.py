@@ -520,10 +520,13 @@ def _load_entity_keys(engine: Engine, asset: APIAsset) -> list:
         list of dicts when parent has a composite PK. All current assets use
         single-column PKs, so callers receive list[str] in practice.
     """
+    from data_assets.db.dialect import get_dialect
+
     parent_cls = get(asset.parent_asset_name)
     parent = parent_cls()
-    pk_cols = ", ".join(f'"{c}"' for c in parent.primary_key)
-    query = f'SELECT {pk_cols} FROM "{parent.target_schema}"."{parent.target_table}"'
+    d = get_dialect(engine)
+    pk_cols = ", ".join(d.qi(c) for c in parent.primary_key)
+    query = f"SELECT {pk_cols} FROM {d.fqn(parent.target_schema, parent.target_table)}"
     df = pd.read_sql(query, engine)
     if len(parent.primary_key) == 1:
         return df[parent.primary_key[0]].tolist()

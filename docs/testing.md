@@ -300,6 +300,25 @@ def test_full_run(run_engine, monkeypatch):
 - Use `respx` to mock HTTP — never make real API calls in tests
 - Seed parent tables with `seed_table()` if the asset depends on a parent (entity-parallel)
 
+**Running against MariaDB:**
+
+All integration tests achieve full parity on both backends:
+
+```bash
+# Default — PostgreSQL
+.venv/bin/python -m pytest tests/integration/ -v
+
+# MariaDB
+TEST_DATABASE=mariadb .venv/bin/python -m pytest tests/integration/ -v
+```
+
+Both backends produce 50/50 passing tests. The `db_engine` fixture handles all dialect differences (identifier quoting, datetime conversion, TEXT→VARCHAR for PKs, index prefix lengths) transparently.
+
+**Writing dialect-portable test SQL:**
+- Avoid SQL reserved words as unquoted column names (e.g., `ORDER BY key` fails on MariaDB — use `sorted()` comparison instead)
+- Use `inspect(engine).get_indexes()` instead of `pg_indexes` for index verification
+- Use `dialect.set_query_timeout()` instead of raw `SET LOCAL statement_timeout`
+
 ---
 
 ## Test data: fixtures

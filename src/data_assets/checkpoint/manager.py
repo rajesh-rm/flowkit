@@ -71,10 +71,12 @@ def acquire_or_takeover(
         abandoned_run_id: uuid.UUID | None = None
 
         if existing is not None:
-            heartbeat = (existing.heartbeat_at or existing.locked_at).astimezone(
-                UTC
-            )
-            lock_start = existing.locked_at.astimezone(UTC)
+            # Handle both timezone-aware (Postgres TIMESTAMPTZ) and
+            # timezone-naive (MariaDB DATETIME) timestamps.
+            raw_heartbeat = existing.heartbeat_at or existing.locked_at
+            raw_lock = existing.locked_at
+            heartbeat = raw_heartbeat if raw_heartbeat.tzinfo else raw_heartbeat.replace(tzinfo=UTC)
+            lock_start = raw_lock if raw_lock.tzinfo else raw_lock.replace(tzinfo=UTC)
 
             heartbeat_age = now - heartbeat
             run_age = now - lock_start

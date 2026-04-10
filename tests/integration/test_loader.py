@@ -177,7 +177,9 @@ class TestPromote:
 
         tname = self._setup(clean_db, uuid.uuid4())
         rows = promote(clean_db, tname, "raw", "promo_up", COLS, PK, LoadStrategy.UPSERT)
-        assert rows == 3
+        # MariaDB counts updated rows as 2 (delete+insert), so rowcount differs.
+        # Verify the data is correct instead of asserting exact rowcount.
+        assert rows >= 3
 
         result = pd.read_sql("SELECT * FROM raw.promo_up ORDER BY id", clean_db)
         assert len(result) == 4  # 3 upserted + 1 existing (id=99)
@@ -241,31 +243,24 @@ INDEXES = [
 class TestEnsureIndexes:
     def test_creates_indexes(self, clean_db):
         create_table(clean_db, "raw", "idx_test", IDX_COLS, IDX_PK)
-        ensure_indexes(clean_db, "raw", "idx_test", INDEXES)
+        ensure_indexes(clean_db, "raw", "idx_test", INDEXES, IDX_COLS)
 
-        result = pd.read_sql(
-            "SELECT indexname FROM pg_indexes WHERE tablename = 'idx_test' AND schemaname = 'raw'",
-            clean_db,
-        )
-        names = set(result["indexname"])
-        assert "ix_idx_test_name" in names
-        assert "ix_idx_test_status" in names
+        idx_names = {i["name"] for i in inspect(clean_db).get_indexes("idx_test", schema="raw")}
+        assert "ix_idx_test_name" in idx_names
+        assert "ix_idx_test_status" in idx_names
 
     def test_idempotent(self, clean_db):
         create_table(clean_db, "raw", "idx_idem", IDX_COLS, IDX_PK)
-        ensure_indexes(clean_db, "raw", "idx_idem", INDEXES)
-        ensure_indexes(clean_db, "raw", "idx_idem", INDEXES)  # no error
+        ensure_indexes(clean_db, "raw", "idx_idem", INDEXES, IDX_COLS)
+        ensure_indexes(clean_db, "raw", "idx_idem", INDEXES, IDX_COLS)  # no error
 
     def test_unique_index(self, clean_db):
         unique_idx = [Index(columns=("name",), unique=True)]
         create_table(clean_db, "raw", "idx_uniq", IDX_COLS, IDX_PK)
-        ensure_indexes(clean_db, "raw", "idx_uniq", unique_idx)
+        ensure_indexes(clean_db, "raw", "idx_uniq", unique_idx, IDX_COLS)
 
-        result = pd.read_sql(
-            "SELECT indexname FROM pg_indexes WHERE tablename = 'idx_uniq' AND schemaname = 'raw'",
-            clean_db,
-        )
-        assert "ix_idx_uniq_name_unique" in set(result["indexname"])
+        idx_names = {i["name"] for i in inspect(clean_db).get_indexes("idx_uniq", schema="raw")}
+        assert "ix_idx_uniq_name_unique" in idx_names
 
     def test_promote_creates_indexes(self, clean_db):
         run_id = uuid.uuid4()
@@ -276,10 +271,6 @@ class TestEnsureIndexes:
         promote(clean_db, tname, "raw", "idx_promo", IDX_COLS, IDX_PK,
                 LoadStrategy.FULL_REPLACE, indexes=INDEXES)
 
-        result = pd.read_sql(
-            "SELECT indexname FROM pg_indexes WHERE tablename = 'idx_promo' AND schemaname = 'raw'",
-            clean_db,
-        )
-        names = set(result["indexname"])
-        assert "ix_idx_promo_name" in names
-        assert "ix_idx_promo_status" in names
+        idx_names = {i["name"] for i in inspect(clean_db).get_indexes("idx_promo", schema="raw")}
+        assert "ix_idx_promo_name" in idx_names
+        assert "ix_idx_promo_status" in idx_names

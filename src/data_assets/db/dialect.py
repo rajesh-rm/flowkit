@@ -35,6 +35,14 @@ class Dialect(ABC):
     """Abstract interface for dialect-specific SQL operations."""
 
     @abstractmethod
+    def qi(self, name: str) -> str:
+        """Quote a SQL identifier (table, column, schema name)."""
+
+    def fqn(self, schema: str, table: str) -> str:
+        """Return a fully qualified table name: schema.table."""
+        return f"{self.qi(schema)}.{self.qi(table)}"
+
+    @abstractmethod
     def set_query_timeout(self, conn: Connection, seconds: int) -> None:
         """Set a per-query timeout for the current transaction/session."""
 
@@ -63,6 +71,7 @@ class Dialect(ABC):
     @abstractmethod
     def create_index_ddl(
         self, schema: str, table_name: str, idx: Index,
+        column_types: dict[str, object] | None = None,
     ) -> str:
         """Build CREATE INDEX DDL for this dialect."""
 
@@ -73,6 +82,9 @@ class Dialect(ABC):
 
 class PostgresDialect(Dialect):
     """PostgreSQL 16+ dialect."""
+
+    def qi(self, name: str) -> str:
+        return f'"{name}"'
 
     def set_query_timeout(self, conn: Connection, seconds: int) -> None:
         conn.execute(text(f"SET LOCAL statement_timeout = '{seconds}s'"))
@@ -126,6 +138,7 @@ class PostgresDialect(Dialect):
 
     def create_index_ddl(
         self, schema: str, table_name: str, idx: Index,
+        column_types: dict[str, object] | None = None,
     ) -> str:
         name = index_name(table_name, idx)
         unique = "UNIQUE " if idx.unique else ""
@@ -147,6 +160,9 @@ class PostgresDialect(Dialect):
 
 class MariaDBDialect(Dialect):
     """MariaDB 10.11+ dialect."""
+
+    def qi(self, name: str) -> str:
+        return f'`{name}`'
 
     def set_query_timeout(self, conn: Connection, seconds: int) -> None:
         conn.execute(text(f"SET max_statement_time = {seconds}"))
@@ -225,10 +241,22 @@ class MariaDBDialect(Dialect):
 
     def create_index_ddl(
         self, schema: str, table_name: str, idx: Index,
+        column_types: dict[str, object] | None = None,
     ) -> str:
         name = index_name(table_name, idx)
         unique = "UNIQUE " if idx.unique else ""
-        cols = ", ".join(f'`{c}`' for c in idx.columns)
+
+        # For TEXT/BLOB columns, add a prefix length for indexability
+        col_parts = []
+        for c in idx.columns:
+            col_str = f'`{c}`'
+            if column_types:
+                from sqlalchemy import Text as SAText
+                ct = column_types.get(c)
+                if isinstance(ct, SAText):
+                    col_str = f'`{c}`(255)'
+            col_parts.append(col_str)
+        cols = ", ".join(col_parts)
 
         method = idx.method
         if method not in _MARIADB_INDEX_METHODS:
@@ -239,9 +267,11 @@ class MariaDBDialect(Dialect):
             )
             method = IndexMethod.BTREE
 
+        # MariaDB syntax: USING goes between index name and ON keyword
         ddl = (
             f'CREATE {unique}INDEX IF NOT EXISTS `{name}` '
-            f'ON `{schema}`.`{table_name}` USING {method} ({cols})'
+            f'USING {method} '
+            f'ON `{schema}`.`{table_name}` ({cols})'
         )
         # MariaDB does not support INCLUDE clause
         if idx.include:
