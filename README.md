@@ -2,7 +2,7 @@
 
 Self-contained ETL engine for data assets, backed by PostgreSQL, orchestrated by Apache Airflow.
 
-Airflow calls `run_asset(name, mode)` — this package handles everything else: extraction with rate limiting and parallelism, checkpointing for resumable retries, schema management, validation, and atomic promotion.
+Airflow calls `run_asset(name, mode)` and this package handles everything else: extraction with rate limiting and parallelism, checkpointing for resumable retries, schema management, validation, and atomic promotion.
 
 ## Quick Start
 
@@ -14,40 +14,43 @@ result = run_asset("sonarqube_projects", run_mode="full")
 
 ## Built-in Sources
 
+36 production-ready assets across 5 sources, with no custom code required:
+
 | Source | Assets | Description |
 |--------|--------|-------------|
-| GitHub | repos, pull_requests, branches, commits, workflows, workflow_runs, workflow_jobs, members, user_details, runner_groups, runner_group_repos, repo_properties | Source control, CI/CD, and org data (multi-org) |
-| SonarQube | projects, issues, measures | Code quality data |
-| ServiceNow | incidents, changes | ITSM data |
-| Jira | projects, issues | Project tracking data |
-| Transforms | incident_summary | Postgres-to-Postgres derived tables |
+| GitHub | 12 | Repositories, pull requests, branches, commits, CI/CD workflows and runs, org members, runner groups (multi-org support) |
+| ServiceNow | 13 | ITSM tables: incidents, changes, change tasks, and related operational data via pysnc |
+| SonarQube | 8 | Code quality: projects, issues, branches, analyses, measures, and historical trends |
+| Jira | 2 | Project tracking: projects and issues (Cloud and Data Center) |
+| Transforms | 1 | SQL-based derived tables (Postgres-to-Postgres) |
+
+See the [Assets Catalog](docs/assets-catalog.md) for the full reference.
 
 ## Key Features
 
-- **Atomic runs**: temp table per run, promote to main only on success
-- **Resumable extraction**: checkpoint-based retry without re-fetching
-- **Parallel extraction**: page-parallel and entity-parallel thread pool modes
-- **Self-managing schemas**: auto-create tables, additive column migration
-- **In-process rate limiting**: thread-safe sliding-window per DAG
-- **Token management**: pluggable per-source (GitHub App, ServiceNow OAuth, SonarQube static, Jira Cloud/DC)
-- **RestAsset pattern**: declarative asset definition for standard REST APIs (~25 lines, no custom code)
-- **Dry run mode**: extract and validate without promoting to main table
-- **Stale-run takeover**: automatic recovery from orphaned runs via heartbeat monitoring
+- **Atomic runs** -- temp table per run, promote to production only on validation success
+- **Resumable extraction** -- checkpoint-based retry without re-fetching completed pages
+- **Parallel extraction** -- page-parallel and entity-parallel thread pool modes
+- **Self-managing schemas** -- auto-create tables with additive column migration
+- **In-process rate limiting** -- thread-safe sliding-window per source
+- **Pluggable token management** -- per-source auth (GitHub App JWT, ServiceNow OAuth2, SonarQube token, Jira Cloud/Data Center)
+- **RestAsset pattern** -- declarative asset definition for standard REST APIs (~25 lines, no custom code)
+- **Production gate** -- new assets require explicit activation via `dag_overrides.toml` before running on a schedule
+- **Dry run mode** -- extract and validate without writing to the target table
+- **Stale-run takeover** -- automatic recovery from orphaned runs via heartbeat monitoring
 
 ## Documentation
 
-Read in this order:
+1. [Local Dev Quickstart](docs/quickstart-dev.md) -- get running locally
+2. [User Guide](docs/user-guide.md) -- run modes, watermarks, runtime overrides
+3. [Airflow Deployment](docs/airflow-deployment.md) -- DAG generation, systemd automation, admin overrides
+4. [Architecture](docs/architecture.md) -- ETL lifecycle and component design
+5. [Configuration](docs/configuration.md) -- credentials, Airflow Connections, proxy setup
+6. [Assets Catalog](docs/assets-catalog.md) -- all built-in assets with API details
+7. [Extending](docs/extending.md) -- adding new sources, transforms, and token managers
+8. [Testing Guide](docs/testing.md) -- test structure, fixtures, and coverage
 
-1. [**Local Dev Quickstart**](docs/quickstart-dev.md) — get running in 5 minutes
-2. [**User Guide**](docs/user-guide.md) — run assets, understand run modes
-3. [**Airflow Deployment**](docs/airflow-deployment.md) — deploy DAGs, zero-touch updates, admin overrides
-4. [**Architecture**](docs/architecture.md) — how the ETL lifecycle works
-5. [**Configuration**](docs/configuration.md) — credentials and runtime overrides
-6. [**Assets Catalog**](docs/assets-catalog.md) — all built-in assets and their design choices
-7. [**Extending**](docs/extending.md) — adding new sources, transforms, and token managers
-8. [**Testing Guide**](docs/testing.md) — test structure, patterns, fixtures, and how to write tests
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow, code style, and PR guidelines.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow and PR guidelines.
 
 ## Requirements
 
