@@ -22,8 +22,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "enabled": False,
 }
 
+_DEFAULT_SCHEDULE = "0 5 * * *"
+
 SCHEDULE_BY_MODE: dict[str, str | None] = {
-    "full": "0 5 * * *",
+    "full": _DEFAULT_SCHEDULE,
     "forward": "@hourly",
     "backfill": None,
     "transform": "0 8 * * *",
@@ -59,7 +61,7 @@ def merge_config(asset_cls: type[Asset], overrides: dict[str, Any]) -> dict[str,
     # Layer 1: package defaults
     config: dict[str, Any] = {
         **DEFAULT_CONFIG,
-        "schedule": SCHEDULE_BY_MODE.get(mode, "0 5 * * *"),
+        "schedule": SCHEDULE_BY_MODE.get(mode, _DEFAULT_SCHEDULE),
         "tags": [source],
         "description": asset.description,
         "run_mode": mode,
@@ -97,7 +99,7 @@ def merge_config(asset_cls: type[Asset], overrides: dict[str, Any]) -> dict[str,
 def _default_schedule(asset_cls: type[Asset]) -> str | None:
     """Return the default schedule string for an asset class."""
     mode = str(asset_cls().default_run_mode)
-    return SCHEDULE_BY_MODE.get(mode, "0 5 * * *")
+    return SCHEDULE_BY_MODE.get(mode, _DEFAULT_SCHEDULE)
 
 
 def _build_entry(asset_cls: type[Asset], timestamp: str) -> str:

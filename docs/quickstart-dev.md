@@ -325,7 +325,9 @@ See [Running DAGs Locally](local-airflow.md) for a step-by-step guide to install
 
 ### Adding a new asset
 
-See [docs/extending.md](extending.md) for the comprehensive step-by-step guide. Quick summary:
+See [docs/extending.md](extending.md) for the comprehensive step-by-step guide.
+
+**API assets** (fetch data from external APIs):
 
 1. Create token manager in `extract/token_manager.py` (if new source)
 2. Create `src/data_assets/assets/my_source/my_asset.py` — subclass `APIAsset`, add `@register`
@@ -334,6 +336,14 @@ See [docs/extending.md](extending.md) for the comprehensive step-by-step guide. 
 5. Add test fixtures in `tests/fixtures/my_source/` (JSON files matching API responses)
 6. Add unit test in `tests/unit/assets/test_my_source.py`
 7. Run `make test-unit` to verify
+
+**Transform assets** (SQL-based derived tables):
+
+1. Create `src/data_assets/assets/transforms/my_transform.py` — subclass `TransformAsset`, add `@register`
+2. Set `source_tables = [...]` — must match `target_table` of existing assets (enforced at discovery time)
+3. Implement `query(context)` — use fully-qualified table names (e.g., `raw.servicenow_incidents`)
+4. Add import in `src/data_assets/assets/transforms/__init__.py`
+5. Run `.venv/bin/python -m pytest tests/unit/transforms/ -v` — validates source tables, SQL column refs, and output columns
 
 ### Debugging checklist
 

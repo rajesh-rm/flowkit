@@ -14,7 +14,7 @@ result = run_asset("sonarqube_projects", run_mode="full")
 
 ## Built-in Sources
 
-36 production-ready assets across 5 sources, with no custom code required:
+Production-ready assets across 5 sources, with no custom code required:
 
 | Source | Assets | Description |
 |--------|--------|-------------|

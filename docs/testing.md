@@ -19,7 +19,7 @@ make test-cov            # Unit tests with coverage report
 .venv/bin/python -m pytest tests/ --cov=src/data_assets --cov-report=xml:coverage.xml
 ```
 
-**Coverage target: 90%+** (currently 95.6%).
+**Coverage target: 90%+** (run `pytest --cov` to check current coverage).
 
 ---
 
@@ -30,18 +30,18 @@ tests/
 ├── conftest.py                     # Root fixtures (shared by ALL tests)
 │
 ├── fixtures/                       # JSON API response fixtures
-│   ├── github/                     #   12 files (repos, PRs, branches, ...)
-│   ├── jira/                       #   2 files (projects, issues)
-│   ├── servicenow/                 #   13 files (incidents, changes, ...)
-│   └── sonarqube/                  #   9 files (all 8 assets + sharding fixtures)
+│   ├── github/                     #   repos, PRs, branches, workflows, ...
+│   ├── jira/                       #   projects, issues
+│   ├── servicenow/                 #   incidents, changes, ...
+│   └── sonarqube/                  #   projects, issues, measures, branches, ...
 │
 ├── unit/                           # Fast tests — no DB, no network, no Docker
 │   ├── conftest.py                 #   make_ctx() helper + env fixtures
 │   ├── assets/                     #   Asset-level tests (build_request, parse_response)
-│   │   ├── test_github.py          #     50 tests — all GitHub assets
-│   │   ├── test_servicenow.py      #     60 tests — all ServiceNow assets
-│   │   ├── test_jira.py            #     9 tests — Jira projects + issues
-│   │   └── test_sonarqube.py       #     53 tests — all 8 SonarQube assets (projects, issues, measures, branches, analyses, events, details, history)
+│   │   ├── test_github.py          #     all GitHub assets
+│   │   ├── test_servicenow.py      #     all ServiceNow assets
+│   │   ├── test_jira.py            #     Jira projects + issues
+│   │   └── test_sonarqube.py       #     all SonarQube assets
 │   ├── core/                       #   Framework core
 │   │   ├── test_asset.py           #     Asset base class, classify_error, should_stop
 │   │   ├── test_column.py          #     Column DDL generation
@@ -56,20 +56,23 @@ tests/
 │   │   ├── test_rate_limiter.py    #     Sliding-window rate limiter
 │   │   └── test_token_manager.py   #     All token managers (GitHub, ServiceNow, Jira, SonarQube)
 │   ├── runner/
-│   │   ��── test_runner.py          #     Orchestrator: routing, error handling, watermarks
+│   │   └── test_runner.py          #     Orchestrator: routing, error handling, watermarks
 │   ├── db/
 │   │   └── test_engine.py          #     DB connection resolution, schema creation
 │   ├── transform/
 │   │   └── test_db_transform.py    #     SQL transform execution
+│   ├── transforms/
+│   │   └── test_transform_validation.py  # Transform dependency + column validation
 │   └── validation/
 │       └── test_validators.py      #     Composable validators (null PK, empty DF, etc.)
 │
 └── integration/                    # Slow tests — real Postgres via testcontainers
     ├── conftest.py                 #   stub_token_manager, run_engine, seed_table
-    ├─�� test_e2e.py                 #     Full run_asset() lifecycle (API mock + DB)
+    ├── test_e2e.py                 #     Full run_asset() lifecycle (API mock + DB)
     ├── test_loader.py              #     DDL, temp tables, promotion strategies
     ├── test_checkpoint.py          #     Checkpoint save/resume/recovery
-    └── test_run_tracker.py         #     Run history recording
+    ├── test_run_tracker.py         #     Run history recording
+    └── test_transform_schema.py    #     Transform SQL against empty Postgres tables
 ```
 
 ### How tests are organized
@@ -82,6 +85,7 @@ tests/
 | `unit/runner/` | Orchestrator logic (routing, error paths, watermarks) | No | Heavy `@patch` — mocks engine, DB calls, and asset methods |
 | `unit/db/` | Engine factory, schema creation | No | `monkeypatch` for env vars, `MagicMock` for SQLAlchemy |
 | `unit/transform/` | SQL transform execution | No | `MagicMock` for engine and `pd.read_sql` |
+| `unit/transforms/` | Transform dependency + column validation | No | Registry stubs, SQL regex parsing |
 | `unit/validation/` | Validator functions | No | Direct instantiation with test DataFrames |
 | `integration/` | Full pipeline against real Postgres | **Yes** | `respx` for HTTP + testcontainers for DB |
 

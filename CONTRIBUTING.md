@@ -26,7 +26,7 @@ make lint && make typecheck
 
 ## Testing
 
-- **Coverage target: 90%+** (currently ~95%).
+- **Coverage target: 90%+**.
 - Unit tests for all modules. Integration tests for end-to-end flows.
 - Unit tests must run without Docker or external services (mock APIs, mock DB).
 - Integration tests use testcontainers for Postgres (Docker required).
@@ -47,13 +47,23 @@ See [docs/testing.md](docs/testing.md) for the full guide — directory structur
 
 ## Adding a New Asset
 
-See [docs/extending.md](docs/extending.md) for the step-by-step guide. Quick checklist:
+See [docs/extending.md](docs/extending.md) for the step-by-step guide.
+
+**API assets:**
 
 1. Create asset class with `@register` decorator
 2. Add `__init__.py` import
 3. Add JSON fixture in `tests/fixtures/<source>/`
 4. Add unit test in `tests/unit/assets/`
 5. Run `make test-unit` to verify
+
+**Transform assets** (SQL-based derived tables):
+
+1. Create asset class subclassing `TransformAsset` with `@register`
+2. Set `source_tables` — must match existing assets' `target_table` (enforced at import time)
+3. Implement `query(context)` with fully-qualified table names
+4. Add import in `assets/transforms/__init__.py`
+5. Run `.venv/bin/python -m pytest tests/unit/transforms/ -v` — validates dependencies and SQL columns
 
 ## PR Checklist
 
