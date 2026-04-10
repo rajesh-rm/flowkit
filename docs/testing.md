@@ -66,13 +66,13 @@ tests/
 │   └── validation/
 │       └── test_validators.py      #     Composable validators (null PK, empty DF, etc.)
 │
-└── integration/                    # Slow tests — real Postgres via testcontainers
+└── integration/                    # Slow tests — real DB via testcontainers (Postgres or MariaDB)
     ├── conftest.py                 #   stub_token_manager, run_engine, seed_table
     ├── test_e2e.py                 #     Full run_asset() lifecycle (API mock + DB)
     ├── test_loader.py              #     DDL, temp tables, promotion strategies
     ├── test_checkpoint.py          #     Checkpoint save/resume/recovery
     ├── test_run_tracker.py         #     Run history recording
-    └── test_transform_schema.py    #     Transform SQL against empty Postgres tables
+    └── test_transform_schema.py    #     Transform SQL against empty DB tables
 ```
 
 ### How tests are organized
@@ -87,7 +87,7 @@ tests/
 | `unit/transform/` | SQL transform execution | No | `MagicMock` for engine and `pd.read_sql` |
 | `unit/transforms/` | Transform dependency + column validation | No | Registry stubs, SQL regex parsing |
 | `unit/validation/` | Validator functions | No | Direct instantiation with test DataFrames |
-| `integration/` | Full pipeline against real Postgres | **Yes** | `respx` for HTTP + testcontainers for DB |
+| `integration/` | Full pipeline against real Postgres or MariaDB | **Yes** | `respx` for HTTP + testcontainers for DB |
 
 ---
 
@@ -101,7 +101,7 @@ Available in **all** tests (unit and integration):
 |----------------|------|-------------|
 | `StubTokenManager` | Class | Minimal token manager — `get_token()` returns `"test-token"` |
 | `_clean_registry` | Autouse fixture | Isolates the asset registry between tests (prevents `@register` leakage) |
-| `pg_engine` | Session fixture | Real Postgres via testcontainers (integration tests only) |
+| `db_engine` / `pg_engine` | Session fixture | Real database via testcontainers. Set `TEST_DATABASE=mariadb` for MariaDB (default: postgres) |
 | `clean_db` | Function fixture | Truncates all tables before each test, returns engine |
 | `load_fixture` | Function fixture | Callable: `load_fixture("github/repos_org1.json")` loads JSON from `tests/fixtures/` |
 
@@ -124,7 +124,7 @@ Available in integration tests only:
 | Fixture/Helper | Type | Description |
 |----------------|------|-------------|
 | `stub_token_manager(cls)` | Context manager | Patches a TokenManager subclass to skip real credential resolution |
-| `run_engine` | Fixture | Patches `get_engine()` everywhere to use test Postgres |
+| `run_engine` | Fixture | Patches `get_engine()` everywhere to use test database |
 | `seed_table(engine, schema, table, rows)` | Function | Inserts setup data into a table before test |
 
 ---
@@ -258,7 +258,7 @@ class TestExtractRoute:
 
 ### Pattern 3: Integration tests (full pipeline)
 
-Integration tests call `run_asset()` with a real Postgres and mocked HTTP responses.
+Integration tests call `run_asset()` with a real database (Postgres or MariaDB) and mocked HTTP responses.
 
 ```python
 import respx
@@ -295,7 +295,7 @@ def test_full_run(run_engine, monkeypatch):
 
 **Integration test requirements:**
 - Always use `@pytest.mark.integration` marker
-- Use `run_engine` fixture (patches `get_engine()` to use test Postgres)
+- Use `run_engine` fixture (patches `get_engine()` to use test database)
 - Use `stub_token_manager()` to bypass real credential resolution
 - Use `respx` to mock HTTP — never make real API calls in tests
 - Seed parent tables with `seed_table()` if the asset depends on a parent (entity-parallel)
@@ -414,7 +414,7 @@ All test dependencies are in `pyproject.toml` under `[project.optional-dependenc
 | `pytest-cov` | latest | Coverage reporting (`--cov` flag) |
 | `pytest-mock` | latest | `mocker` fixture (wrapper around `unittest.mock`) |
 | `respx` | >= 0.21 | HTTP mocking for `httpx` (our HTTP client) |
-| `testcontainers[postgres]` | >= 4.0 | Ephemeral Postgres containers for integration tests |
+| `testcontainers[postgres,mysql]` | >= 4.0 | Ephemeral database containers for integration tests |
 | `ruff` | latest | Linter |
 | `mypy` | latest | Type checker |
 

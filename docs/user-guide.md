@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Python 3.11+
-- PostgreSQL 14+
+- PostgreSQL 16+ or MariaDB 10.11+
 - Apache Airflow 3.0+ (for DAG scheduling)
 
 ## Installation
@@ -17,7 +17,7 @@ pip install data-assets[dev]
 
 ## Quick Start
 
-### 1. Set up Postgres
+### 1. Set up the Database
 
 Create a database and ensure the connecting user has `CREATE SCHEMA` privileges:
 
@@ -87,7 +87,7 @@ See [configuration.md](configuration.md) for connection setup commands.
 | `full` | Initial load or periodic full refresh |
 | `forward` | Incremental — fetch new data since last run |
 | `backfill` | Fill in historical data going backwards |
-| `transform` | Run SQL transforms (Postgres-to-Postgres) |
+| `transform` | Run SQL transforms (database-to-database) |
 
 ### Which mode should I use?
 

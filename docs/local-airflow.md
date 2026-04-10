@@ -14,11 +14,14 @@ Run the full Airflow + data-assets pipeline on your local machine. Useful for:
 Before starting, you need:
 
 - **Python 3.11+** installed
-- **PostgreSQL 14+** running locally (see [quickstart-dev.md](quickstart-dev.md) sections 3-6 for setup)
+- **PostgreSQL 16+ or MariaDB 10.11+** running locally (see [quickstart-dev.md](quickstart-dev.md) section 6 for setup)
 - **Source credentials** set as environment variables (see [configuration.md](configuration.md))
 - **`DATABASE_URL`** exported:
   ```bash
+  # PostgreSQL
   export DATABASE_URL="postgresql://flowkit:flowkit@localhost:5432/data_assets"
+  # MariaDB
+  # export DATABASE_URL="mysql+pymysql://flowkit:flowkit@localhost:3306/data_assets"
   ```
 
 ## 2. Install data-assets from the Local Repo

@@ -11,7 +11,7 @@ Get the `data_assets` package running locally in under 5 minutes.
 | Python | 3.11+ | RHEL AppStream (see below) or `uv python install 3.11` |
 | uv | latest | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 | Podman | 4.0+ | Pre-installed on RHEL 8/9. macOS/other: Docker 20+ works too |
-| PostgreSQL | 14+ | Container (recommended) or system install (see section 6) |
+| PostgreSQL or MariaDB | PostgreSQL 16+ / MariaDB 10.11+ | Container (recommended) or system install (see section 6) |
 
 ### RHEL 8/9 system packages
 
@@ -154,13 +154,15 @@ source .venv/bin/activate
 
 Or prefix commands with `.venv/bin/` without activating.
 
-## 6. Set up PostgreSQL
+## 6. Set up the Database
 
-You need a Postgres instance for running assets (not for unit tests — those run without a database). Choose one of the options below.
+You need a database for running assets (not for unit tests — those run without a database). Choose **PostgreSQL** or **MariaDB**, then pick a setup option.
 
-### Option A: Postgres container (recommended)
+### PostgreSQL (container — recommended)
 
 ```bash
+pip install data-assets[postgres]   # install the PostgreSQL driver
+
 podman run -d \
   --name flowkit-postgres \
   -e POSTGRES_USER=flowkit \
@@ -168,11 +170,7 @@ podman run -d \
   -e POSTGRES_DB=data_assets \
   -p 5432:5432 \
   postgres:16-alpine
-```
 
-Set the connection string:
-
-```bash
 export DATABASE_URL="postgresql://flowkit:flowkit@localhost:5432/data_assets"
 ```
 
@@ -185,38 +183,61 @@ podman logs flowkit-postgres     # View logs
 podman rm -f flowkit-postgres    # Remove and recreate
 ```
 
-> **macOS:** replace `podman` with `docker` in the commands above.
-
-### Option B: System Postgres on RHEL
+### MariaDB (container)
 
 ```bash
-# Install from RHEL AppStream
-sudo dnf install postgresql-server postgresql -y
+pip install data-assets[mariadb]   # install the MariaDB driver (PyMySQL)
 
-# Initialize the database cluster and start the service
-sudo postgresql-setup --initdb
-sudo systemctl enable --now postgresql
+podman run -d \
+  --name flowkit-mariadb \
+  -e MARIADB_USER=flowkit \
+  -e MARIADB_PASSWORD=flowkit \
+  -e MARIADB_DATABASE=data_assets \
+  -e MARIADB_ROOT_PASSWORD=rootpass \
+  -p 3306:3306 \
+  mariadb:10.11
 
-# Create the database and user (OWNER grants full DDL rights)
-sudo -u postgres psql -c "CREATE USER flowkit WITH PASSWORD 'flowkit';"
-sudo -u postgres psql -c "CREATE DATABASE data_assets OWNER flowkit;"
-
-# Allow password auth for TCP connections (instead of ident)
-sudo sed -i '/^host/s/ident$/md5/' /var/lib/pgsql/data/pg_hba.conf
-sudo systemctl restart postgresql
+export DATABASE_URL="mysql+pymysql://flowkit:flowkit@localhost:3306/data_assets"
 ```
 
+Container lifecycle:
+
 ```bash
+podman stop flowkit-mariadb      # Stop
+podman start flowkit-mariadb     # Restart
+podman logs flowkit-mariadb      # View logs
+podman rm -f flowkit-mariadb     # Remove and recreate
+```
+
+> **macOS:** replace `podman` with `docker` in the commands above.
+
+### System install (RHEL — PostgreSQL)
+
+```bash
+sudo dnf install postgresql-server postgresql -y
+sudo postgresql-setup --initdb
+sudo systemctl enable --now postgresql
+sudo -u postgres psql -c "CREATE USER flowkit WITH PASSWORD 'flowkit';"
+sudo -u postgres psql -c "CREATE DATABASE data_assets OWNER flowkit;"
+sudo sed -i '/^host/s/ident$/md5/' /var/lib/pgsql/data/pg_hba.conf
+sudo systemctl restart postgresql
+
 export DATABASE_URL="postgresql://flowkit:flowkit@localhost:5432/data_assets"
 ```
 
-### Verify the connection
+### System install (RHEL — MariaDB)
 
 ```bash
-psql "$DATABASE_URL" -c "SELECT version();"
+sudo dnf install mariadb-server mariadb -y
+sudo systemctl enable --now mariadb
+sudo mysql -e "CREATE DATABASE data_assets;"
+sudo mysql -e "CREATE USER 'flowkit'@'localhost' IDENTIFIED BY 'flowkit';"
+sudo mysql -e "GRANT ALL ON data_assets.* TO 'flowkit'@'localhost';"
+
+export DATABASE_URL="mysql+pymysql://flowkit:flowkit@localhost:3306/data_assets"
 ```
 
-Or from Python:
+### Verify the connection
 
 ```bash
 .venv/bin/python -c "
@@ -310,7 +331,7 @@ flowkit/
 │   └── runner.py             # Main orchestrator
 ├── tests/
 │   ├── unit/                 # Fast tests, no DB
-│   ├── integration/          # E2E with Postgres + mocked APIs
+│   ├── integration/          # E2E with real DB + mocked APIs
 │   └── fixtures/             # Sample API responses (JSON)
 ├── docs/                     # Documentation
 ├── example_dags/             # Airflow DAG examples
@@ -352,7 +373,7 @@ See [docs/extending.md](extending.md) for the comprehensive step-by-step guide.
 | Symptom | Likely cause |
 |---------|-------------|
 | `RuntimeError: No database connection found...` | `DATABASE_URL` not set. Export it or add to `.env` file in the repo root |
-| `ConnectionRefusedError` / `psycopg2.OperationalError` | Postgres not running or wrong `DATABASE_URL`. Verify: `psql "$DATABASE_URL" -c "SELECT 1"` |
+| `ConnectionRefusedError` / `OperationalError` | Database not running or wrong `DATABASE_URL`. Verify the connection from Python (see section 6). |
 | `RuntimeError: GitHubAppTokenManager requires GITHUB_APP_ID...` | Missing GitHub env vars. Set all four: `GITHUB_APP_ID`, `GITHUB_PRIVATE_KEY`, `GITHUB_INSTALLATION_ID`, `GITHUB_ORGS` |
 | `RuntimeError: ServiceNowTokenManager requires SERVICENOW_INSTANCE` | Missing ServiceNow env vars. Set `SERVICENOW_INSTANCE`, `SERVICENOW_USERNAME`, `SERVICENOW_PASSWORD` |
 | `RuntimeError: SonarQubeTokenManager requires SONARQUBE_TOKEN` | `SONARQUBE_TOKEN` env var not set |
@@ -431,8 +452,9 @@ TRUNCATE data_ops.run_locks, data_ops.run_history,
 See [docs/configuration.md](configuration.md) for the full list. Minimum for local dev:
 
 ```bash
-# Required for any run
-export DATABASE_URL="postgresql://flowkit:flowkit@localhost:5432/data_assets"
+# Required for any run (use the URL for your database)
+export DATABASE_URL="postgresql://flowkit:flowkit@localhost:5432/data_assets"   # PostgreSQL
+# export DATABASE_URL="mysql+pymysql://flowkit:flowkit@localhost:3306/data_assets"  # MariaDB
 
 # Per-source (set only what you need)
 export SONARQUBE_URL="..."

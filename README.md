@@ -1,6 +1,6 @@
 # data_assets
 
-Self-contained ETL engine for data assets, backed by PostgreSQL, orchestrated by Apache Airflow.
+Self-contained ETL engine for data assets, backed by PostgreSQL or MariaDB, orchestrated by Apache Airflow.
 
 Airflow calls `run_asset(name, mode)` and this package handles everything else: extraction with rate limiting and parallelism, checkpointing for resumable retries, schema management, validation, and atomic promotion.
 
@@ -22,7 +22,7 @@ Production-ready assets across 5 sources, with no custom code required:
 | ServiceNow | 13 | ITSM tables: incidents, changes, change tasks, and related operational data via pysnc |
 | SonarQube | 8 | Code quality: projects, issues, branches, analyses, measures, and historical trends |
 | Jira | 2 | Project tracking: projects and issues (Cloud and Data Center) |
-| Transforms | 1 | SQL-based derived tables (Postgres-to-Postgres) |
+| Transforms | 1 | SQL-based derived tables (database-to-database) |
 
 See the [Assets Catalog](docs/assets-catalog.md) for the full reference.
 
@@ -56,7 +56,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow and PR guideline
 ## Requirements
 
 - Python 3.11+
-- PostgreSQL 14+
+- PostgreSQL 16+ or MariaDB 10.11+
 - Apache Airflow 3.0+ (for scheduling)
 
 ## License

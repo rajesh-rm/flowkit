@@ -14,7 +14,7 @@ Every change to this codebase must follow these five rules:
 2. **Pure Python, self-sufficient** — the package handles all ETL logic itself. Only Airflow handles scheduling. No delegating core logic to external frameworks.
 3. **Simple patterns over complexity** — prefer 10 lines of clear code over importing a library. No unnecessary abstractions.
 4. **Battle-tested libraries only** — dependencies must be 5+ years old, popular in data engineering, and carry a liberal open-source license (MIT, Apache 2.0, BSD). Current deps: SQLAlchemy, pandas, httpx, python-dotenv, PyJWT, pysnc.
-5. **90%+ test coverage** — every module has unit tests. Integration tests use mocked APIs + testcontainers Postgres.
+5. **90%+ test coverage** — every module has unit tests. Integration tests use mocked APIs + testcontainers (PostgreSQL or MariaDB).
 
 ---
 
@@ -48,7 +48,7 @@ QUESTION 1: Where does the data come from?
   +-- External HTTP API (PagerDuty, GitHub, Jira, etc.)
   |     --> Continue to Question 1b.
   |
-  +-- Existing Postgres tables (aggregate, join, reshape)
+  +-- Existing database tables (aggregate, join, reshape)
         --> You need a TransformAsset.  Skip to Section 3.
 
 
@@ -82,7 +82,7 @@ QUESTION 2: What kind of API call is it?
             become the entity_keys for fan-out.
 
 
-QUESTION 3: How should the data be loaded into Postgres?
+QUESTION 3: How should the data be loaded into the database?
   |
   +-- Fetch everything every run; replace the whole table.
   |     --> LoadStrategy.FULL_REPLACE
@@ -659,15 +659,15 @@ class PagerDutyIncidents(APIAsset):
     # source_name = "pagerduty". Used for filtering and organization.
 
     # ---------------------------------------------------------------
-    # Target table in Postgres
+    # Target table in the database
     # ---------------------------------------------------------------
 
     target_schema = "raw"
-    # Which Postgres schema the table lives in.
+    # Which database schema the table lives in.
     # Convention: "raw" for API-sourced data, "mart" for transforms.
 
     target_table = "pagerduty_incidents"
-    # The Postgres table name. Convention matches the asset name.
+    # The database table name. Convention matches the asset name.
 
     # ---------------------------------------------------------------
     # Authentication
@@ -795,7 +795,7 @@ class PagerDutyIncidents(APIAsset):
     # ---------------------------------------------------------------
 
     load_strategy = LoadStrategy.UPSERT
-    # How extracted data is written to Postgres.
+    # How extracted data is written to the database.
     #
     # LoadStrategy.FULL_REPLACE:
     #   Truncate the table and reload all rows every run.
@@ -852,30 +852,34 @@ class PagerDutyIncidents(APIAsset):
         Column("service_name", "TEXT"),
         Column("created_at", "TIMESTAMPTZ"),
         Column("updated_at", "TIMESTAMPTZ"),
-        Column("resolved_at", "TIMESTAMPTZ", nullable=True),
-        Column("html_url", "TEXT"),
-        Column("raw_json", "JSONB", nullable=True),
+        Column("resolved_at", DateTime(timezone=True), nullable=True),
+        Column("html_url", Text()),
+        Column("raw_json", JSON(), nullable=True),
     ]
-    # Each Column defines one column in the target Postgres table.
+    # Each Column defines one column in the target database table.
+    # Columns use SQLAlchemy types, which compile to the correct SQL
+    # type for both PostgreSQL and MariaDB automatically.
     #
-    # Column(name, pg_type, nullable=True, default=None)
+    # Column(name, sa_type, nullable=True, default=None)
     #
-    #   name:     Column name in Postgres (and in the DataFrame you produce
-    #             in parse_response). MUST match exactly.
-    #   pg_type:  Postgres data type as a string. Common choices:
-    #               TEXT       -- strings of any length
-    #               INTEGER    -- whole numbers (-2B to 2B)
-    #               FLOAT      -- floating-point numbers
-    #               BOOLEAN    -- true / false
-    #               TIMESTAMPTZ-- timestamp with timezone (ISO 8601 strings
-    #                             are auto-parsed by Postgres)
-    #               JSONB      -- structured JSON data (for nested objects
-    #                             you do not want to flatten)
-    #               DATE       -- date without time
-    #   nullable: True (default) allows NULL values. Set False for columns
-    #             that must always have data (primary keys, required fields).
-    #   default:  Optional SQL expression for a default value.
-    #             Example: "now()" for an auto-populated timestamp.
+    #   name:     Column name (must match the DataFrame column from parse_response).
+    #   sa_type:  SQLAlchemy type object. Common choices:
+    #               Text()                   -- strings of any length
+    #               Integer()                -- whole numbers
+    #               BigInteger()             -- large whole numbers
+    #               Float()                  -- floating-point numbers
+    #               Boolean()                -- true / false
+    #               DateTime(timezone=True)  -- timestamp with timezone
+    #               DateTime()               -- timestamp without timezone
+    #               Date()                   -- date without time
+    #               JSON()                   -- structured JSON data
+    #               Numeric()                -- exact decimal numbers
+    #               Uuid()                   -- UUID values
+    #
+    #   Import types: from sqlalchemy import Text, Integer, DateTime, JSON, ...
+    #
+    #   nullable: True (default) allows NULL values. Set False for required fields.
+    #   default:  Optional SQL expression for a default value (e.g., "now()").
 
     # ---------------------------------------------------------------
     # Primary key
@@ -913,7 +917,7 @@ class PagerDutyIncidents(APIAsset):
     #             "gin" (for JSONB or full-text), "hash" (for = only).
     #   where:    Partial index — raw SQL condition without the WHERE keyword.
     #             Example: "state = 'open'"
-    #   include:  Covering index columns (Postgres 11+). The index stores
+    #   include:  Covering index columns (PostgreSQL only). The index stores
     #             these values so queries can be answered from the index alone.
     #   name:     Auto-generated if omitted as ix_{table}_{cols}[_unique][_partial].
     #
@@ -1093,7 +1097,7 @@ def parse_response(
     incidents = response.get("incidents", [])
 
     # 2. Flatten each record into a dict matching our column names.
-    #    The API field names may differ from our Postgres column names.
+    #    The API field names may differ from our database column names.
     records: list[dict[str, Any]] = []
     for inc in incidents:
         service = inc.get("service") or {}
@@ -1392,11 +1396,11 @@ are defined in a single file (~30 lines each).
 
 ## 3. Step-by-Step: Adding a Transform Asset
 
-Transform assets produce derived data from existing Postgres tables. They do
+Transform assets produce derived data from existing database tables. They do
 not call any external API. Instead, they run a SQL query against the database
 and write the results to a new table.
 
-**When to use:** You already have raw data in Postgres (from API assets) and
+**When to use:** You already have raw data in the database (from API assets) and
 you want to create aggregated, joined, or reshaped views of that data.
 
 **The base class:**
@@ -1408,7 +1412,7 @@ class TransformAsset(Asset):
     load_strategy = LoadStrategy.FULL_REPLACE
     target_schema = "mart"       # convention: transforms go in "mart" schema
     source_tables: list[str] = []
-    query_timeout_seconds: int = 300  # safety limit — per-query Postgres timeout
+    query_timeout_seconds: int = 300  # safety limit — per-query timeout
 
     @abstractmethod
     def query(self, context: RunContext) -> str:
@@ -1417,7 +1421,7 @@ class TransformAsset(Asset):
 ```
 
 The `query_timeout_seconds` attribute sets a per-query `statement_timeout` on the
-Postgres session (via `SET LOCAL`). If your transform runs a heavy multi-table JOIN
+database session. If your transform runs a heavy multi-table JOIN
 that legitimately needs more than 5 minutes, override it:
 
 ```python
@@ -1545,7 +1549,7 @@ Run the validation tests locally before opening a PR:
 .venv/bin/python -m pytest tests/integration/test_transform_schema.py -v
 ```
 
-The integration test creates empty source tables from asset definitions and runs your `query()` against them — Postgres itself validates the SQL syntax and column references.
+The integration test creates empty source tables from asset definitions and runs your `query()` against them — the database itself validates the SQL syntax and column references.
 
 ---
 
@@ -1655,7 +1659,7 @@ def test_parse_response_empty(asset):
 
 ### Integration Test Pattern
 
-Use `respx` to mock the HTTP layer and a test Postgres database to verify
+Use `respx` to mock the HTTP layer and a test database to verify
 end-to-end behavior:
 
 ```python
@@ -1973,7 +1977,7 @@ export ITEMS_API_URL="https://items.example.com"
 - **Check `source_tables`.** This is informational, but if you list the wrong
   tables, the dependency ordering may be incorrect (the transform runs before
   its source data is refreshed).
-- **Check the SQL.** Run the query manually against Postgres to verify it
+- **Check the SQL.** Run the query manually against your database to verify it
   returns what you expect.
 - **Check column name alignment.** The SQL `SELECT ... AS column_name` aliases
   must match the `columns` definition names exactly.

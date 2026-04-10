@@ -2,13 +2,32 @@
 
 ## Database Connection
 
-Set `DATABASE_URL` environment variable pointing to your Postgres instance:
+data-assets supports **PostgreSQL 16+** and **MariaDB 10.11+**. Set `DATABASE_URL` pointing to your database:
 
 ```bash
+# PostgreSQL
 export DATABASE_URL="postgresql://user:pass@host:5432/data_assets"
+
+# MariaDB
+export DATABASE_URL="mysql+pymysql://user:pass@host:3306/data_assets"
 ```
 
-Resolution order:
+Install the appropriate driver:
+
+```bash
+pip install data-assets[postgres]   # PostgreSQL (psycopg2)
+pip install data-assets[mariadb]    # MariaDB (PyMySQL)
+```
+
+**Backend detection**: The database type is auto-detected from the `DATABASE_URL` prefix. You can also set it explicitly:
+
+```bash
+export DATABASE_BACKEND=postgres   # or mariadb
+```
+
+If both `DATABASE_BACKEND` and `DATABASE_URL` are set and conflict (e.g., `DATABASE_BACKEND=mariadb` with a `postgresql://` URL), the package raises a `RuntimeError` at startup.
+
+**Resolution order** for the connection string:
 1. Airflow Connection `data_assets_db` (if Airflow is installed)
 2. `DATABASE_URL` environment variable
 3. `DATABASE_URL` in `.env` file
