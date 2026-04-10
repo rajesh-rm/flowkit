@@ -7,6 +7,8 @@ import pytest
 from data_assets.core.asset import Asset
 from data_assets.core.column import Column, Index
 from data_assets.core.enums import RunMode
+from sqlalchemy import Text
+
 from data_assets.dag.overrides import (
     SCHEDULE_BY_MODE,
     ensure_toml_entries,
@@ -19,7 +21,7 @@ class _StubAsset(Asset):
     name = "stub_ov"
     target_table = "stub_ov"
     default_run_mode = RunMode.FULL
-    columns = [Column("id", "text")]
+    columns = [Column("id", Text())]
     primary_key = ["id"]
     indexes = [Index(columns=["id"])]
 
@@ -28,7 +30,7 @@ class _StubWithDagConfig(Asset):
     name = "stub_dc"
     target_table = "stub_dc"
     default_run_mode = RunMode.FORWARD
-    columns = [Column("id", "text")]
+    columns = [Column("id", Text())]
     primary_key = ["id"]
     indexes = [Index(columns=["id"])]
     dag_config = {"schedule": "*/30 * * * *", "retries": 5}
@@ -80,7 +82,7 @@ def test_schedule_from_run_mode():
             name = "dyn"
             target_table = "dyn"
             default_run_mode = mode
-            columns = [Column("id", "text")]
+            columns = [Column("id", Text())]
             primary_key = ["id"]
             indexes = [Index(columns=["id"])]
 
@@ -136,7 +138,7 @@ class _StubForward(Asset):
     name = "stub_fwd"
     target_table = "stub_fwd"
     default_run_mode = RunMode.FORWARD
-    columns = [Column("id", "text")]
+    columns = [Column("id", Text())]
     primary_key = ["id"]
     indexes = [Index(columns=["id"])]
 

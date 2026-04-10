@@ -8,6 +8,7 @@ from data_assets.cli import main
 from data_assets.core.asset import Asset
 from data_assets.core.column import Column, Index
 from data_assets.core.registry import register
+from sqlalchemy import Text
 
 
 def _register_stub():
@@ -15,7 +16,7 @@ def _register_stub():
         name = "cli_stub"
         target_table = "cli_stub"
         description = "A test asset"
-        columns = [Column("id", "text")]
+        columns = [Column("id", Text())]
         primary_key = ["id"]
         indexes = [Index(columns=["id"])]
 

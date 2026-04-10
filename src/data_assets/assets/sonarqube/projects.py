@@ -22,6 +22,7 @@ from data_assets.extract.api_client import APIClient
 from data_assets.extract.rate_limiter import RateLimiter
 from data_assets.extract.token_manager import SonarQubeTokenManager
 from data_assets.load.loader import write_to_temp
+from sqlalchemy import Text
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
@@ -85,9 +86,9 @@ class SonarQubeProjects(RestAsset):
     # --- Schema ---
     # /api/components/search returns: key, name, qualifier, project
     columns = [
-        Column("key", "TEXT", nullable=False),
-        Column("name", "TEXT"),
-        Column("qualifier", "TEXT"),
+        Column("key", Text(), nullable=False),
+        Column("name", Text()),
+        Column("qualifier", Text()),
     ]
     primary_key = ["key"]
     indexes = [

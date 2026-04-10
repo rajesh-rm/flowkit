@@ -10,6 +10,7 @@ from data_assets.assets.github.helpers import GitHubOrgAsset
 from data_assets.core.column import Column, Index
 from data_assets.core.registry import register
 from data_assets.core.types import PaginationState
+from sqlalchemy import Integer, Text
 
 
 @register
@@ -21,10 +22,10 @@ class GitHubMembers(GitHubOrgAsset):
     org_endpoint = "/members"
 
     columns = [
-        Column("login", "TEXT", nullable=False),
-        Column("id", "INTEGER"),
-        Column("avatar_url", "TEXT"),
-        Column("type", "TEXT"),
+        Column("login", Text(), nullable=False),
+        Column("id", Integer()),
+        Column("avatar_url", Text()),
+        Column("type", Text()),
     ]
 
     primary_key = ["login"]

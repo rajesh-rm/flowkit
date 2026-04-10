@@ -11,6 +11,7 @@ from data_assets.core.column import Column, Index
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationState, RequestSpec
+from sqlalchemy import DateTime, Integer, Text
 
 
 @register
@@ -21,13 +22,13 @@ class GitHubWorkflows(GitHubRepoAsset):
     target_table = "github_workflows"
 
     columns = [
-        Column("id", "INTEGER", nullable=False),
-        Column("repo_full_name", "TEXT"),
-        Column("name", "TEXT"),
-        Column("path", "TEXT"),
-        Column("state", "TEXT"),
-        Column("created_at", "TIMESTAMPTZ"),
-        Column("updated_at", "TIMESTAMPTZ"),
+        Column("id", Integer(), nullable=False),
+        Column("repo_full_name", Text()),
+        Column("name", Text()),
+        Column("path", Text()),
+        Column("state", Text()),
+        Column("created_at", DateTime(timezone=True)),
+        Column("updated_at", DateTime(timezone=True)),
     ]
     primary_key = ["id"]
     indexes = [

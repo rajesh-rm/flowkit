@@ -18,6 +18,7 @@ from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
+from sqlalchemy import DateTime, JSON, Text
 
 
 @register
@@ -38,14 +39,14 @@ class SonarQubeProjectDetails(SonarQubeAsset):
     default_run_mode = RunMode.FULL
 
     columns = [
-        Column("key", "TEXT", nullable=False),
-        Column("name", "TEXT"),
-        Column("description", "TEXT"),
-        Column("visibility", "TEXT"),
-        Column("version", "TEXT"),
-        Column("analysis_date", "TIMESTAMPTZ"),
-        Column("leak_period_date", "TIMESTAMPTZ"),
-        Column("tags", "JSONB"),
+        Column("key", Text(), nullable=False),
+        Column("name", Text()),
+        Column("description", Text()),
+        Column("visibility", Text()),
+        Column("version", Text()),
+        Column("analysis_date", DateTime(timezone=True)),
+        Column("leak_period_date", DateTime(timezone=True)),
+        Column("tags", JSON()),
     ]
 
     primary_key = ["key"]

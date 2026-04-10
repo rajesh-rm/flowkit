@@ -11,6 +11,7 @@ from data_assets.core.column import Column, Index
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
+from sqlalchemy import Text
 
 
 @register
@@ -23,9 +24,9 @@ class GitHubRepoProperties(GitHubRepoAsset):
     pagination_config = PaginationConfig(strategy="none")
 
     columns = [
-        Column("repo_full_name", "TEXT", nullable=False),
-        Column("property_name", "TEXT", nullable=False),
-        Column("value", "TEXT"),
+        Column("repo_full_name", Text(), nullable=False),
+        Column("property_name", Text(), nullable=False),
+        Column("value", Text()),
     ]
     primary_key = ["repo_full_name", "property_name"]
     indexes = [

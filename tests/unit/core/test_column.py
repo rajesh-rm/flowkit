@@ -1,5 +1,8 @@
 """Unit tests for Column and Index dataclasses."""
 
+import pytest
+from sqlalchemy import DateTime, Integer, Text
+
 from data_assets.core.column import Column, Index, PG_MAX_IDENTIFIER, index_name
 from data_assets.core.enums import IndexMethod
 
@@ -85,3 +88,26 @@ class TestIndexName:
         name1 = index_name("t", idx1)
         name2 = index_name("t", idx2)
         assert name1 != name2
+
+
+class TestColumnTypes:
+
+    def test_sqlalchemy_type_accepted(self):
+        col = Column("ts", DateTime(timezone=True))
+        assert isinstance(col.sa_type, DateTime)
+
+    def test_legacy_string_mapped(self):
+        col = Column("name", "TEXT")
+        assert isinstance(col.sa_type, Text().__class__)
+
+    def test_pg_type_property_returns_postgres_string(self):
+        col = Column("ts", DateTime(timezone=True))
+        assert col.pg_type == "TIMESTAMP WITH TIME ZONE"
+
+    def test_unknown_string_raises_valueerror(self):
+        with pytest.raises(ValueError, match="Unknown column type 'VARCAR'"):
+            Column("bad", "VARCAR")
+
+    def test_no_type_raises_valueerror(self):
+        with pytest.raises(ValueError, match="requires either"):
+            Column("bad", sa_type=None, pg_type=None)

@@ -12,6 +12,7 @@ from data_assets.core.enums import LoadStrategy, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationState, RequestSpec
+from sqlalchemy import DateTime, Integer, Text
 
 
 @register
@@ -34,20 +35,20 @@ class GitHubPullRequests(GitHubRepoAsset):
     default_run_mode = RunMode.FORWARD
 
     columns = [
-        Column("id", "INTEGER", nullable=False),
-        Column("number", "INTEGER"),
-        Column("title", "TEXT"),
-        Column("state", "TEXT"),
-        Column("user_login", "TEXT"),
-        Column("repo_full_name", "TEXT"),
-        Column("created_at", "TIMESTAMPTZ"),
-        Column("updated_at", "TIMESTAMPTZ"),
-        Column("closed_at", "TIMESTAMPTZ", nullable=True),
-        Column("merged_at", "TIMESTAMPTZ", nullable=True),
-        Column("draft", "TEXT"),
-        Column("head_ref", "TEXT"),
-        Column("base_ref", "TEXT"),
-        Column("html_url", "TEXT"),
+        Column("id", Integer(), nullable=False),
+        Column("number", Integer()),
+        Column("title", Text()),
+        Column("state", Text()),
+        Column("user_login", Text()),
+        Column("repo_full_name", Text()),
+        Column("created_at", DateTime(timezone=True)),
+        Column("updated_at", DateTime(timezone=True)),
+        Column("closed_at", DateTime(timezone=True), nullable=True),
+        Column("merged_at", DateTime(timezone=True), nullable=True),
+        Column("draft", Text()),
+        Column("head_ref", Text()),
+        Column("base_ref", Text()),
+        Column("html_url", Text()),
     ]
 
     primary_key = ["id"]

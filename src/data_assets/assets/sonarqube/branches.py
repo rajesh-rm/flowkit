@@ -17,6 +17,7 @@ from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
+from sqlalchemy import Boolean, DateTime, Text
 
 
 @register
@@ -38,13 +39,13 @@ class SonarQubeBranches(SonarQubeAsset):
     default_run_mode = RunMode.FULL
 
     columns = [
-        Column("project_key", "TEXT", nullable=False),
-        Column("name", "TEXT", nullable=False),
-        Column("is_main", "BOOLEAN"),
-        Column("type", "TEXT"),
-        Column("quality_gate_status", "TEXT"),
-        Column("analysis_date", "TIMESTAMPTZ"),
-        Column("excluded_from_purge", "BOOLEAN"),
+        Column("project_key", Text(), nullable=False),
+        Column("name", Text(), nullable=False),
+        Column("is_main", Boolean()),
+        Column("type", Text()),
+        Column("quality_gate_status", Text()),
+        Column("analysis_date", DateTime(timezone=True)),
+        Column("excluded_from_purge", Boolean()),
     ]
 
     primary_key = ["project_key", "name"]

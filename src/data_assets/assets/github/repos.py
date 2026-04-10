@@ -16,6 +16,7 @@ from data_assets.assets.github.helpers import GitHubOrgAsset
 from data_assets.core.column import Column, Index
 from data_assets.core.registry import register
 from data_assets.core.types import PaginationState
+from sqlalchemy import DateTime, Integer, Text
 
 
 @register
@@ -32,19 +33,19 @@ class GitHubRepos(GitHubOrgAsset):
     org_request_params = {"type": "all"}
 
     columns = [
-        Column("id", "INTEGER", nullable=False),
-        Column("full_name", "TEXT", nullable=False),
-        Column("name", "TEXT"),
-        Column("owner_login", "TEXT"),
-        Column("private", "TEXT"),
-        Column("description", "TEXT", nullable=True),
-        Column("language", "TEXT", nullable=True),
-        Column("default_branch", "TEXT"),
-        Column("created_at", "TIMESTAMPTZ"),
-        Column("updated_at", "TIMESTAMPTZ"),
-        Column("pushed_at", "TIMESTAMPTZ", nullable=True),
-        Column("archived", "TEXT"),
-        Column("html_url", "TEXT"),
+        Column("id", Integer(), nullable=False),
+        Column("full_name", Text(), nullable=False),
+        Column("name", Text()),
+        Column("owner_login", Text()),
+        Column("private", Text()),
+        Column("description", Text(), nullable=True),
+        Column("language", Text(), nullable=True),
+        Column("default_branch", Text()),
+        Column("created_at", DateTime(timezone=True)),
+        Column("updated_at", DateTime(timezone=True)),
+        Column("pushed_at", DateTime(timezone=True), nullable=True),
+        Column("archived", Text()),
+        Column("html_url", Text()),
     ]
 
     primary_key = ["full_name"]

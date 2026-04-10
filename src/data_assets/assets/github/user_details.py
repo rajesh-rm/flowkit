@@ -14,6 +14,7 @@ from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
 from data_assets.extract.token_manager import GitHubAppTokenManager
+from sqlalchemy import DateTime, Integer, Text
 
 
 @register
@@ -38,16 +39,16 @@ class GitHubUserDetails(APIAsset):
     default_run_mode = RunMode.FULL
 
     columns = [
-        Column("login", "TEXT", nullable=False),
-        Column("name", "TEXT"),
-        Column("company", "TEXT"),
-        Column("location", "TEXT"),
-        Column("email", "TEXT"),
-        Column("bio", "TEXT"),
-        Column("public_repos", "INTEGER"),
-        Column("followers", "INTEGER"),
-        Column("created_at", "TIMESTAMPTZ"),
-        Column("updated_at", "TIMESTAMPTZ"),
+        Column("login", Text(), nullable=False),
+        Column("name", Text()),
+        Column("company", Text()),
+        Column("location", Text()),
+        Column("email", Text()),
+        Column("bio", Text()),
+        Column("public_repos", Integer()),
+        Column("followers", Integer()),
+        Column("created_at", DateTime(timezone=True)),
+        Column("updated_at", DateTime(timezone=True)),
     ]
     primary_key = ["login"]
     indexes = [

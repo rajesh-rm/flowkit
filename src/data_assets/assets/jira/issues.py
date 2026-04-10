@@ -10,6 +10,7 @@ from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
+from sqlalchemy import DateTime, Text
 
 _ISSUE_FIELDS = (
     "summary,status,priority,issuetype,assignee,"
@@ -33,19 +34,19 @@ class JiraIssues(JiraAsset):
     default_run_mode = RunMode.FORWARD
 
     columns = [
-        Column("id", "TEXT", nullable=False),
-        Column("key", "TEXT", nullable=False),
-        Column("summary", "TEXT"),
-        Column("status", "TEXT"),
-        Column("priority", "TEXT"),
-        Column("issue_type", "TEXT"),
-        Column("project_key", "TEXT"),
-        Column("assignee", "TEXT", nullable=True),
-        Column("reporter", "TEXT", nullable=True),
-        Column("created", "TIMESTAMPTZ"),
-        Column("updated", "TIMESTAMPTZ"),
-        Column("resolution_date", "TIMESTAMPTZ", nullable=True),
-        Column("labels", "TEXT", nullable=True),
+        Column("id", Text(), nullable=False),
+        Column("key", Text(), nullable=False),
+        Column("summary", Text()),
+        Column("status", Text()),
+        Column("priority", Text()),
+        Column("issue_type", Text()),
+        Column("project_key", Text()),
+        Column("assignee", Text(), nullable=True),
+        Column("reporter", Text(), nullable=True),
+        Column("created", DateTime(timezone=True)),
+        Column("updated", DateTime(timezone=True)),
+        Column("resolution_date", DateTime(timezone=True), nullable=True),
+        Column("labels", Text(), nullable=True),
     ]
 
     primary_key = ["id"]

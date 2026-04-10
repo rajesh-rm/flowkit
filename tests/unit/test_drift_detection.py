@@ -12,13 +12,14 @@ from data_assets.core.column import Column, Index
 from data_assets.core.enums import RunMode
 from data_assets.core.registry import register
 from data_assets.dag.fingerprint import compute_fingerprint
+from sqlalchemy import Text
 
 
 class _DriftAsset(Asset):
     name = "drift_test"
     target_table = "drift_test"
     default_run_mode = RunMode.FULL
-    columns = [Column("id", "text")]
+    columns = [Column("id", Text())]
     primary_key = ["id"]
     indexes = [Index(columns=["id"])]
 

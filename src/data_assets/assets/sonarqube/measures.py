@@ -22,6 +22,7 @@ from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
+from sqlalchemy import BigInteger, Float, Integer, Text
 
 
 @register
@@ -43,14 +44,14 @@ class SonarQubeMeasures(SonarQubeAsset):
     default_run_mode = RunMode.FULL
 
     columns = [
-        Column("project_key", "TEXT", nullable=False),
-        Column("ncloc", "BIGINT"),
-        Column("bugs", "INTEGER"),
-        Column("vulnerabilities", "INTEGER"),
-        Column("code_smells", "INTEGER"),
-        Column("coverage", "FLOAT"),
-        Column("duplicated_lines_density", "FLOAT"),
-        Column("sqale_index", "BIGINT"),
+        Column("project_key", Text(), nullable=False),
+        Column("ncloc", BigInteger()),
+        Column("bugs", Integer()),
+        Column("vulnerabilities", Integer()),
+        Column("code_smells", Integer()),
+        Column("coverage", Float()),
+        Column("duplicated_lines_density", Float()),
+        Column("sqale_index", BigInteger()),
     ]
 
     primary_key = ["project_key"]

@@ -11,6 +11,7 @@ from data_assets.core.column import Column, Index
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationState, RequestSpec
+from sqlalchemy import Text
 
 
 @register
@@ -21,10 +22,10 @@ class GitHubBranches(GitHubRepoAsset):
     target_table = "github_branches"
 
     columns = [
-        Column("repo_full_name", "TEXT", nullable=False),
-        Column("name", "TEXT", nullable=False),
-        Column("protected", "TEXT"),
-        Column("commit_sha", "TEXT"),
+        Column("repo_full_name", Text(), nullable=False),
+        Column("name", Text(), nullable=False),
+        Column("protected", Text()),
+        Column("commit_sha", Text()),
     ]
     primary_key = ["repo_full_name", "name"]
     indexes = [

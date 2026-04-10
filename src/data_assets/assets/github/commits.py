@@ -12,6 +12,7 @@ from data_assets.core.enums import LoadStrategy, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationState, RequestSpec
+from sqlalchemy import DateTime, Text
 
 
 @register
@@ -25,14 +26,14 @@ class GitHubCommits(GitHubRepoAsset):
     default_run_mode = RunMode.FORWARD
 
     columns = [
-        Column("sha", "TEXT", nullable=False),
-        Column("repo_full_name", "TEXT"),
-        Column("author_login", "TEXT"),
-        Column("author_date", "TIMESTAMPTZ"),
-        Column("committer_login", "TEXT"),
-        Column("committer_date", "TIMESTAMPTZ"),
-        Column("message", "TEXT"),
-        Column("html_url", "TEXT"),
+        Column("sha", Text(), nullable=False),
+        Column("repo_full_name", Text()),
+        Column("author_login", Text()),
+        Column("author_date", DateTime(timezone=True)),
+        Column("committer_login", Text()),
+        Column("committer_date", DateTime(timezone=True)),
+        Column("message", Text()),
+        Column("html_url", Text()),
     ]
     primary_key = ["sha"]
     indexes = [

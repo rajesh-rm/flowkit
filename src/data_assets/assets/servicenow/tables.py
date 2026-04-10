@@ -16,6 +16,7 @@ from data_assets.assets.servicenow.base import ServiceNowTableAsset
 from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy, RunMode
 from data_assets.core.registry import register
+from sqlalchemy import DateTime, Text
 
 # ---------------------------------------------------------------------------
 # ITSM tables
@@ -31,19 +32,19 @@ class ServiceNowIncidents(ServiceNowTableAsset):
     table_name = "incident"
 
     columns = [
-        Column("sys_id", "TEXT", nullable=False),
-        Column("number", "TEXT"),
-        Column("short_description", "TEXT"),
-        Column("description", "TEXT"),
-        Column("state", "TEXT"),
-        Column("priority", "TEXT"),
-        Column("severity", "TEXT"),
-        Column("category", "TEXT"),
-        Column("assigned_to", "TEXT"),
-        Column("assignment_group", "TEXT"),
-        Column("opened_at", "TIMESTAMPTZ"),
-        Column("closed_at", "TIMESTAMPTZ", nullable=True),
-        Column("sys_updated_on", "TIMESTAMPTZ"),
+        Column("sys_id", Text(), nullable=False),
+        Column("number", Text()),
+        Column("short_description", Text()),
+        Column("description", Text()),
+        Column("state", Text()),
+        Column("priority", Text()),
+        Column("severity", Text()),
+        Column("category", Text()),
+        Column("assigned_to", Text()),
+        Column("assignment_group", Text()),
+        Column("opened_at", DateTime(timezone=True)),
+        Column("closed_at", DateTime(timezone=True), nullable=True),
+        Column("sys_updated_on", DateTime(timezone=True)),
     ]
     indexes = [
         Index(columns=("number",), unique=True),
@@ -64,22 +65,22 @@ class ServiceNowChanges(ServiceNowTableAsset):
     table_name = "change_request"
 
     columns = [
-        Column("sys_id", "TEXT", nullable=False),
-        Column("number", "TEXT"),
-        Column("short_description", "TEXT"),
-        Column("description", "TEXT"),
-        Column("state", "TEXT"),
-        Column("type", "TEXT"),
-        Column("priority", "TEXT"),
-        Column("risk", "TEXT"),
-        Column("category", "TEXT"),
-        Column("assigned_to", "TEXT"),
-        Column("assignment_group", "TEXT"),
-        Column("opened_at", "TIMESTAMPTZ"),
-        Column("closed_at", "TIMESTAMPTZ", nullable=True),
-        Column("start_date", "TIMESTAMPTZ", nullable=True),
-        Column("end_date", "TIMESTAMPTZ", nullable=True),
-        Column("sys_updated_on", "TIMESTAMPTZ"),
+        Column("sys_id", Text(), nullable=False),
+        Column("number", Text()),
+        Column("short_description", Text()),
+        Column("description", Text()),
+        Column("state", Text()),
+        Column("type", Text()),
+        Column("priority", Text()),
+        Column("risk", Text()),
+        Column("category", Text()),
+        Column("assigned_to", Text()),
+        Column("assignment_group", Text()),
+        Column("opened_at", DateTime(timezone=True)),
+        Column("closed_at", DateTime(timezone=True), nullable=True),
+        Column("start_date", DateTime(timezone=True), nullable=True),
+        Column("end_date", DateTime(timezone=True), nullable=True),
+        Column("sys_updated_on", DateTime(timezone=True)),
     ]
     indexes = [
         Index(columns=("number",), unique=True),
@@ -100,17 +101,17 @@ class ServiceNowChangeTasks(ServiceNowTableAsset):
     table_name = "change_task"
 
     columns = [
-        Column("sys_id", "TEXT", nullable=False),
-        Column("number", "TEXT"),
-        Column("short_description", "TEXT"),
-        Column("state", "TEXT"),
-        Column("priority", "TEXT"),
-        Column("change_request", "TEXT"),
-        Column("assigned_to", "TEXT"),
-        Column("assignment_group", "TEXT"),
-        Column("planned_start_date", "TIMESTAMPTZ", nullable=True),
-        Column("planned_end_date", "TIMESTAMPTZ", nullable=True),
-        Column("sys_updated_on", "TIMESTAMPTZ"),
+        Column("sys_id", Text(), nullable=False),
+        Column("number", Text()),
+        Column("short_description", Text()),
+        Column("state", Text()),
+        Column("priority", Text()),
+        Column("change_request", Text()),
+        Column("assigned_to", Text()),
+        Column("assignment_group", Text()),
+        Column("planned_start_date", DateTime(timezone=True), nullable=True),
+        Column("planned_end_date", DateTime(timezone=True), nullable=True),
+        Column("sys_updated_on", DateTime(timezone=True)),
     ]
     indexes = [
         Index(columns=("number",), unique=True),
@@ -129,17 +130,17 @@ class ServiceNowProblems(ServiceNowTableAsset):
     table_name = "problem"
 
     columns = [
-        Column("sys_id", "TEXT", nullable=False),
-        Column("number", "TEXT"),
-        Column("short_description", "TEXT"),
-        Column("state", "TEXT"),
-        Column("priority", "TEXT"),
-        Column("category", "TEXT"),
-        Column("assigned_to", "TEXT"),
-        Column("assignment_group", "TEXT"),
-        Column("opened_at", "TIMESTAMPTZ"),
-        Column("closed_at", "TIMESTAMPTZ", nullable=True),
-        Column("sys_updated_on", "TIMESTAMPTZ"),
+        Column("sys_id", Text(), nullable=False),
+        Column("number", Text()),
+        Column("short_description", Text()),
+        Column("state", Text()),
+        Column("priority", Text()),
+        Column("category", Text()),
+        Column("assigned_to", Text()),
+        Column("assignment_group", Text()),
+        Column("opened_at", DateTime(timezone=True)),
+        Column("closed_at", DateTime(timezone=True), nullable=True),
+        Column("sys_updated_on", DateTime(timezone=True)),
     ]
     indexes = [
         Index(columns=("number",), unique=True),
@@ -164,17 +165,17 @@ class ServiceNowUsers(ServiceNowTableAsset):
     table_name = "sys_user"
 
     columns = [
-        Column("sys_id", "TEXT", nullable=False),
-        Column("user_name", "TEXT"),
-        Column("name", "TEXT"),
-        Column("email", "TEXT"),
-        Column("title", "TEXT"),
-        Column("department", "TEXT"),
-        Column("manager", "TEXT"),
-        Column("active", "TEXT"),
-        Column("locked_out", "TEXT"),
-        Column("last_login_time", "TIMESTAMPTZ", nullable=True),
-        Column("sys_updated_on", "TIMESTAMPTZ"),
+        Column("sys_id", Text(), nullable=False),
+        Column("user_name", Text()),
+        Column("name", Text()),
+        Column("email", Text()),
+        Column("title", Text()),
+        Column("department", Text()),
+        Column("manager", Text()),
+        Column("active", Text()),
+        Column("locked_out", Text()),
+        Column("last_login_time", DateTime(timezone=True), nullable=True),
+        Column("sys_updated_on", DateTime(timezone=True)),
     ]
     indexes = [
         Index(columns=("user_name",), unique=True),
@@ -193,14 +194,14 @@ class ServiceNowUserGroups(ServiceNowTableAsset):
     table_name = "sys_user_group"
 
     columns = [
-        Column("sys_id", "TEXT", nullable=False),
-        Column("name", "TEXT"),
-        Column("description", "TEXT"),
-        Column("manager", "TEXT"),
-        Column("email", "TEXT"),
-        Column("active", "TEXT"),
-        Column("type", "TEXT"),
-        Column("sys_updated_on", "TIMESTAMPTZ"),
+        Column("sys_id", Text(), nullable=False),
+        Column("name", Text()),
+        Column("description", Text()),
+        Column("manager", Text()),
+        Column("email", Text()),
+        Column("active", Text()),
+        Column("type", Text()),
+        Column("sys_updated_on", DateTime(timezone=True)),
     ]
     indexes = [
         Index(columns=("name",)),
@@ -218,14 +219,14 @@ class ServiceNowDepartments(ServiceNowTableAsset):
     table_name = "cmn_department"
 
     columns = [
-        Column("sys_id", "TEXT", nullable=False),
-        Column("name", "TEXT"),
-        Column("dept_head", "TEXT"),
-        Column("description", "TEXT"),
-        Column("parent", "TEXT"),
-        Column("primary_contact", "TEXT"),
-        Column("company", "TEXT"),
-        Column("sys_updated_on", "TIMESTAMPTZ"),
+        Column("sys_id", Text(), nullable=False),
+        Column("name", Text()),
+        Column("dept_head", Text()),
+        Column("description", Text()),
+        Column("parent", Text()),
+        Column("primary_contact", Text()),
+        Column("company", Text()),
+        Column("sys_updated_on", DateTime(timezone=True)),
     ]
     indexes = [
         Index(columns=("name",)),
@@ -242,15 +243,15 @@ class ServiceNowLocations(ServiceNowTableAsset):
     table_name = "cmn_location"
 
     columns = [
-        Column("sys_id", "TEXT", nullable=False),
-        Column("name", "TEXT"),
-        Column("city", "TEXT"),
-        Column("state", "TEXT"),
-        Column("country", "TEXT"),
-        Column("latitude", "TEXT"),
-        Column("longitude", "TEXT"),
-        Column("parent", "TEXT"),
-        Column("sys_updated_on", "TIMESTAMPTZ"),
+        Column("sys_id", Text(), nullable=False),
+        Column("name", Text()),
+        Column("city", Text()),
+        Column("state", Text()),
+        Column("country", Text()),
+        Column("latitude", Text()),
+        Column("longitude", Text()),
+        Column("parent", Text()),
+        Column("sys_updated_on", DateTime(timezone=True)),
     ]
     indexes = [
         Index(columns=("name",)),
@@ -273,19 +274,19 @@ class ServiceNowCmdbCIs(ServiceNowTableAsset):
     table_name = "cmdb_ci"
 
     columns = [
-        Column("sys_id", "TEXT", nullable=False),
-        Column("name", "TEXT"),
-        Column("sys_class_name", "TEXT"),
-        Column("category", "TEXT"),
-        Column("subcategory", "TEXT"),
-        Column("operational_status", "TEXT"),
-        Column("asset_tag", "TEXT"),
-        Column("serial_number", "TEXT"),
-        Column("assigned_to", "TEXT"),
-        Column("support_group", "TEXT"),
-        Column("company", "TEXT"),
-        Column("location", "TEXT"),
-        Column("sys_updated_on", "TIMESTAMPTZ"),
+        Column("sys_id", Text(), nullable=False),
+        Column("name", Text()),
+        Column("sys_class_name", Text()),
+        Column("category", Text()),
+        Column("subcategory", Text()),
+        Column("operational_status", Text()),
+        Column("asset_tag", Text()),
+        Column("serial_number", Text()),
+        Column("assigned_to", Text()),
+        Column("support_group", Text()),
+        Column("company", Text()),
+        Column("location", Text()),
+        Column("sys_updated_on", DateTime(timezone=True)),
     ]
     indexes = [
         Index(columns=("sys_class_name",)),
@@ -304,18 +305,18 @@ class ServiceNowHardwareAssets(ServiceNowTableAsset):
     table_name = "alm_hardware"
 
     columns = [
-        Column("sys_id", "TEXT", nullable=False),
-        Column("display_name", "TEXT"),
-        Column("asset_tag", "TEXT"),
-        Column("serial_number", "TEXT"),
-        Column("model", "TEXT"),
-        Column("model_category", "TEXT"),
-        Column("assigned_to", "TEXT"),
-        Column("location", "TEXT"),
-        Column("install_status", "TEXT"),
-        Column("substatus", "TEXT"),
-        Column("ci", "TEXT"),
-        Column("sys_updated_on", "TIMESTAMPTZ"),
+        Column("sys_id", Text(), nullable=False),
+        Column("display_name", Text()),
+        Column("asset_tag", Text()),
+        Column("serial_number", Text()),
+        Column("model", Text()),
+        Column("model_category", Text()),
+        Column("assigned_to", Text()),
+        Column("location", Text()),
+        Column("install_status", Text()),
+        Column("substatus", Text()),
+        Column("ci", Text()),
+        Column("sys_updated_on", DateTime(timezone=True)),
     ]
     indexes = [
         Index(columns=("asset_tag",)),
@@ -339,18 +340,18 @@ class ServiceNowCatalogItems(ServiceNowTableAsset):
     table_name = "sc_req_item"
 
     columns = [
-        Column("sys_id", "TEXT", nullable=False),
-        Column("number", "TEXT"),
-        Column("short_description", "TEXT"),
-        Column("request", "TEXT"),
-        Column("cat_item", "TEXT"),
-        Column("state", "TEXT"),
-        Column("quantity", "TEXT"),
-        Column("price", "TEXT"),
-        Column("stage", "TEXT"),
-        Column("opened_at", "TIMESTAMPTZ"),
-        Column("closed_at", "TIMESTAMPTZ", nullable=True),
-        Column("sys_updated_on", "TIMESTAMPTZ"),
+        Column("sys_id", Text(), nullable=False),
+        Column("number", Text()),
+        Column("short_description", Text()),
+        Column("request", Text()),
+        Column("cat_item", Text()),
+        Column("state", Text()),
+        Column("quantity", Text()),
+        Column("price", Text()),
+        Column("stage", Text()),
+        Column("opened_at", DateTime(timezone=True)),
+        Column("closed_at", DateTime(timezone=True), nullable=True),
+        Column("sys_updated_on", DateTime(timezone=True)),
     ]
     indexes = [
         Index(columns=("number",), unique=True),
@@ -369,14 +370,14 @@ class ServiceNowCatalogRequests(ServiceNowTableAsset):
     table_name = "sc_request"
 
     columns = [
-        Column("sys_id", "TEXT", nullable=False),
-        Column("number", "TEXT"),
-        Column("short_description", "TEXT"),
-        Column("request_state", "TEXT"),
-        Column("requested_for", "TEXT"),
-        Column("opened_at", "TIMESTAMPTZ"),
-        Column("closed_at", "TIMESTAMPTZ", nullable=True),
-        Column("sys_updated_on", "TIMESTAMPTZ"),
+        Column("sys_id", Text(), nullable=False),
+        Column("number", Text()),
+        Column("short_description", Text()),
+        Column("request_state", Text()),
+        Column("requested_for", Text()),
+        Column("opened_at", DateTime(timezone=True)),
+        Column("closed_at", DateTime(timezone=True), nullable=True),
+        Column("sys_updated_on", DateTime(timezone=True)),
     ]
     indexes = [
         Index(columns=("number",), unique=True),
@@ -407,14 +408,14 @@ class ServiceNowChoices(ServiceNowTableAsset):
     date_column = None
 
     columns = [
-        Column("sys_id", "TEXT", nullable=False),
-        Column("name", "TEXT"),
-        Column("element", "TEXT"),
-        Column("value", "TEXT"),
-        Column("label", "TEXT"),
-        Column("language", "TEXT"),
-        Column("inactive", "TEXT"),
-        Column("sys_updated_on", "TIMESTAMPTZ"),
+        Column("sys_id", Text(), nullable=False),
+        Column("name", Text()),
+        Column("element", Text()),
+        Column("value", Text()),
+        Column("label", Text()),
+        Column("language", Text()),
+        Column("inactive", Text()),
+        Column("sys_updated_on", DateTime(timezone=True)),
     ]
     indexes = [
         Index(columns=("name", "element")),

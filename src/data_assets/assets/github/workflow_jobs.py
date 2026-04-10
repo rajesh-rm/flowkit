@@ -15,6 +15,7 @@ from data_assets.core.enums import LoadStrategy, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationState, RequestSpec
+from sqlalchemy import BigInteger, DateTime, Text
 
 
 @register
@@ -32,15 +33,15 @@ class GitHubWorkflowJobs(GitHubRepoAsset):
 
     # repo_full_name not included — JOIN to github_workflow_runs via run_id
     columns = [
-        Column("id", "BIGINT", nullable=False),
-        Column("run_id", "BIGINT"),
-        Column("name", "TEXT"),
-        Column("status", "TEXT"),
-        Column("conclusion", "TEXT"),
-        Column("started_at", "TIMESTAMPTZ"),
-        Column("completed_at", "TIMESTAMPTZ"),
-        Column("runner_name", "TEXT"),
-        Column("runner_group_name", "TEXT"),
+        Column("id", BigInteger(), nullable=False),
+        Column("run_id", BigInteger()),
+        Column("name", Text()),
+        Column("status", Text()),
+        Column("conclusion", Text()),
+        Column("started_at", DateTime(timezone=True)),
+        Column("completed_at", DateTime(timezone=True)),
+        Column("runner_name", Text()),
+        Column("runner_group_name", Text()),
     ]
     primary_key = ["id"]
     indexes = [

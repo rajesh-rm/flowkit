@@ -21,6 +21,7 @@ from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
+from sqlalchemy import DateTime, Text
 
 
 @register
@@ -45,10 +46,10 @@ class SonarQubeMeasuresHistory(SonarQubeAsset):
     date_column = "date"
 
     columns = [
-        Column("project_key", "TEXT", nullable=False),
-        Column("metric", "TEXT", nullable=False),
-        Column("date", "TIMESTAMPTZ", nullable=False),
-        Column("value", "TEXT"),
+        Column("project_key", Text(), nullable=False),
+        Column("metric", Text(), nullable=False),
+        Column("date", DateTime(timezone=True), nullable=False),
+        Column("value", Text()),
     ]
 
     primary_key = ["project_key", "metric", "date"]

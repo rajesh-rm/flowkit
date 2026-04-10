@@ -19,6 +19,8 @@ from data_assets.core.enums import (
 from data_assets.core.identifiers import uuid7
 from data_assets.core.registry import all_assets, get, register
 from data_assets.core.run_context import RunContext
+from sqlalchemy import Integer
+
 from data_assets.core.types import (
     PaginationConfig,
     PaginationState,
@@ -175,7 +177,7 @@ def _make_asset(name: str) -> type[Asset]:
     return type(name, (Asset,), {
         "name": name,
         "target_table": name,
-        "columns": [Column("id", "INTEGER", nullable=False)],
+        "columns": [Column("id", Integer(), nullable=False)],
         "primary_key": ["id"],
         "load_strategy": LoadStrategy.FULL_REPLACE,
         "default_run_mode": RunMode.FULL,
@@ -216,7 +218,7 @@ def test_register_as_decorator():
     class MyAsset(Asset):
         name = "decorated"
         target_table = "decorated"
-        columns = [Column("id", "INTEGER", nullable=False)]
+        columns = [Column("id", Integer(), nullable=False)]
         primary_key = ["id"]
 
     assert get("decorated") is MyAsset

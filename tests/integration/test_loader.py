@@ -6,7 +6,7 @@ import uuid
 
 import pandas as pd
 import pytest
-from sqlalchemy import inspect, text
+from sqlalchemy import DateTime, Float, Integer, Text, inspect, text
 
 from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy
@@ -25,9 +25,9 @@ from data_assets.load.loader import (
 )
 
 COLS = [
-    Column("id", "INTEGER", nullable=False),
-    Column("name", "TEXT"),
-    Column("score", "FLOAT", nullable=True),
+    Column("id", Integer(), nullable=False),
+    Column("name", Text()),
+    Column("score", Float(), nullable=True),
 ]
 PK = ["id"]
 
@@ -39,14 +39,17 @@ PK = ["id"]
 
 class TestColumnDDL:
     def test_basic(self):
-        assert _column_ddl(Column("x", "TEXT")) == '"x" TEXT'
+        assert _column_ddl(Column("x", Text())) == '"x" TEXT'
 
     def test_not_null(self):
-        assert _column_ddl(Column("id", "INTEGER", nullable=False)) == '"id" INTEGER NOT NULL'
+        assert _column_ddl(Column("id", Integer(), nullable=False)) == '"id" INTEGER NOT NULL'
 
     def test_with_default(self):
-        col = Column("ts", "TIMESTAMPTZ", nullable=False, default="now()")
-        assert _column_ddl(col) == '"ts" TIMESTAMPTZ NOT NULL DEFAULT now()'
+        col = Column("ts", DateTime(timezone=True), nullable=False, default="now()")
+        ddl = _column_ddl(col)
+        assert ddl.startswith('"ts" TIMESTAMP')
+        assert "NOT NULL" in ddl
+        assert "DEFAULT now()" in ddl
 
 
 # ---------------------------------------------------------------------------
@@ -226,7 +229,7 @@ class TestPromote:
 # ---------------------------------------------------------------------------
 
 
-IDX_COLS = [Column("id", "INTEGER", nullable=False), Column("name", "TEXT"), Column("status", "TEXT")]
+IDX_COLS = [Column("id", Integer(), nullable=False), Column("name", Text()), Column("status", Text())]
 IDX_PK = ["id"]
 INDEXES = [
     Index(columns=("name",)),
