@@ -1,14 +1,14 @@
-"""Execute SQL transforms on Postgres source tables and load results into temp table."""
+"""Execute SQL transforms on source tables and load results into temp table."""
 
 from __future__ import annotations
 
 import logging
 
 import pandas as pd
-from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from data_assets.core.run_context import RunContext
+from data_assets.db.dialect import get_dialect
 from data_assets.load.loader import write_to_temp
 
 logger = logging.getLogger(__name__)
@@ -34,8 +34,9 @@ def execute_transform(
         Number of rows written.
     """
     logger.info("Executing transform query for '%s'", context.asset_name)
+    d = get_dialect(engine)
     with engine.begin() as conn:
-        conn.execute(text(f"SET LOCAL statement_timeout = '{timeout_seconds}s'"))
+        d.set_query_timeout(conn, timeout_seconds)
         df = pd.read_sql(query, conn)
     rows = write_to_temp(engine, temp_table, df)
     logger.info(

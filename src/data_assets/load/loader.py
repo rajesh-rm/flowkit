@@ -2,8 +2,10 @@
 
 Handles the full data loading lifecycle:
 - Schema DDL: create tables, add columns, drop tables
-- Temp tables: create (UNLOGGED), write, read, check existence, drop
+- Temp tables: create, write, read, check existence, drop
 - Promotion: move data from temp → main table via full_replace/upsert/append
+
+All dialect-specific SQL is delegated to ``db.dialect``.
 """
 
 from __future__ import annotations
@@ -15,8 +17,9 @@ import pandas as pd
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 
-from data_assets.core.column import Column, Index, index_name
+from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy, SchemaContract
+from data_assets.db.dialect import get_dialect
 
 logger = logging.getLogger(__name__)
 
@@ -58,17 +61,15 @@ def create_table(
     if insp.has_table(table_name, schema=schema):
         return
 
-    col_defs = ", ".join(_column_ddl(c) for c in columns)
+    d = get_dialect(engine)
+    col_defs = ", ".join(d.column_ddl(c) for c in columns)
     pk_clause = ""
     if primary_key:
         pk_cols = ", ".join(f'"{c}"' for c in primary_key)
         pk_clause = f", PRIMARY KEY ({pk_cols})"
 
-    unlogged_kw = "UNLOGGED " if unlogged else ""
-    ddl = (
-        f'CREATE {unlogged_kw}TABLE "{schema}"."{table_name}" '
-        f"({col_defs}{pk_clause})"
-    )
+    create_kw = d.create_table_kw(unlogged)
+    ddl = f'{create_kw} "{schema}"."{table_name}" ({col_defs}{pk_clause})'
     with engine.begin() as conn:
         conn.execute(text(ddl))
     logger.info("Created table %s.%s", schema, table_name)
@@ -106,10 +107,11 @@ def ensure_columns(
         return
 
     # Default: evolve — auto-add
+    d = get_dialect(engine)
     with engine.begin() as conn:
         for col in new_cols:
             conn.execute(text(
-                f'ALTER TABLE "{schema}"."{table_name}" ADD COLUMN {_column_ddl(col)}'
+                f'ALTER TABLE "{schema}"."{table_name}" ADD COLUMN {d.column_ddl(col)}'
             ))
             logger.info("Added column '%s' to %s.%s", col.name, schema, table_name)
 
@@ -126,28 +128,19 @@ def ensure_indexes(
     Each index is created in its own transaction so one failure does not
     block the others.
     """
+    d = get_dialect(engine)
     for idx in indexes:
-        name = index_name(table_name, idx)
-        unique = "UNIQUE " if idx.unique else ""
-        cols = ", ".join(f'"{c}"' for c in idx.columns)
-        ddl = (
-            f'CREATE {unique}INDEX IF NOT EXISTS "{name}" '
-            f'ON "{schema}"."{table_name}" USING {idx.method} ({cols})'
-        )
-        if idx.include:
-            inc_cols = ", ".join(f'"{c}"' for c in idx.include)
-            ddl += f" INCLUDE ({inc_cols})"
-        if idx.where:
-            ddl += f" WHERE {idx.where}"
+        ddl = d.create_index_ddl(schema, table_name, idx)
         with engine.begin() as conn:
             conn.execute(text(ddl))
-        logger.debug("Ensured index %s on %s.%s", name, schema, table_name)
+        logger.debug("Ensured index on %s.%s", schema, table_name)
 
 
 def drop_table(engine: Engine, schema: str, table_name: str) -> None:
     """Drop a table if it exists."""
+    d = get_dialect(engine)
     with engine.begin() as conn:
-        conn.execute(text(f'DROP TABLE IF EXISTS "{schema}"."{table_name}"'))
+        conn.execute(text(d.drop_table_ddl(schema, table_name)))
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +159,7 @@ def create_temp_table(
     run_id: uuid.UUID,
     columns: list[Column],
 ) -> str:
-    """Create an UNLOGGED temp table in temp_store. Returns the table name."""
+    """Create a temp table in temp_store. Returns the table name."""
     tname = temp_table_name(asset_name, run_id)
     create_table(engine, TEMP_SCHEMA, tname, columns, primary_key=None, unlogged=True)
     logger.debug("Created temp table %s.%s", TEMP_SCHEMA, tname)
@@ -199,13 +192,7 @@ def drop_temp_table(engine: Engine, table_name: str) -> None:
 
 def temp_table_exists(engine: Engine, table_name: str) -> bool:
     """Check if a temp table exists."""
-    with engine.connect() as conn:
-        result = conn.execute(text(
-            "SELECT EXISTS ("
-            "SELECT 1 FROM information_schema.tables "
-            "WHERE table_schema = :schema AND table_name = :table)"
-        ), {"schema": TEMP_SCHEMA, "table": table_name})
-        return result.scalar()
+    return inspect(engine).has_table(table_name, schema=TEMP_SCHEMA)
 
 
 # ---------------------------------------------------------------------------
@@ -233,31 +220,22 @@ def promote(
     ensure_columns(engine, target_schema, target_table, columns, schema_contract)
 
     column_names = [c.name for c in columns]
+    d = get_dialect(engine)
     promoter = _PROMOTERS[load_strategy.value]
 
     with engine.begin() as conn:
-        # WHY: Resumed or inherited temp tables can contain duplicate PK rows
-        # from retries or partial prior runs. ON CONFLICT in the promoter
-        # handles main↔temp conflicts, but not duplicates WITHIN the temp
-        # table itself. We must dedup here to guarantee idempotent promotion.
-        # Uses ctid (Postgres physical row ID) to keep the last-inserted copy.
+        # Dedup: remove duplicate PK rows within the temp table before promotion.
+        # Resumed or inherited temp tables can contain duplicates from retries.
         if primary_key:
-            pk_cols = ", ".join(f'"{c}"' for c in primary_key)
-            result = conn.execute(text(
-                f'DELETE FROM "{TEMP_SCHEMA}"."{temp_table}" a '
-                f"USING (SELECT ctid, ROW_NUMBER() OVER "
-                f"(PARTITION BY {pk_cols} ORDER BY ctid DESC) AS rn "
-                f'FROM "{TEMP_SCHEMA}"."{temp_table}") b '
-                f"WHERE a.ctid = b.ctid AND b.rn > 1"
-            ))
-            if result.rowcount > 0:
+            removed = d.dedup_temp_table(conn, TEMP_SCHEMA, temp_table, primary_key)
+            if removed > 0:
                 logger.warning(
                     "Removed %d duplicate rows from temp table before promotion",
-                    result.rowcount,
+                    removed,
                 )
 
-        rows_loaded = promoter(conn, TEMP_SCHEMA, temp_table, target_schema, target_table,
-                               primary_key, column_names)
+        rows_loaded = promoter(conn, d, TEMP_SCHEMA, temp_table, target_schema,
+                               target_table, primary_key, column_names)
 
     if indexes:
         ensure_indexes(engine, target_schema, target_table, indexes)
@@ -267,7 +245,7 @@ def promote(
     return rows_loaded
 
 
-def _promote_full_replace(conn, temp_schema, temp_table, main_schema, main_table,
+def _promote_full_replace(conn, d, temp_schema, temp_table, main_schema, main_table,
                           primary_key, column_names) -> int:
     """Truncate main table, then INSERT...SELECT from temp."""
     conn.execute(text(f'TRUNCATE TABLE "{main_schema}"."{main_table}"'))
@@ -279,25 +257,15 @@ def _promote_full_replace(conn, temp_schema, temp_table, main_schema, main_table
     return result.rowcount
 
 
-def _promote_upsert(conn, temp_schema, temp_table, main_schema, main_table,
+def _promote_upsert(conn, d, temp_schema, temp_table, main_schema, main_table,
                     primary_key, column_names) -> int:
-    """INSERT...ON CONFLICT DO UPDATE from temp."""
-    cols = ", ".join(f'"{c}"' for c in column_names)
-    pk_cols = ", ".join(f'"{c}"' for c in primary_key)
-    non_pk = [c for c in column_names if c not in primary_key]
-    if non_pk:
-        update = ", ".join(f'"{c}" = EXCLUDED."{c}"' for c in non_pk)
-        sql = (f'INSERT INTO "{main_schema}"."{main_table}" ({cols}) '
-               f'SELECT {cols} FROM "{temp_schema}"."{temp_table}" '
-               f"ON CONFLICT ({pk_cols}) DO UPDATE SET {update}")
-    else:
-        sql = (f'INSERT INTO "{main_schema}"."{main_table}" ({cols}) '
-               f'SELECT {cols} FROM "{temp_schema}"."{temp_table}" '
-               f"ON CONFLICT ({pk_cols}) DO NOTHING")
+    """INSERT with conflict handling from temp, using dialect-specific SQL."""
+    sql = d.upsert_sql(main_schema, main_table, temp_schema, temp_table,
+                       primary_key, column_names)
     return conn.execute(text(sql)).rowcount
 
 
-def _promote_append(conn, temp_schema, temp_table, main_schema, main_table,
+def _promote_append(conn, d, temp_schema, temp_table, main_schema, main_table,
                     primary_key, column_names) -> int:
     """INSERT...SELECT from temp (no conflict handling)."""
     cols = ", ".join(f'"{c}"' for c in column_names)
