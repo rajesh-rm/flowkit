@@ -16,6 +16,7 @@ Usage:
 
 from __future__ import annotations
 
+import functools
 import logging
 from abc import ABC, abstractmethod
 
@@ -46,9 +47,38 @@ class Dialect(ABC):
     def set_query_timeout(self, conn: Connection, seconds: int) -> None:
         """Set a per-query timeout for the current transaction/session."""
 
-    @abstractmethod
     def column_ddl(self, col: Column) -> str:
         """Build the DDL fragment for a single column."""
+        type_str = col.sa_type.compile(dialect=self._sa_dialect)
+        parts = [f"{self.qi(col.name)} {type_str}"]
+        if not col.nullable:
+            parts.append("NOT NULL")
+        if col.default is not None:
+            parts.append(f"DEFAULT {col.default}")
+        return " ".join(parts)
+
+    @functools.cached_property
+    def _sa_dialect(self):
+        """Return the SQLAlchemy dialect instance for type compilation."""
+        raise NotImplementedError
+
+    def adjust_pk_columns(
+        self, columns: list[Column], pk_set: set[str],
+    ) -> list[Column]:
+        """Adjust column types for primary key compatibility.
+
+        Override in dialects where certain types (e.g., TEXT) cannot be
+        used in primary keys.  Default: return columns unchanged.
+        """
+        return columns
+
+    def prepare_dataframe(self, df):
+        """Prepare a DataFrame for writing to this backend.
+
+        May mutate ``df`` in place — caller must pass an owned copy.
+        Default: return DataFrame unchanged.
+        """
+        return df
 
     @abstractmethod
     def create_table_kw(self, unlogged: bool) -> str:
@@ -83,21 +113,16 @@ class Dialect(ABC):
 class PostgresDialect(Dialect):
     """PostgreSQL 16+ dialect."""
 
+    @functools.cached_property
+    def _sa_dialect(self):
+        from sqlalchemy.dialects import postgresql
+        return postgresql.dialect()
+
     def qi(self, name: str) -> str:
         return f'"{name}"'
 
     def set_query_timeout(self, conn: Connection, seconds: int) -> None:
         conn.execute(text(f"SET LOCAL statement_timeout = '{seconds}s'"))
-
-    def column_ddl(self, col: Column) -> str:
-        from sqlalchemy.dialects import postgresql
-        type_str = col.sa_type.compile(dialect=postgresql.dialect())
-        parts = [f'"{col.name}" {type_str}']
-        if not col.nullable:
-            parts.append("NOT NULL")
-        if col.default is not None:
-            parts.append(f"DEFAULT {col.default}")
-        return " ".join(parts)
 
     def create_table_kw(self, unlogged: bool) -> str:
         return "CREATE UNLOGGED TABLE" if unlogged else "CREATE TABLE"
@@ -161,21 +186,40 @@ class PostgresDialect(Dialect):
 class MariaDBDialect(Dialect):
     """MariaDB 10.11+ dialect."""
 
+    @functools.cached_property
+    def _sa_dialect(self):
+        from sqlalchemy.dialects import mysql
+        return mysql.dialect()
+
     def qi(self, name: str) -> str:
         return f'`{name}`'
 
     def set_query_timeout(self, conn: Connection, seconds: int) -> None:
         conn.execute(text(f"SET max_statement_time = {seconds}"))
 
-    def column_ddl(self, col: Column) -> str:
-        from sqlalchemy.dialects import mysql
-        type_str = col.sa_type.compile(dialect=mysql.dialect())
-        parts = [f'`{col.name}` {type_str}']
-        if not col.nullable:
-            parts.append("NOT NULL")
-        if col.default is not None:
-            parts.append(f"DEFAULT {col.default}")
-        return " ".join(parts)
+    def adjust_pk_columns(
+        self, columns: list[Column], pk_set: set[str],
+    ) -> list[Column]:
+        """MariaDB cannot use TEXT columns in primary keys — convert to VARCHAR(255)."""
+        from sqlalchemy import String, Text as SAText
+
+        adjusted = []
+        for c in columns:
+            if c.name in pk_set and isinstance(c.sa_type, SAText):
+                adjusted.append(Column(c.name, String(255), nullable=c.nullable, default=c.default))
+            else:
+                adjusted.append(c)
+        return adjusted
+
+    def prepare_dataframe(self, df):
+        """Strip timezone info from datetime columns for MariaDB DATETIME.
+
+        Mutates ``df`` in place — caller must pass an owned copy.
+        """
+        for col in df.columns:
+            if hasattr(df[col].dtype, "tz") and df[col].dtype.tz is not None:
+                df[col] = df[col].dt.tz_localize(None)
+        return df
 
     def create_table_kw(self, unlogged: bool) -> str:
         # MariaDB has no UNLOGGED tables — use regular CREATE TABLE

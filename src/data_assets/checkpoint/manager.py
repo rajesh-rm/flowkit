@@ -25,6 +25,29 @@ class LockError(Exception):
 # ---------------------------------------------------------------------------
 
 
+def _ensure_tz_aware(ts: datetime) -> datetime:
+    """Return a tz-aware datetime, attaching UTC if naive (MariaDB DATETIME)."""
+    return ts if ts.tzinfo else ts.replace(tzinfo=UTC)
+
+
+def _check_stale_lock(
+    existing: RunLock, now: datetime,
+    stale_heartbeat_minutes: int, max_run_hours: int,
+) -> str | None:
+    """Return a reason string if the lock is stale, else None."""
+    heartbeat = _ensure_tz_aware(existing.heartbeat_at or existing.locked_at)
+    lock_start = _ensure_tz_aware(existing.locked_at)
+
+    heartbeat_age = now - heartbeat
+    run_age = now - lock_start
+
+    if heartbeat_age > timedelta(minutes=stale_heartbeat_minutes):
+        return f"no heartbeat for {heartbeat_age}"
+    if run_age > timedelta(hours=max_run_hours):
+        return f"exceeded {max_run_hours}h max run time"
+    return None
+
+
 def acquire_or_takeover(
     engine: Engine,
     asset_name: str,
@@ -58,8 +81,6 @@ def acquire_or_takeover(
     now = datetime.now(UTC)
 
     with Session(engine) as session:
-        # FOR UPDATE prevents two workers from detecting the same stale
-        # lock simultaneously and both creating new locks.
         existing = session.execute(
             select(RunLock)
             .where(RunLock.asset_name == asset_name)
@@ -71,48 +92,31 @@ def acquire_or_takeover(
         abandoned_run_id: uuid.UUID | None = None
 
         if existing is not None:
-            # Handle both timezone-aware (Postgres TIMESTAMPTZ) and
-            # timezone-naive (MariaDB DATETIME) timestamps.
-            raw_heartbeat = existing.heartbeat_at or existing.locked_at
-            raw_lock = existing.locked_at
-            heartbeat = raw_heartbeat if raw_heartbeat.tzinfo else raw_heartbeat.replace(tzinfo=UTC)
-            lock_start = raw_lock if raw_lock.tzinfo else raw_lock.replace(tzinfo=UTC)
-
-            heartbeat_age = now - heartbeat
-            run_age = now - lock_start
-
-            heartbeat_stale = heartbeat_age > timedelta(
-                minutes=stale_heartbeat_minutes
+            stale_reason = _check_stale_lock(
+                existing, now, stale_heartbeat_minutes, max_run_hours,
             )
-            run_exceeded = run_age > timedelta(hours=max_run_hours)
-
-            if heartbeat_stale or run_exceeded:
-                reason = (
-                    f"no heartbeat for {heartbeat_age}"
-                    if heartbeat_stale
-                    else f"exceeded {max_run_hours}h max run time"
-                )
+            if stale_reason:
                 logger.warning(
                     "Abandoned run detected for '%s' (%s, run %s by %s). "
                     "Taking over.",
-                    asset_name,
-                    reason,
-                    existing.run_id,
-                    existing.locked_by,
+                    asset_name, stale_reason,
+                    existing.run_id, existing.locked_by,
                 )
                 inherited_temp = existing.temp_table
                 abandoned_run_id = existing.run_id
                 session.delete(existing)
                 session.flush()
             else:
+                heartbeat = _ensure_tz_aware(
+                    existing.heartbeat_at or existing.locked_at,
+                )
+                heartbeat_age = now - heartbeat
                 raise LockError(
                     f"Asset '{asset_name}' is locked by run {existing.run_id} "
                     f"(last heartbeat {heartbeat_age} ago, locked by "
                     f"{existing.locked_by})"
                 )
 
-        # Create new lock — on takeover, keep the inherited temp table;
-        # on fresh start, use the new temp table name passed by the caller.
         lock_temp = inherited_temp if inherited_temp else temp_table
         lock = RunLock(
             asset_name=asset_name,
@@ -129,8 +133,7 @@ def acquire_or_takeover(
     if inherited_temp:
         logger.info(
             "Took over run for '%s' — inheriting temp table '%s'",
-            asset_name,
-            inherited_temp,
+            asset_name, inherited_temp,
         )
     else:
         logger.info("Acquired lock for '%s' (run %s)", asset_name, run_id)
