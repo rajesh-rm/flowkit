@@ -1,16 +1,16 @@
-"""SQLAlchemy ORM models for all data_ops metadata tables."""
+"""SQLAlchemy ORM models for all data_ops metadata tables.
+
+All types are database-agnostic (no dialect-specific imports).
+Supports PostgreSQL 16+ and MariaDB 10.11+.
+"""
 
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, Text, text
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy import DateTime, Integer, JSON, Text, Uuid, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-
-_SERVER_DEFAULT_NOW = text("now()")
 
 
 class Base(DeclarativeBase):
@@ -36,18 +36,18 @@ class RunLock(Base):
 
     asset_name: Mapped[str] = mapped_column(Text, primary_key=True)
     partition_key: Mapped[str] = mapped_column(Text, primary_key=True, default="")
-    run_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    run_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     locked_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        server_default=_SERVER_DEFAULT_NOW,
+        server_default=func.now(),
     )
     locked_by: Mapped[str] = mapped_column(Text, nullable=False)
     temp_table: Mapped[str | None] = mapped_column(Text, nullable=True)
     heartbeat_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        server_default=_SERVER_DEFAULT_NOW,
+        server_default=func.now(),
     )
 
 
@@ -58,7 +58,7 @@ class RunHistory(Base):
     __table_args__ = {"schema": "data_ops"}
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    run_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    run_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     asset_name: Mapped[str] = mapped_column(Text, nullable=False)
     partition_key: Mapped[str] = mapped_column(Text, nullable=False, default="")
     run_mode: Mapped[str] = mapped_column(Text, nullable=False)
@@ -70,7 +70,7 @@ class RunHistory(Base):
     rows_extracted: Mapped[int | None] = mapped_column(Integer, nullable=True)
     rows_loaded: Mapped[int | None] = mapped_column(Integer, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    metadata_: Mapped[dict | None] = mapped_column("metadata", JSONB, nullable=True)
+    metadata_: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
     airflow_run_id: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
@@ -84,18 +84,18 @@ class Checkpoint(Base):
     __table_args__ = {"schema": "data_ops"}
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    run_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    run_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     asset_name: Mapped[str] = mapped_column(Text, nullable=False)
     partition_key: Mapped[str] = mapped_column(Text, nullable=False, default="")
     worker_id: Mapped[str] = mapped_column(Text, nullable=False, default="main")
     checkpoint_type: Mapped[str] = mapped_column(Text, nullable=False)
-    checkpoint_value: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    checkpoint_value: Mapped[dict] = mapped_column(JSON, nullable=False)
     rows_so_far: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[str] = mapped_column(Text, nullable=False, default="in_progress")
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        server_default=_SERVER_DEFAULT_NOW,
+        server_default=func.now(),
     )
 
 
@@ -115,12 +115,12 @@ class AssetRegistry(Base):
     registered_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        server_default=_SERVER_DEFAULT_NOW,
+        server_default=func.now(),
     )
     last_success_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class CoverageTracker(Base):
@@ -145,7 +145,7 @@ class CoverageTracker(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        server_default=_SERVER_DEFAULT_NOW,
+        server_default=func.now(),
     )
 
 
@@ -175,6 +175,8 @@ def _migrate_add_partition_key(engine) -> None:
         "ALTER TABLE data_ops.coverage_tracker "
         "ADD CONSTRAINT coverage_tracker_pkey PRIMARY KEY (asset_name, partition_key)",
     ]
+    from sqlalchemy import text
+
     with engine.begin() as conn:
         for sql in stmts:
             conn.execute(text(sql))
