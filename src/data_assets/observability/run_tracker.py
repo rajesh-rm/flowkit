@@ -6,9 +6,10 @@ import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy import select, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
+
+from data_assets.db.dialect import get_dialect
 
 from data_assets.db.models import AssetRegistry, CoverageTracker, RunHistory
 
@@ -99,15 +100,27 @@ def update_coverage(
 
     update_set = {k: v for k, v in values.items() if k not in {"asset_name", "partition_key"}}
 
+    d = get_dialect(engine)
+    dialect_name = engine.dialect.name
+
     with Session(engine) as session:
-        stmt = (
-            pg_insert(CoverageTracker)
-            .values(**values)
-            .on_conflict_do_update(
+        if dialect_name == "postgresql":
+            from sqlalchemy.dialects.postgresql import insert
+        else:
+            from sqlalchemy.dialects.mysql import insert
+
+        stmt = insert(CoverageTracker).values(**values)
+
+        if dialect_name == "postgresql":
+            stmt = stmt.on_conflict_do_update(
                 index_elements=["asset_name", "partition_key"],
-                set_=update_set,
+                set_={k: stmt.excluded[k] for k in update_set},
             )
-        )
+        else:
+            stmt = stmt.on_duplicate_key_update(
+                **{k: stmt.inserted[k] for k in update_set}
+            )
+
         session.execute(stmt)
         session.commit()
 
@@ -142,12 +155,24 @@ def register_asset_metadata(engine: Engine, assets: dict[str, type]) -> None:
     # Batch upsert — single INSERT for all assets
     exclude = {"asset_name", "registered_at"}
     update_set = {k: rows[0][k] for k in rows[0] if k not in exclude}
-    # Use EXCLUDED references so each row updates with its own values
-    stmt = pg_insert(AssetRegistry).values(rows)
-    stmt = stmt.on_conflict_do_update(
-        index_elements=["asset_name"],
-        set_={k: stmt.excluded[k] for k in update_set},
-    )
+
+    dialect_name = engine.dialect.name
+    if dialect_name == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert
+    else:
+        from sqlalchemy.dialects.mysql import insert
+
+    stmt = insert(AssetRegistry).values(rows)
+
+    if dialect_name == "postgresql":
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["asset_name"],
+            set_={k: stmt.excluded[k] for k in update_set},
+        )
+    else:
+        stmt = stmt.on_duplicate_key_update(
+            **{k: stmt.inserted[k] for k in update_set}
+        )
 
     with Session(engine) as session:
         session.execute(stmt)

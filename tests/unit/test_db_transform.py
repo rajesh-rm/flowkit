@@ -19,6 +19,7 @@ class TestExecuteTransform:
     def test_returns_row_count(self):
         """execute_transform should return the number of rows written."""
         mock_engine = MagicMock()
+        mock_engine.dialect.name = "postgresql"
         mock_conn = MagicMock()
         mock_engine.begin.return_value.__enter__ = MagicMock(return_value=mock_conn)
         mock_engine.begin.return_value.__exit__ = MagicMock(return_value=False)
@@ -40,6 +41,7 @@ class TestExecuteTransform:
     def test_sets_statement_timeout(self):
         """execute_transform should SET LOCAL statement_timeout before running query."""
         mock_engine = MagicMock()
+        mock_engine.dialect.name = "postgresql"
         mock_conn = MagicMock()
         mock_engine.begin.return_value.__enter__ = MagicMock(return_value=mock_conn)
         mock_engine.begin.return_value.__exit__ = MagicMock(return_value=False)
@@ -62,6 +64,7 @@ class TestExecuteTransform:
     def test_passes_query_to_read_sql(self):
         """The SQL query should be passed to pd.read_sql along with the connection."""
         mock_engine = MagicMock()
+        mock_engine.dialect.name = "postgresql"
         mock_conn = MagicMock()
         mock_engine.begin.return_value.__enter__ = MagicMock(return_value=mock_conn)
         mock_engine.begin.return_value.__exit__ = MagicMock(return_value=False)
@@ -83,6 +86,7 @@ class TestExecuteTransform:
     def test_empty_result(self):
         """When the query returns zero rows, write_to_temp should still be called."""
         mock_engine = MagicMock()
+        mock_engine.dialect.name = "postgresql"
         mock_conn = MagicMock()
         mock_engine.begin.return_value.__enter__ = MagicMock(return_value=mock_conn)
         mock_engine.begin.return_value.__exit__ = MagicMock(return_value=False)
