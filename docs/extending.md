@@ -1521,6 +1521,32 @@ from data_assets.assets.transforms.pagerduty_incident_summary import PagerDutyIn
 No other wiring is needed -- the `transforms` package is already imported by
 the top-level `assets/__init__.py`.
 
+**Validation rules (enforced by CI):**
+
+The following rules are enforced at discovery time and by unit tests. Your transform will fail CI if any are violated:
+
+1. **`source_tables` must match registered assets.** Every entry in `source_tables` must match the `target_table` of a registered asset. If not, the registry raises a `ValueError` at import time. This prevents deploying a transform whose source data doesn't exist.
+
+2. **SQL must use fully-qualified table names.** Write `raw.servicenow_incidents`, not just `servicenow_incidents`. The validation tests check that `FROM` and `JOIN` references match `target_schema.target_table` of registered assets.
+
+3. **SQL column references must exist in the source asset.** If you write `WHERE opened_at IS NOT NULL`, the column `opened_at` must be declared in the source asset's `columns` list. The tests cross-reference your SQL against the source asset definitions.
+
+4. **SELECT aliases must match declared columns.** The output columns of your `query()` must match the names and order in your `columns` list. Use `AS alias` to ensure the names align.
+
+5. **No circular dependencies.** Transform A cannot depend on Transform B if B depends on A. The registry detects cycles and raises a `ValueError`.
+
+Run the validation tests locally before opening a PR:
+
+```bash
+# Unit tests (fast, no DB)
+.venv/bin/python -m pytest tests/unit/transforms/ -v
+
+# Integration tests (requires Postgres via testcontainers)
+.venv/bin/python -m pytest tests/integration/test_transform_schema.py -v
+```
+
+The integration test creates empty source tables from asset definitions and runs your `query()` against them — Postgres itself validates the SQL syntax and column references.
+
 ---
 
 ## 4. Testing Your Asset

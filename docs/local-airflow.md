@@ -200,7 +200,7 @@ For production deployment, see [Airflow Deployment Guide](airflow-deployment.md)
 | DAG shows `schedule=None` | Asset not activated | Set `enabled = true` in `dag_overrides.toml` and re-run sync |
 | Task fails with `No database connection found` | `DATABASE_URL` not set | Export it before starting Airflow: `export DATABASE_URL="postgresql://..."` |
 | Task fails with credential errors | Source env vars not set | Set the required variables (see [configuration.md](configuration.md)) before starting Airflow |
-| Port 8080 already in use | Another process using the port | Kill it (`lsof -ti:8080 | xargs kill`) or set `AIRFLOW__WEBSERVER__WEB_SERVER_PORT=8081` |
+| Port 8080 already in use | Another process using the port | Set `AIRFLOW__WEBSERVER__WEB_SERVER_PORT=8081` to use a different port |
 | Many `Airflow connection 'X' lookup failed` warnings | Airflow is installed in the same venv as your ad-hoc testing | Use separate venvs, or `unset AIRFLOW_HOME` before running. See [section 8](#8-why-separate-venvs-matter) |
 | `DATABASE_URL` is ignored, connects to wrong DB | Airflow Connection `data_assets_db` exists and takes priority | Remove the Airflow Connection, or use a separate dev venv without Airflow |
 

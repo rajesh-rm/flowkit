@@ -87,13 +87,56 @@ def _validate_dependencies() -> None:
         source_tables = getattr(asset, "source_tables", [])
         for table in source_tables:
             if table not in known_tables:
-                logger.warning(
-                    "Asset '%s' declares source_table '%s' which doesn't match "
-                    "any registered asset's target_table.",
-                    name, table,
+                raise ValueError(
+                    f"Asset '{name}' declares source_table '{table}' which "
+                    f"doesn't match any registered asset's target_table. "
+                    f"Known tables: {sorted(known_tables)}"
                 )
 
         _validate_indexes(name, asset)
+
+    _validate_no_cycles(instances)
+
+
+def _build_dependency_graph(instances: dict[str, Asset]) -> dict[str, list[str]]:
+    """Build a directed graph of asset dependencies from source_tables."""
+    table_to_name = {inst.target_table: name for name, inst in instances.items()}
+    graph: dict[str, list[str]] = {}
+    for name, asset in instances.items():
+        deps = [
+            table_to_name[table]
+            for table in getattr(asset, "source_tables", [])
+            if table in table_to_name
+        ]
+        if deps:
+            graph[name] = deps
+    return graph
+
+
+def _validate_no_cycles(instances: dict[str, Asset]) -> None:
+    """Detect circular dependencies among transform source_tables."""
+    graph = _build_dependency_graph(instances)
+
+    UNVISITED, IN_PROGRESS, DONE = 0, 1, 2
+    state: dict[str, int] = dict.fromkeys(graph, UNVISITED)
+
+    def _visit(node: str, path: list[str]) -> None:
+        state[node] = IN_PROGRESS
+        path.append(node)
+        for dep in graph.get(node, []):
+            if state.get(dep) == IN_PROGRESS:
+                cycle = path[path.index(dep):] + [dep]
+                raise ValueError(
+                    f"Circular dependency detected: {' -> '.join(cycle)}"
+                )
+            if state.get(dep, DONE) == UNVISITED:
+                _visit(dep, path)
+        path.pop()
+        state[node] = DONE
+
+    for node in graph:
+        if state[node] == UNVISITED:
+            _visit(node, [])
 
 
 def _validate_indexes(name: str, asset) -> None:
