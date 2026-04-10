@@ -10,7 +10,7 @@ from typing import Any
 from data_assets.core.asset import Asset
 from data_assets.core.registry import all_assets, discover
 from data_assets.dag.fingerprint import compute_fingerprint
-from data_assets.dag.overrides import load_overrides, merge_config
+from data_assets.dag.overrides import ensure_toml_entries, load_overrides, merge_config
 from data_assets.dag.templates import (
     DAG_TEMPLATE,
     DISABLED_TEMPLATE,
@@ -29,26 +29,43 @@ class SyncResult:
     updated: list[str] = field(default_factory=list)
     disabled: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
+    inactive: list[str] = field(default_factory=list)
 
 
 def sync(output_dir: Path) -> SyncResult:
     """Synchronise DAG files in *output_dir* with registered assets.
 
     1. Discovers all assets from the installed package.
-    2. Reads admin overrides from ``dag_overrides.toml``.
-    3. Generates (or regenerates) a DAG file per asset.
-    4. Disables orphan managed files whose asset is no longer registered.
+    2. Ensures every asset has an entry in ``dag_overrides.toml``
+       (creates the file on a fresh run, appends new assets otherwise).
+    3. Reads admin overrides from ``dag_overrides.toml``.
+    4. Generates (or regenerates) a DAG file per asset.
+       Assets with ``enabled = false`` get ``schedule=None``.
+    5. Disables orphan managed files whose asset is no longer registered.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     discover()
     assets = all_assets()
-    overrides = load_overrides(output_dir)
-    result = SyncResult()
 
+    # Ensure TOML has entries for all assets (append-only)
+    overrides, toml_existed = load_overrides(output_dir)
+    ensure_toml_entries(output_dir, assets, toml_existed)
+
+    # Reload overrides after potential TOML changes
+    overrides, _ = load_overrides(output_dir)
+
+    result = SyncResult()
     expected_files: set[str] = set()
 
     for name, asset_cls in sorted(assets.items()):
         config = merge_config(asset_cls, overrides)
+        enabled = config.get("enabled", False)
+
+        # Disabled assets get schedule=None (DAG exists but won't auto-run)
+        if not enabled:
+            config["schedule"] = None
+            result.inactive.append(name)
+
         fingerprint = compute_fingerprint(asset_cls)
         _generate_asset_dags(
             asset_cls, name, config, fingerprint, output_dir, expected_files, result,

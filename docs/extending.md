@@ -1298,6 +1298,13 @@ the framework calls `registry.get("pagerduty_incidents")` to retrieve it.
 - [ ] `assets/__init__.py` imports `data_assets.assets.pagerduty`
 - [ ] Required env vars are documented / set: `PAGERDUTY_TOKEN`, `PAGERDUTY_URL`
 
+> **Production activation**: Registering a new asset does **not** automatically
+> run it in production. When `data-assets sync` first discovers your asset, it
+> adds an entry to `dag_overrides.toml` with `enabled = false`. The DAG file is
+> created with `schedule = None` (visible in Airflow but won't auto-run). To
+> activate, an operator sets `enabled = true` in the TOML. See the
+> [Airflow Deployment Guide](airflow-deployment.md#activating-an-asset) for details.
+
 ---
 
 ### 2g. The `extract()` Hook (Custom Client Pattern)

@@ -23,10 +23,13 @@ Airflow scheduler parses new DAG files on next heartbeat
 ```
 
 The `data-assets sync` command:
+- Ensures every registered asset has an entry in `dag_overrides.toml` (creates the file on a fresh run, appends new assets on subsequent runs)
 - Creates a DAG file for every registered asset
+- Assets with `enabled = false` get `schedule = None` (visible in Airflow but won't auto-run)
+- Assets with `enabled = true` get their configured schedule
 - Regenerates existing files when the package changes
 - Disables orphan DAGs when assets are removed
-- Never touches admin overrides or custom `z_*` files
+- Never modifies existing entries in `dag_overrides.toml` or custom `z_*` files
 
 ## Prerequisites
 
@@ -65,9 +68,13 @@ This creates three files in `/tmp/data-assets-systemd/`:
 
 | File | Purpose |
 |------|---------|
-| `data-assets-sync.service` | Runs `pip install --upgrade` + `data-assets sync` as the airflow user |
+| `data-assets-sync.service` | Validates + backs up `dag_overrides.toml`, then runs `pip install --upgrade` + `data-assets sync` |
 | `data-assets-sync.timer` | Fires the service every 15 minutes |
 | `data-assets-setup.sh` | One-time install script (the only file that needs sudo) |
+
+The service includes two safeguards:
+- **Corruption guard**: validates `dag_overrides.toml` before sync. If the TOML is corrupt, the service logs an error (`user.err` priority) and skips the sync entirely.
+- **Automatic backups**: creates a timestamped backup of `dag_overrides.toml` before each sync (4 per day, 30-day retention) in `<dag-dir>/.toml_backups/`. To restore from a corrupt file, copy the most recent backup back.
 
 ### Step 3: Review and run the setup script
 
@@ -114,27 +121,54 @@ For shared filesystem setups (NFS/EFS), only one node needs to run `data-assets 
 
 ## Admin Overrides (dag_overrides.toml)
 
-To customise DAG parameters without modifying generated files, create an overrides file:
+This file controls which assets are active in production and how their DAGs are configured.
 
-```bash
-vi /opt/airflow/dags/data_assets/dag_overrides.toml
-```
+### Auto-creation
 
-Example:
+You do not need to create this file manually. `data-assets sync` manages it:
+
+- **Fresh run** (no file exists): creates `dag_overrides.toml` with every registered asset listed, all set to `enabled = false` with a commented-out default schedule. This gives ops a complete, syntax-correct template.
+- **Subsequent runs**: appends entries for newly discovered assets only. Existing entries are never modified or deleted.
+
+Each auto-generated entry looks like:
 
 ```toml
-# Change schedule for an asset
+# Added 2026-04-09T14:30:00 by data-assets sync
+[sonarqube_measures]
+enabled = false
+# schedule = "0 5 * * *"
+```
+
+### Activating an asset
+
+To enable an asset for production, set `enabled = true`:
+
+```toml
+[sonarqube_measures]
+enabled = true
+# schedule = "0 5 * * *"     <-- uncomment to customise
+```
+
+On the next sync cycle (~15 min), the DAG will be regenerated with its configured schedule.
+
+### Example overrides
+
+```toml
+# Enable and change schedule
 [servicenow_incidents]
+enabled = true
 schedule = "*/30 * * * *"
 retries = 5
 
-# Use Airflow Connections for secrets instead of env vars
+# Enable with Airflow Connections for secrets
 [jira_projects]
+enabled = true
 secrets_source = "airflow_connection"
 connection_id = "jira"
 
 # GitHub multi-org: one DAG per org
 [github_repos]
+enabled = true
 secrets_source = "airflow_connection"
 connection_id = "github_app"
 
@@ -147,12 +181,13 @@ org = "org-two"
 installation_id = "67890"
 ```
 
-**This file is never overwritten by `data-assets sync`.** It is read on every sync and merged with package defaults.
+**Existing entries are never overwritten by `data-assets sync`.** The file is read on every sync and merged with package defaults.
 
 ### Available override keys
 
 | Key | Default | Description |
 |-----|---------|-------------|
+| `enabled` | `false` | Whether the asset runs on a schedule (`true` = active, `false` = `schedule=None`) |
 | `schedule` | Depends on run mode | Cron expression or Airflow preset (`@hourly`, `@daily`) |
 | `retries` | `3` | Number of retries on failure |
 | `retry_delay_minutes` | `5` | Delay between retries |
@@ -177,7 +212,8 @@ If you create custom DAGs in the same directory, prefix them with `z_` to protec
 
 ```
 /opt/airflow/dags/data_assets/
-    dag_overrides.toml          <-- your overrides (never touched)
+    dag_overrides.toml          <-- your overrides (existing entries never touched)
+    .toml_backups/              <-- automatic backups (4/day, 30-day retention)
     z_custom_report.py          <-- your custom DAG (never touched)
     dag_github_repos.py         <-- generated (safe to regenerate)
     dag_servicenow_incidents.py <-- generated
@@ -238,7 +274,10 @@ Show all registered assets:
 data-assets list
 data-assets list --json
 data-assets list --source github
+data-assets list --output-dir /opt/airflow/dags/data_assets   # includes enabled status
 ```
+
+When `--output-dir` is provided, the output includes an `ENABLED` column showing the `enabled` status from `dag_overrides.toml`.
 
 ### data-assets sync
 
@@ -250,11 +289,15 @@ data-assets sync --output-dir /opt/airflow/dags/data_assets/
 
 Output example:
 ```
-Sync complete: 2 created, 1 updated, 0 disabled, 28 unchanged
+Sync complete: 2 created, 1 updated, 0 disabled, 28 unchanged, 2 inactive
   + dag_new_asset.py
   + dag_another_asset.py
   ~ dag_updated_asset.py
+  . new_asset (inactive — set enabled = true in dag_overrides.toml)
+  . another_asset (inactive — set enabled = true in dag_overrides.toml)
 ```
+
+Inactive assets have DAG files with `schedule=None` — they are visible in Airflow but won't run automatically until enabled.
 
 ### data-assets fingerprint
 
@@ -324,6 +367,23 @@ Environment="NO_PROXY=localhost,127.0.0.1"
 ```
 
 Then reload: `sudo systemctl daemon-reload`
+
+### Sync fails with "dag_overrides.toml is corrupt"
+
+The systemd service validates the TOML before sync. If corrupt, it logs an error and skips.
+
+```bash
+# Check error details
+journalctl -u data-assets-sync.service -p err -n 10
+
+# Restore from the most recent backup
+ls /opt/airflow/dags/data_assets/.toml_backups/
+cp /opt/airflow/dags/data_assets/.toml_backups/dag_overrides.2026-04-09_q2.toml.bak \
+   /opt/airflow/dags/data_assets/dag_overrides.toml
+
+# Trigger a manual sync to verify
+sudo systemctl start data-assets-sync.service
+```
 
 ### DAGs don't appear in Airflow
 

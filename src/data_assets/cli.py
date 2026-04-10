@@ -26,6 +26,10 @@ def main(argv: list[str] | None = None) -> None:
     p_list = sub.add_parser("list", help="List all registered assets")
     p_list.add_argument("--json", action="store_true", dest="as_json", help="JSON output")
     p_list.add_argument("--source", help="Filter by source_name")
+    p_list.add_argument(
+        "--output-dir", type=Path, default=None,
+        help="DAG output directory (to read enabled status from dag_overrides.toml)",
+    )
 
     # --- sync ---
     p_sync = sub.add_parser("sync", help="Generate/update DAG files")
@@ -68,9 +72,14 @@ def main(argv: list[str] | None = None) -> None:
 
 def _cmd_list(args: argparse.Namespace) -> None:
     from data_assets.core.registry import all_assets, discover
+    from data_assets.dag.overrides import load_overrides
 
     discover()
     assets = all_assets()
+
+    # Load TOML to check enabled status per asset (only when output-dir given)
+    has_toml = bool(args.output_dir)
+    overrides, _ = load_overrides(args.output_dir) if has_toml else ({}, False)
 
     rows: list[dict[str, str]] = []
     for name in sorted(assets):
@@ -78,12 +87,16 @@ def _cmd_list(args: argparse.Namespace) -> None:
         source = asset.source_name or "transform"
         if args.source and source != args.source:
             continue
-        rows.append({
+        row = {
             "name": name,
             "source": source,
             "mode": str(asset.default_run_mode),
             "parent": getattr(asset, "parent_asset_name", "") or "",
-        })
+        }
+        if has_toml:
+            asset_ov = overrides.get(name, {})
+            row["enabled"] = str(asset_ov.get("enabled", False)).lower()
+        rows.append(row)
 
     if args.as_json:
         print(json.dumps(rows, indent=2))
@@ -111,7 +124,8 @@ def _cmd_sync(args: argparse.Namespace) -> None:
         f"{len(result.created)} created, "
         f"{len(result.updated)} updated, "
         f"{len(result.disabled)} disabled, "
-        f"{len(result.skipped)} unchanged"
+        f"{len(result.skipped)} unchanged, "
+        f"{len(result.inactive)} inactive"
     )
     for f in result.created:
         print(f"  + {f}")
@@ -119,6 +133,8 @@ def _cmd_sync(args: argparse.Namespace) -> None:
         print(f"  ~ {f}")
     for f in result.disabled:
         print(f"  x {f}")
+    for name in result.inactive:
+        print(f"  . {name} (inactive — set enabled = true in dag_overrides.toml)")
 
 
 def _cmd_fingerprint(args: argparse.Namespace) -> None:
