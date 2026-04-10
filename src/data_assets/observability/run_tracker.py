@@ -9,8 +9,6 @@ from sqlalchemy import select, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from data_assets.db.dialect import get_dialect
-
 from data_assets.db.models import AssetRegistry, CoverageTracker, RunHistory
 
 
@@ -100,7 +98,6 @@ def update_coverage(
 
     update_set = {k: v for k, v in values.items() if k not in {"asset_name", "partition_key"}}
 
-    d = get_dialect(engine)
     dialect_name = engine.dialect.name
 
     with Session(engine) as session:
