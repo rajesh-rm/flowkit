@@ -28,6 +28,12 @@ class GitHubMembers(GitHubOrgAsset):
         Column("type", Text()),
     ]
 
+    column_max_lengths = {
+        "login": 100,
+        "avatar_url": 2048,
+        "type": 100,
+    }
+
     primary_key = ["login"]
     indexes = [
         Index(columns=("id",), unique=True),

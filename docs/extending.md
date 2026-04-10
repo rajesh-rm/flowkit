@@ -938,6 +938,28 @@ class PagerDutyIncidents(APIAsset):
     # columns analysts will filter, join, or group by.
 
     # ---------------------------------------------------------------
+    # Column length validation (optional)
+    # ---------------------------------------------------------------
+
+    column_max_lengths = {
+        "status": 100,       # short enum-like values
+        "service_id": 100,
+        "html_url": 2048,    # practical URL max
+    }
+    # Optional dict of column name → max allowed string length.
+    # When set, the base validate() method checks these limits as a
+    # blocking validation (run fails if any value exceeds the limit).
+    #
+    # Additionally, validate_warnings() warns (non-blocking) if any
+    # string column has values exceeding 10,000 characters — this
+    # catches unexpectedly large API responses without blocking the run.
+    #
+    # Guidelines for choosing limits:
+    #   - Use exact length for fixed-format fields (SHA: 40, GUID: 32)
+    #   - Use generous limits with buffer for variable fields
+    #   - Omit unbounded user content (descriptions, messages, bios)
+
+    # ---------------------------------------------------------------
     # Incremental support (date-based watermarks)
     # ---------------------------------------------------------------
 

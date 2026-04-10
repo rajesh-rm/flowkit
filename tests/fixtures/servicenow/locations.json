@@ -21,6 +21,39 @@
       "longitude": "-0.1278",
       "parent": "",
       "sys_updated_on": "2025-10-01T12:00:00Z"
+    },
+    {
+      "sys_id": "loc003abc",
+      "name": "Remote — No Physical Location",
+      "city": "",
+      "state": "",
+      "country": "",
+      "latitude": "",
+      "longitude": "",
+      "parent": "loc001abc",
+      "sys_updated_on": "2025-09-15T08:00:00Z"
+    },
+    {
+      "sys_id": "loc004abc",
+      "name": "Tokyo Data Center",
+      "city": "Tokyo",
+      "state": "",
+      "country": "JP",
+      "latitude": "35.6762",
+      "longitude": "139.6503",
+      "parent": "",
+      "sys_updated_on": "2025-10-15T06:00:00Z"
+    },
+    {
+      "sys_id": "loc005abc",
+      "name": "S\u00e3o Paulo Branch",
+      "city": "S\u00e3o Paulo",
+      "state": "SP",
+      "country": "BR",
+      "latitude": "-23.5505",
+      "longitude": "-46.6333",
+      "parent": "",
+      "sys_updated_on": "2025-11-01T10:00:00Z"
     }
   ]
 }

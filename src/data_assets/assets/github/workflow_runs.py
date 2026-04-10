@@ -42,6 +42,17 @@ class GitHubWorkflowRuns(GitHubRepoAsset):
         Column("run_started_at", DateTime(timezone=True)),
         Column("html_url", Text()),
     ]
+    column_max_lengths = {
+        "repo_full_name": 200,
+        "name": 500,
+        "status": 100,
+        "conclusion": 100,
+        "head_branch": 256,
+        "head_sha": 40,
+        "event": 100,
+        "html_url": 2048,
+    }
+
     primary_key = ["id"]
     indexes = [
         Index(columns=("repo_full_name",)),

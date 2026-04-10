@@ -20,6 +20,7 @@ from sqlalchemy.engine import Engine
 from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy, SchemaContract
 from data_assets.db.dialect import get_dialect
+from data_assets.db.retry import db_retry
 
 logger = logging.getLogger(__name__)
 
@@ -168,6 +169,7 @@ def _coerce_datetime_strings(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+@db_retry()
 def write_to_temp(engine: Engine, table_name: str, df: pd.DataFrame) -> int:
     """Append a DataFrame to the temp table. Returns rows written."""
     if df.empty:
@@ -210,6 +212,7 @@ def temp_table_exists(engine: Engine, table_name: str) -> bool:
 # Promotion: temp → main table
 # ---------------------------------------------------------------------------
 
+@db_retry()
 def promote(
     engine: Engine,
     temp_table: str,

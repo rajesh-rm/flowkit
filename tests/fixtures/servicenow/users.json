@@ -25,6 +25,45 @@
       "locked_out": "false",
       "last_login_time": "2025-12-01T08:30:00Z",
       "sys_updated_on": "2025-12-01T10:30:00Z"
+    },
+    {
+      "sys_id": "user003abc",
+      "user_name": "bob.wilson",
+      "name": "Bob Wilson",
+      "email": "bob.wilson@example.com",
+      "title": "",
+      "department": "",
+      "manager": "user002abc",
+      "active": "false",
+      "locked_out": "true",
+      "last_login_time": "",
+      "sys_updated_on": "2025-11-15T14:00:00Z"
+    },
+    {
+      "sys_id": "user004abc",
+      "user_name": "maria.garcia",
+      "name": "Maria Garcia",
+      "email": "maria.garcia@example.com",
+      "title": "Staff Software Engineer — Platform Infrastructure & Reliability",
+      "department": "dept002",
+      "manager": "user002abc",
+      "active": "true",
+      "locked_out": "false",
+      "last_login_time": "2025-12-01T07:00:00Z",
+      "sys_updated_on": "2025-12-01T11:00:00Z"
+    },
+    {
+      "sys_id": "user005abc",
+      "user_name": "external.contractor",
+      "name": "External Contractor Account",
+      "email": "",
+      "title": "Contractor",
+      "department": "",
+      "manager": "",
+      "active": "true",
+      "locked_out": "false",
+      "last_login_time": "",
+      "sys_updated_on": "2025-10-01T08:00:00Z"
     }
   ]
 }

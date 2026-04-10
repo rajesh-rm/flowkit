@@ -55,7 +55,7 @@ class TestGitHubReposParseResponse:
 
         data = json.loads((FIXTURES / "repos_org1.json").read_text())
         df, state = GitHubRepos().parse_response(data)
-        assert len(df) == 2
+        assert len(df) == 5
         assert df.iloc[0]["owner_login"] == "org-one"
         assert not state.has_more
 
@@ -106,7 +106,7 @@ class TestGitHubPullRequestsParseResponse:
 
         data = json.loads((FIXTURES / "pull_requests.json").read_text())
         df, _ = GitHubPullRequests().parse_response(data)
-        assert len(df) == 2
+        assert len(df) == 5
         assert df.iloc[0]["user_login"] == "dev-alice"
 
 
@@ -417,7 +417,7 @@ class TestGitHubRunnerGroups:
         df, _ = GitHubRunnerGroups().parse_response(data)
         assert len(df) == 2
         assert df.iloc[0]["name"] == "Default"
-        assert df.iloc[0]["default"] == "true"
+        assert df.iloc[0]["default"] == True  # noqa: E712 (pandas returns np.bool_)
 
     def test_primary_key(self, github_env):
         from data_assets.assets.github.runner_groups import GitHubRunnerGroups

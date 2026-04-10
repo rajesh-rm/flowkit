@@ -72,6 +72,65 @@ def validate_schema_match(
     return ValidationResult(passed=True)
 
 
+def _str_lengths(series: pd.Series) -> pd.Series | None:
+    """Compute string lengths for non-null values, or None if empty."""
+    str_col = series.dropna().astype(str)
+    if str_col.empty:
+        return None
+    return str_col.str.len()
+
+
+def validate_column_lengths(
+    df: pd.DataFrame,
+    max_lengths: dict[str, int],
+) -> ValidationResult:
+    """Check that string columns don't exceed specified max lengths.
+
+    Args:
+        df: DataFrame to validate.
+        max_lengths: Mapping of column name to maximum allowed character length.
+    """
+    failures: list[str] = []
+    for col, limit in max_lengths.items():
+        if col not in df.columns:
+            continue
+        lengths = _str_lengths(df[col])
+        if lengths is None:
+            continue
+        longest = int(lengths.max())
+        if longest > limit:
+            violations = int((lengths > limit).sum())
+            failures.append(
+                f"Column '{col}' has {violations} value(s) exceeding "
+                f"max length {limit} (longest: {longest} chars)"
+            )
+    return ValidationResult(passed=len(failures) == 0, failures=failures)
+
+
+def warn_oversized_strings(
+    df: pd.DataFrame,
+    threshold: int = 10_000,
+) -> list[str]:
+    """Return warnings for string columns with values exceeding a threshold.
+
+    Non-blocking — meant for validate_warnings(), not validate().
+    """
+    warnings: list[str] = []
+    for col in df.columns:
+        if not pd.api.types.is_string_dtype(df[col]):
+            continue
+        lengths = _str_lengths(df[col])
+        if lengths is None:
+            continue
+        longest = int(lengths.max())
+        if longest > threshold:
+            warnings.append(
+                f"Column '{col}' has value(s) exceeding {threshold} chars "
+                f"(longest: {longest})"
+            )
+    return warnings
+
+
 def compose_validators(
     *validators: Callable[[pd.DataFrame], ValidationResult],
 ) -> Callable[[pd.DataFrame], ValidationResult]:

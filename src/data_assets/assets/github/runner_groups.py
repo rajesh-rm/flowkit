@@ -10,7 +10,7 @@ from data_assets.assets.github.helpers import GitHubOrgAsset
 from data_assets.core.column import Column, Index
 from data_assets.core.registry import register
 from data_assets.core.types import PaginationState
-from sqlalchemy import Integer, Text
+from sqlalchemy import Boolean, Integer, Text
 
 
 @register
@@ -25,9 +25,14 @@ class GitHubRunnerGroups(GitHubOrgAsset):
         Column("id", Integer(), nullable=False),
         Column("name", Text()),
         Column("visibility", Text()),
-        Column("default", Text()),
-        Column("allows_public_repositories", Text()),
+        Column("default", Boolean()),
+        Column("allows_public_repositories", Boolean()),
     ]
+
+    column_max_lengths = {
+        "name": 500,
+        "visibility": 100,
+    }
 
     primary_key = ["id"]
     indexes = [
@@ -52,8 +57,8 @@ class GitHubRunnerGroups(GitHubOrgAsset):
                 "id": g["id"],
                 "name": g.get("name"),
                 "visibility": g.get("visibility"),
-                "default": str(g.get("default", False)).lower(),
-                "allows_public_repositories": str(g.get("allows_public_repositories", False)).lower(),
+                "default": g.get("default", False),
+                "allows_public_repositories": g.get("allows_public_repositories", False),
             })
         df = pd.DataFrame(records)
 

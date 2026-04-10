@@ -397,6 +397,8 @@ See [docs/extending.md](extending.md) for the comprehensive step-by-step guide.
 | `TypeError: Asset 'X' has type Y, expected APIAsset...` | Custom asset class doesn't inherit from `APIAsset` or `TransformAsset` |
 | `LockError: Asset 'X' is locked by run ...` | Previous run still active or crashed. Auto-clears after `stale_heartbeat_minutes` (default 20 min) or `max_run_hours` (default 5h). Override on asset class, or delete the row from `data_ops.run_locks` manually |
 | `RuntimeError: Checkpoint rejected` | Another worker took over your run (stale-run takeover). Normal recovery — retry the task |
+| `DatabaseRetryExhausted: ... after 3 attempts` | Database unreachable or overloaded. Check DB is running, verify `DATABASE_URL`. Adjust `DATA_ASSETS_DB_RETRY_ATTEMPTS` / `DATA_ASSETS_DB_RETRY_BASE_DELAY` if transient |
+| `ValueError: Column 'X' has N value(s) exceeding max length` | API returned data longer than the asset's `column_max_lengths` limit. Check the asset class — increase the limit or investigate the source data |
 | Asset runs for hours locally | Use `max_pages=3, dry_run=True` to validate the flow against a small slice of real data — see "Testing with limited data" below |
 
 ### Running a single asset locally

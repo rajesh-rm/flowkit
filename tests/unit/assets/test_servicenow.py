@@ -68,7 +68,7 @@ class TestServiceNowIncidentsParseResponse:
 
         data = json.loads((FIXTURES / "incidents.json").read_text())
         df, state = ServiceNowIncidents().parse_response(data)
-        assert len(df) == 2
+        assert len(df) == 5
         assert "sys_id" in df.columns
         assert not state.has_more
         cursor_data = json.loads(state.cursor)
@@ -371,9 +371,9 @@ class TestServiceNowTokenManagerValidation:
 
 # Each entry: (class_name, table_name, fixture_file, expected_rows, field_checks)
 _TABLE_ASSET_SPECS = [
-    ("ServiceNowUsers", "sys_user", "users.json", 2, {"user_name": "john.doe"}),
+    ("ServiceNowUsers", "sys_user", "users.json", 5, {"user_name": "john.doe"}),
     ("ServiceNowUserGroups", "sys_user_group", "user_groups.json", 2, {"name": "Network Team"}),
-    ("ServiceNowLocations", "cmn_location", "locations.json", 2, {"city": "New York"}),
+    ("ServiceNowLocations", "cmn_location", "locations.json", 5, {"city": "New York"}),
     ("ServiceNowDepartments", "cmn_department", "departments.json", 1, {"name": "Engineering"}),
     ("ServiceNowCmdbCIs", "cmdb_ci", "cmdb_cis.json", 2, {"name": "web-server-01", "sys_class_name": "cmdb_ci_server"}),
     ("ServiceNowHardwareAssets", "alm_hardware", "hardware_assets.json", 1, {"display_name": "Dell PowerEdge R740"}),

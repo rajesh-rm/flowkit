@@ -243,3 +243,74 @@ class TestRateLimitHeaders:
         )
         client.request(SPEC)
         assert client.stats["rate_limit_pauses"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Timeout handling
+# ---------------------------------------------------------------------------
+
+
+class TestTimeoutHandling:
+    @respx.mock
+    def test_timeout_retries_then_raises(self):
+        """httpx.TimeoutException should retry, then propagate on exhaustion."""
+        limiter = RateLimiter(rate_per_second=100.0)
+        c = APIClient(StubTokenManager(), limiter, timeout=5.0, max_retries=1)
+        respx.get("https://api.test/data").mock(
+            side_effect=httpx.ReadTimeout("read timed out")
+        )
+        with pytest.raises(httpx.ReadTimeout):
+            c.request(SPEC)
+        assert c.stats["retries"] == 1
+        c.close()
+
+    @respx.mock
+    def test_timeout_recovers_on_retry(self):
+        """Timeout on first try, success on second."""
+        limiter = RateLimiter(rate_per_second=100.0)
+        c = APIClient(StubTokenManager(), limiter, timeout=5.0, max_retries=2)
+        respx.get("https://api.test/data").mock(
+            side_effect=[
+                httpx.ReadTimeout("read timed out"),
+                httpx.Response(200, json={"recovered": True}),
+            ]
+        )
+        assert c.request(SPEC) == {"recovered": True}
+        assert c.stats["retries"] == 1
+        c.close()
+
+
+# ---------------------------------------------------------------------------
+# Rate limit exhaustion (429 all retries)
+# ---------------------------------------------------------------------------
+
+
+class TestRateLimitExhaustion:
+    @respx.mock
+    def test_429_exhausts_all_retries(self):
+        """Persistent 429 should exhaust retries and raise."""
+        limiter = RateLimiter(rate_per_second=100.0)
+        c = APIClient(StubTokenManager(), limiter, timeout=5.0, max_retries=1)
+        respx.get("https://api.test/data").mock(
+            side_effect=[
+                httpx.Response(429, headers={"Retry-After": "0.01"}),
+                httpx.Response(429, headers={"Retry-After": "0.01"}),
+            ]
+        )
+        with pytest.raises(httpx.HTTPStatusError):
+            c.request(SPEC)
+        assert c.stats["retries"] >= 1
+        c.close()
+
+    @respx.mock
+    def test_zero_remaining_triggers_preemptive_pause(self, client):
+        """X-RateLimit-Remaining: 0 should trigger preemptive pause."""
+        respx.get("https://api.test/data").mock(
+            return_value=httpx.Response(200, json={}, headers={
+                "X-RateLimit-Remaining": "0",
+                "X-RateLimit-Limit": "100",
+                "X-RateLimit-Reset": str(int(__import__("time").time()) + 1),
+            })
+        )
+        client.request(SPEC)
+        assert client.stats["rate_limit_pauses"] == 1

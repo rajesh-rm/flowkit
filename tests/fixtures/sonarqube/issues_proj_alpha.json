@@ -2,7 +2,7 @@
   "paging": {
     "pageIndex": 1,
     "pageSize": 100,
-    "total": 2
+    "total": 5
   },
   "issues": [
     {
@@ -30,6 +30,45 @@
       "type": "BUG",
       "creationDate": "2025-12-01T10:30:00+0000",
       "updateDate": "2025-12-01T11:00:00+0000"
+    },
+    {
+      "key": "AXyz-issue-003",
+      "rule": "python:S1542",
+      "severity": "MINOR",
+      "component": "proj-alpha:src/utils/helpers.py",
+      "project": "proj-alpha",
+      "line": null,
+      "message": "Rename this function to match the regular expression ^[a-z_][a-z0-9_]{2,}$. This is a file-level issue that applies to the function naming convention across the entire module and does not reference a specific line number.",
+      "status": "OPEN",
+      "type": "CODE_SMELL",
+      "creationDate": "2025-10-20T14:00:00+0000",
+      "updateDate": "2025-10-20T14:00:00+0000"
+    },
+    {
+      "key": "AXyz-issue-004",
+      "rule": "java:S2095",
+      "severity": "BLOCKER",
+      "component": "proj-alpha:src/db/ConnectionPool.java",
+      "project": "proj-alpha",
+      "line": 88,
+      "message": "Use try-with-resources or close this \"Connection\" in a \"finally\" clause.",
+      "status": "RESOLVED",
+      "type": "VULNERABILITY",
+      "creationDate": "2025-09-01T08:00:00+0000",
+      "updateDate": "2025-12-01T15:00:00+0000"
+    },
+    {
+      "key": "AXyz-issue-005",
+      "rule": "python:S107",
+      "severity": "MAJOR",
+      "component": "proj-alpha:src/api/views.py",
+      "project": "proj-alpha",
+      "line": 15,
+      "message": "Function has 9 parameters, which is greater than the 7 authorized.",
+      "status": "OPEN",
+      "type": "CODE_SMELL",
+      "creationDate": "2025-11-28T11:30:00+0000",
+      "updateDate": "2025-11-28T11:30:00+0000"
     }
   ]
 }

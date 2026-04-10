@@ -12,7 +12,7 @@ from data_assets.core.enums import LoadStrategy, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationState, RequestSpec
-from sqlalchemy import DateTime, Integer, Text
+from sqlalchemy import Boolean, DateTime, Integer, Text
 
 
 @register
@@ -45,11 +45,20 @@ class GitHubPullRequests(GitHubRepoAsset):
         Column("updated_at", DateTime(timezone=True)),
         Column("closed_at", DateTime(timezone=True), nullable=True),
         Column("merged_at", DateTime(timezone=True), nullable=True),
-        Column("draft", Text()),
+        Column("draft", Boolean()),
         Column("head_ref", Text()),
         Column("base_ref", Text()),
         Column("html_url", Text()),
     ]
+
+    column_max_lengths = {
+        "state": 100,
+        "user_login": 100,
+        "repo_full_name": 200,
+        "head_ref": 256,
+        "base_ref": 256,
+        "html_url": 2048,
+    }
 
     primary_key = ["id"]
     indexes = [
@@ -93,7 +102,7 @@ class GitHubPullRequests(GitHubRepoAsset):
                 "updated_at": pr.get("updated_at"),
                 "closed_at": pr.get("closed_at"),
                 "merged_at": pr.get("merged_at"),
-                "draft": str(pr.get("draft", False)).lower(),
+                "draft": pr.get("draft", False),
                 "head_ref": (pr.get("head") or {}).get("ref", ""),
                 "base_ref": (pr.get("base") or {}).get("ref", ""),
                 "html_url": pr.get("html_url", ""),

@@ -166,9 +166,11 @@ The example DAGs in `example_dags/flowkit_dags.py` already pass `partition_key=o
 ## Monitoring
 
 - **Airflow UI**: Each asset is a separate DAG with tags by source
-- **Run history**: Query `data_ops.run_history` for run metrics
-- **Coverage**: Query `data_ops.coverage_tracker` to see watermarks
+- **Run history**: Query `data_ops.run_history` for run metrics (includes error details and row counts)
+- **Coverage**: Query `data_ops.coverage_tracker` to see watermarks and which date ranges have been loaded
 - **Logs**: All output goes to stdout (captured by Airflow task logs)
+- **Database retries**: Transient DB errors are retried automatically (up to `DATA_ASSETS_DB_RETRY_ATTEMPTS`, default 3). Each retry is logged at WARNING level. If retries exhaust, the run fails with `DatabaseRetryExhausted` — check logs for the underlying error (connection timeout, deadlock, etc.)
+- **Data quality warnings**: The framework warns (non-blocking) if any string column contains values exceeding 10,000 characters. Assets with `column_max_lengths` defined will block promotion if limits are exceeded
 
 ## See also
 

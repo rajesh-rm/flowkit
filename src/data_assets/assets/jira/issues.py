@@ -49,6 +49,17 @@ class JiraIssues(JiraAsset):
         Column("labels", Text(), nullable=True),
     ]
 
+    column_max_lengths = {
+        "id": 100,
+        "key": 100,           # e.g., ENG-12345
+        "status": 100,
+        "priority": 100,
+        "issue_type": 100,
+        "project_key": 100,
+        "assignee": 500,
+        "reporter": 500,
+    }
+
     primary_key = ["id"]
     indexes = [
         Index(columns=("key",), unique=True),

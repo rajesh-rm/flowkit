@@ -386,6 +386,23 @@ cp /opt/airflow/dags/data_assets/.toml_backups/dag_overrides.2026-04-09_q2.toml.
 sudo systemctl start data-assets-sync.service
 ```
 
+### Task fails with `DatabaseRetryExhausted`
+
+The framework retried a database operation (temp table write, promotion, or checkpoint save) up to the configured limit and gave up.
+
+**Common causes:** database connection pool exhausted, network instability, deadlocks.
+
+**Solutions:**
+1. Check database logs for the underlying error
+2. Increase `DATA_ASSETS_DB_RETRY_ATTEMPTS` in the task's environment if the issue is transient
+3. Increase `DATA_ASSETS_DB_RETRY_BASE_DELAY` if the database needs more recovery time between attempts
+4. Check database connection capacity: `SHOW max_connections` (PostgreSQL) or `SHOW VARIABLES LIKE 'max_connections'` (MariaDB)
+5. Retry the task manually once the database recovers
+
+### Task fails with column length validation error
+
+A `ValueError` mentioning "exceeds max length" means the API returned a value longer than the asset's declared `column_max_lengths` limit. This is a data quality guard — the limit may need adjusting if the API legitimately returns longer values. Check the asset class definition in `src/data_assets/assets/`.
+
 ### DAGs don't appear in Airflow
 
 1. Check the DAG files exist: `ls /opt/airflow/dags/data_assets/`

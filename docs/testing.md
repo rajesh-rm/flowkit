@@ -30,6 +30,7 @@ tests/
 ├── conftest.py                     # Root fixtures (shared by ALL tests)
 │
 ├── fixtures/                       # JSON API response fixtures
+│   ├── errors/                     #   HTTP error responses (429, 500, 404)
 │   ├── github/                     #   repos, PRs, branches, workflows, ...
 │   ├── jira/                       #   projects, issues
 │   ├── servicenow/                 #   incidents, changes, ...
@@ -58,7 +59,8 @@ tests/
 │   ├── runner/
 │   │   └── test_runner.py          #     Orchestrator: routing, error handling, watermarks
 │   ├── db/
-│   │   └── test_engine.py          #     DB connection resolution, schema creation
+│   │   ├── test_engine.py          #     DB connection resolution, schema creation
+│   │   └── test_db_retry.py        #     @db_retry() decorator: retries, exhaustion, non-retryable errors
 │   ├── transform/
 │   │   └── test_db_transform.py    #     SQL transform execution
 │   ├── transforms/
@@ -349,10 +351,11 @@ def test_example(load_fixture):
 
 | Source | Files | Records per file |
 |--------|-------|-----------------|
-| GitHub | 12 | 2-3 each (repos, PRs, branches, commits, workflows, runs, jobs, members, user details, runner groups, properties) |
-| ServiceNow | 13 | 2 each (incidents, changes, change_tasks, problems, users, user_groups, departments, locations, cmdb_cis, hardware_assets, choices, catalog_items, catalog_requests) |
+| GitHub | 12 | 5 each (repos, PRs, branches, commits, workflows, runs, jobs, members, user details, runner groups, properties). Includes edge cases: null descriptions, archived repos, draft PRs, bot users. |
+| ServiceNow | 13 | 5 each (incidents, changes, change_tasks, problems, users, user_groups, departments, locations, cmdb_cis, hardware_assets, choices, catalog_items, catalog_requests). Includes: deactivated users, empty fields, unicode, null coordinates. |
 | Jira | 2 | 2-3 each (projects, issues) |
-| SonarQube | 9 | 1-5 each (projects, issues, measures, branches, analyses, project details, measures history) + sharding fixtures |
+| SonarQube | 9 | 5 each (projects, issues, measures, branches, analyses, project details, measures history) + sharding fixtures. Includes: null line numbers, resolved issues, multiple severities. |
+| Errors | 3 | HTTP error responses (429 rate limit, 500 server error, 404 not found) for API client error handling tests. |
 
 ---
 
@@ -370,6 +373,8 @@ def test_example(load_fixture):
 - [ ] `indexes` — verify at least one index is defined
 - [ ] `filter_entity_keys()` — if entity-parallel, verify filtering logic
 - [ ] `should_stop()` — if overridden, test watermark-based early stop
+- [ ] `column_max_lengths` — if defined, test that oversized strings are caught by `validate()`
+- [ ] Boolean columns — verify native `True`/`False` values (not string `"true"/"false"`)
 
 ### For framework changes
 

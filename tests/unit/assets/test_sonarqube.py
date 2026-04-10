@@ -90,7 +90,7 @@ class TestSonarQubeIssues:
 
         data = json.loads((FIXTURES / "issues_proj_alpha.json").read_text())
         df, state = SonarQubeIssues().parse_response(data)
-        assert len(df) == 2
+        assert len(df) == 5
         assert "creation_date" in df.columns
         assert "update_date" in df.columns
         assert not state.has_more

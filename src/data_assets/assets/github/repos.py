@@ -16,7 +16,7 @@ from data_assets.assets.github.helpers import GitHubOrgAsset
 from data_assets.core.column import Column, Index
 from data_assets.core.registry import register
 from data_assets.core.types import PaginationState
-from sqlalchemy import DateTime, Integer, Text
+from sqlalchemy import Boolean, DateTime, Integer, Text
 
 
 @register
@@ -37,16 +37,24 @@ class GitHubRepos(GitHubOrgAsset):
         Column("full_name", Text(), nullable=False),
         Column("name", Text()),
         Column("owner_login", Text()),
-        Column("private", Text()),
+        Column("private", Boolean()),
         Column("description", Text(), nullable=True),
         Column("language", Text(), nullable=True),
         Column("default_branch", Text()),
         Column("created_at", DateTime(timezone=True)),
         Column("updated_at", DateTime(timezone=True)),
         Column("pushed_at", DateTime(timezone=True), nullable=True),
-        Column("archived", Text()),
+        Column("archived", Boolean()),
         Column("html_url", Text()),
     ]
+
+    column_max_lengths = {
+        "full_name": 200,       # owner/repo — GitHub max ~140
+        "name": 100,            # repo name — GitHub max 100
+        "owner_login": 100,     # org/user login — GitHub max 39
+        "default_branch": 256,  # branch name
+        "html_url": 2048,
+    }
 
     primary_key = ["full_name"]
     indexes = [
@@ -71,14 +79,14 @@ class GitHubRepos(GitHubOrgAsset):
                 "full_name": repo["full_name"],
                 "name": repo.get("name"),
                 "owner_login": (repo.get("owner") or {}).get("login", ""),
-                "private": str(repo.get("private", False)).lower(),
+                "private": repo.get("private", False),
                 "description": repo.get("description"),
                 "language": repo.get("language"),
                 "default_branch": repo.get("default_branch", "main"),
                 "created_at": repo.get("created_at"),
                 "updated_at": repo.get("updated_at"),
                 "pushed_at": repo.get("pushed_at"),
-                "archived": str(repo.get("archived", False)).lower(),
+                "archived": repo.get("archived", False),
                 "html_url": repo.get("html_url", ""),
             })
         df = pd.DataFrame(records)
