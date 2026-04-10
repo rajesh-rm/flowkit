@@ -71,6 +71,7 @@ class Dialect(ABC):
     @abstractmethod
     def create_index_ddl(
         self, schema: str, table_name: str, idx: Index,
+        column_types: dict[str, object] | None = None,
     ) -> str:
         """Build CREATE INDEX DDL for this dialect."""
 
@@ -137,6 +138,7 @@ class PostgresDialect(Dialect):
 
     def create_index_ddl(
         self, schema: str, table_name: str, idx: Index,
+        column_types: dict[str, object] | None = None,
     ) -> str:
         name = index_name(table_name, idx)
         unique = "UNIQUE " if idx.unique else ""
@@ -239,10 +241,22 @@ class MariaDBDialect(Dialect):
 
     def create_index_ddl(
         self, schema: str, table_name: str, idx: Index,
+        column_types: dict[str, object] | None = None,
     ) -> str:
         name = index_name(table_name, idx)
         unique = "UNIQUE " if idx.unique else ""
-        cols = ", ".join(f'`{c}`' for c in idx.columns)
+
+        # For TEXT/BLOB columns, add a prefix length for indexability
+        col_parts = []
+        for c in idx.columns:
+            col_str = f'`{c}`'
+            if column_types:
+                from sqlalchemy import Text as SAText
+                ct = column_types.get(c)
+                if isinstance(ct, SAText):
+                    col_str = f'`{c}`(255)'
+            col_parts.append(col_str)
+        cols = ", ".join(col_parts)
 
         method = idx.method
         if method not in _MARIADB_INDEX_METHODS:

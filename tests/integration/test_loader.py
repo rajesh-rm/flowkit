@@ -243,7 +243,7 @@ INDEXES = [
 class TestEnsureIndexes:
     def test_creates_indexes(self, clean_db):
         create_table(clean_db, "raw", "idx_test", IDX_COLS, IDX_PK)
-        ensure_indexes(clean_db, "raw", "idx_test", INDEXES)
+        ensure_indexes(clean_db, "raw", "idx_test", INDEXES, IDX_COLS)
 
         idx_names = {i["name"] for i in inspect(clean_db).get_indexes("idx_test", schema="raw")}
         assert "ix_idx_test_name" in idx_names
@@ -251,13 +251,13 @@ class TestEnsureIndexes:
 
     def test_idempotent(self, clean_db):
         create_table(clean_db, "raw", "idx_idem", IDX_COLS, IDX_PK)
-        ensure_indexes(clean_db, "raw", "idx_idem", INDEXES)
-        ensure_indexes(clean_db, "raw", "idx_idem", INDEXES)  # no error
+        ensure_indexes(clean_db, "raw", "idx_idem", INDEXES, IDX_COLS)
+        ensure_indexes(clean_db, "raw", "idx_idem", INDEXES, IDX_COLS)  # no error
 
     def test_unique_index(self, clean_db):
         unique_idx = [Index(columns=("name",), unique=True)]
         create_table(clean_db, "raw", "idx_uniq", IDX_COLS, IDX_PK)
-        ensure_indexes(clean_db, "raw", "idx_uniq", unique_idx)
+        ensure_indexes(clean_db, "raw", "idx_uniq", unique_idx, IDX_COLS)
 
         idx_names = {i["name"] for i in inspect(clean_db).get_indexes("idx_uniq", schema="raw")}
         assert "ix_idx_uniq_name_unique" in idx_names

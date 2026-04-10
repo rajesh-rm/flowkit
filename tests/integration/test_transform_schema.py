@@ -66,10 +66,10 @@ class TestTransformSchema:
         asset = cls()
         sql = asset.query(_DUMMY_CONTEXT)
 
+        from data_assets.db.dialect import get_dialect
+
         with self.engine.begin() as conn:
-            conn.execute(text(
-                f"SET LOCAL statement_timeout = '{asset.query_timeout_seconds}s'"
-            ))
+            get_dialect(self.engine).set_query_timeout(conn, asset.query_timeout_seconds)
             result = conn.execute(text(sql))
             columns = list(result.keys())
 

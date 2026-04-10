@@ -168,8 +168,8 @@ class TestJiraE2E:
         assert result["status"] == "success"
         assert result["rows_loaded"] == 2
 
-        df = pd.read_sql("SELECT * FROM raw.jira_projects ORDER BY key", run_engine)
-        assert list(df["key"]) == ["ENG", "OPS"]
+        df = pd.read_sql("SELECT * FROM raw.jira_projects", run_engine)
+        assert sorted(df["key"].tolist()) == ["ENG", "OPS"]
 
     @respx.mock
     def test_issues_entity_parallel(self, run_engine, monkeypatch, load_fixture):
@@ -192,7 +192,7 @@ class TestJiraE2E:
         assert result["status"] == "success"
         assert result["rows_loaded"] == 2
 
-        df = pd.read_sql("SELECT * FROM raw.jira_issues ORDER BY key", run_engine)
+        df = pd.read_sql("SELECT * FROM raw.jira_issues", run_engine)
         assert "ENG-101" in df["key"].values
         assert "Alice Chen" in df["assignee"].values
 
