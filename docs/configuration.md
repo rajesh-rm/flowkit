@@ -32,6 +32,18 @@ If both `DATABASE_BACKEND` and `DATABASE_URL` are set and conflict (e.g., `DATAB
 2. `DATABASE_URL` environment variable
 3. `DATABASE_URL` in `.env` file
 
+**MariaDB compatibility** — the following differences are handled automatically:
+
+| Behavior | PostgreSQL | MariaDB | Handling |
+|---|---|---|---|
+| Text PKs | TEXT indexable | TEXT cannot be PK | Auto-converted to VARCHAR(255) |
+| Timestamps | TIMESTAMPTZ (tz-aware) | DATETIME (tz-naive) | Stored as UTC on both |
+| Datetime strings | Accepts ISO 8601 with 'Z' | Rejects 'Z' suffix | Auto-converted before write |
+| Identifier quoting | `"double quotes"` | `` `backticks` `` | Dialect layer handles it |
+| Index methods | GIN, GIST, BRIN, SPGIST | BTREE, HASH only | Falls back to BTREE |
+
+No application code changes are needed — the dialect abstraction layer handles all differences.
+
 ## Source Credentials
 
 ### SonarQube

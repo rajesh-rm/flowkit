@@ -880,6 +880,15 @@ class PagerDutyIncidents(APIAsset):
     #
     #   nullable: True (default) allows NULL values. Set False for required fields.
     #   default:  Optional SQL expression for a default value (e.g., "now()").
+    #
+    # MariaDB compatibility notes:
+    #   - Text() columns used as primary keys are auto-converted to
+    #     String(255) / VARCHAR(255) on MariaDB (TEXT cannot be indexed).
+    #   - DateTime(timezone=True) stores as TIMESTAMPTZ on Postgres but
+    #     DATETIME on MariaDB (timezone-naive). The package handles this
+    #     transparently — timestamps are stored in UTC on both.
+    #   - ISO 8601 datetime strings (e.g., '2025-01-01T00:00:00Z') are
+    #     auto-converted to proper datetime objects before database writes.
 
     # ---------------------------------------------------------------
     # Primary key

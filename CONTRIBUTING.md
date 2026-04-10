@@ -33,9 +33,14 @@ make lint && make typecheck
 
 ```bash
 make test-unit          # Fast — no Docker
-make test-integration   # Requires Docker
+make test-integration   # Requires Docker (Postgres by default)
 make test-cov           # Unit tests with coverage report
+
+# Test against MariaDB:
+TEST_DATABASE=mariadb make test-integration
 ```
+
+Both backends achieve full test parity (50/50 integration tests).
 
 See [docs/testing.md](docs/testing.md) for the full guide — directory structure, fixtures, patterns, and debugging.
 
