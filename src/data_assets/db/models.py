@@ -9,8 +9,13 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, JSON, Text, Uuid, func
+from sqlalchemy import DateTime, Integer, JSON, String, Text, Uuid, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+# Portable server default for timestamps — works on both Postgres and MariaDB.
+# func.now() generates DEFAULT (now()) which MariaDB rejects for DATETIME.
+# CURRENT_TIMESTAMP is SQL standard and accepted by both.
+_CURRENT_TIMESTAMP = text("CURRENT_TIMESTAMP")
 
 
 class Base(DeclarativeBase):
@@ -34,20 +39,20 @@ class RunLock(Base):
     __tablename__ = "run_locks"
     __table_args__ = {"schema": "data_ops"}
 
-    asset_name: Mapped[str] = mapped_column(Text, primary_key=True)
-    partition_key: Mapped[str] = mapped_column(Text, primary_key=True, default="")
+    asset_name: Mapped[str] = mapped_column(String(255), primary_key=True)
+    partition_key: Mapped[str] = mapped_column(String(255), primary_key=True, default="")
     run_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     locked_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        server_default=func.now(),
+        server_default=_CURRENT_TIMESTAMP,
     )
     locked_by: Mapped[str] = mapped_column(Text, nullable=False)
     temp_table: Mapped[str | None] = mapped_column(Text, nullable=True)
     heartbeat_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        server_default=func.now(),
+        server_default=_CURRENT_TIMESTAMP,
     )
 
 
@@ -95,7 +100,7 @@ class Checkpoint(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        server_default=func.now(),
+        server_default=_CURRENT_TIMESTAMP,
     )
 
 
@@ -105,7 +110,7 @@ class AssetRegistry(Base):
     __tablename__ = "asset_registry"
     __table_args__ = {"schema": "data_ops"}
 
-    asset_name: Mapped[str] = mapped_column(Text, primary_key=True)
+    asset_name: Mapped[str] = mapped_column(String(255), primary_key=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     asset_type: Mapped[str] = mapped_column(Text, nullable=False)
     source_name: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -115,7 +120,7 @@ class AssetRegistry(Base):
     registered_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        server_default=func.now(),
+        server_default=_CURRENT_TIMESTAMP,
     )
     last_success_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -134,8 +139,8 @@ class CoverageTracker(Base):
     __tablename__ = "coverage_tracker"
     __table_args__ = {"schema": "data_ops"}
 
-    asset_name: Mapped[str] = mapped_column(Text, primary_key=True)
-    partition_key: Mapped[str] = mapped_column(Text, primary_key=True, default="")
+    asset_name: Mapped[str] = mapped_column(String(255), primary_key=True)
+    partition_key: Mapped[str] = mapped_column(String(255), primary_key=True, default="")
     forward_watermark: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -145,7 +150,7 @@ class CoverageTracker(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        server_default=func.now(),
+        server_default=_CURRENT_TIMESTAMP,
     )
 
 
@@ -154,32 +159,49 @@ def _migrate_add_partition_key(engine) -> None:
 
     Safe to call multiple times (idempotent). Existing rows get
     partition_key="" from the DEFAULT, preserving backward compatibility.
+
+    On a fresh install where create_all() already defined the composite PKs,
+    the PK rebuild steps are no-ops (caught by try/except).
     """
-    stmts = [
-        # Add column to each table (idempotent)
-        "ALTER TABLE data_ops.run_locks "
-        "ADD COLUMN IF NOT EXISTS partition_key TEXT NOT NULL DEFAULT ''",
-        "ALTER TABLE data_ops.coverage_tracker "
-        "ADD COLUMN IF NOT EXISTS partition_key TEXT NOT NULL DEFAULT ''",
-        "ALTER TABLE data_ops.checkpoints "
-        "ADD COLUMN IF NOT EXISTS partition_key TEXT NOT NULL DEFAULT ''",
-        "ALTER TABLE data_ops.run_history "
-        "ADD COLUMN IF NOT EXISTS partition_key TEXT NOT NULL DEFAULT ''",
-        # Rebuild composite PKs for run_locks and coverage_tracker
-        "ALTER TABLE data_ops.run_locks "
-        "DROP CONSTRAINT IF EXISTS run_locks_pkey",
-        "ALTER TABLE data_ops.run_locks "
-        "ADD CONSTRAINT run_locks_pkey PRIMARY KEY (asset_name, partition_key)",
-        "ALTER TABLE data_ops.coverage_tracker "
-        "DROP CONSTRAINT IF EXISTS coverage_tracker_pkey",
-        "ALTER TABLE data_ops.coverage_tracker "
-        "ADD CONSTRAINT coverage_tracker_pkey PRIMARY KEY (asset_name, partition_key)",
-    ]
+    import logging
     from sqlalchemy import text
 
+    logger = logging.getLogger(__name__)
+
+    # Step 1: Add partition_key column (idempotent via IF NOT EXISTS)
+    add_col_stmts = [
+        "ALTER TABLE data_ops.run_locks "
+        "ADD COLUMN IF NOT EXISTS partition_key VARCHAR(255) NOT NULL DEFAULT ''",
+        "ALTER TABLE data_ops.coverage_tracker "
+        "ADD COLUMN IF NOT EXISTS partition_key VARCHAR(255) NOT NULL DEFAULT ''",
+        "ALTER TABLE data_ops.checkpoints "
+        "ADD COLUMN IF NOT EXISTS partition_key VARCHAR(255) NOT NULL DEFAULT ''",
+        "ALTER TABLE data_ops.run_history "
+        "ADD COLUMN IF NOT EXISTS partition_key VARCHAR(255) NOT NULL DEFAULT ''",
+    ]
+
     with engine.begin() as conn:
-        for sql in stmts:
+        for sql in add_col_stmts:
             conn.execute(text(sql))
+
+    # Step 2: Rebuild composite PKs (may already exist from create_all)
+    pk_stmts = [
+        ("ALTER TABLE data_ops.run_locks DROP CONSTRAINT IF EXISTS run_locks_pkey",
+         "ALTER TABLE data_ops.run_locks ADD CONSTRAINT run_locks_pkey "
+         "PRIMARY KEY (asset_name, partition_key)"),
+        ("ALTER TABLE data_ops.coverage_tracker DROP CONSTRAINT IF EXISTS coverage_tracker_pkey",
+         "ALTER TABLE data_ops.coverage_tracker ADD CONSTRAINT coverage_tracker_pkey "
+         "PRIMARY KEY (asset_name, partition_key)"),
+    ]
+
+    for drop_sql, add_sql in pk_stmts:
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(drop_sql))
+                conn.execute(text(add_sql))
+        except Exception:
+            # PK already correct (fresh install via create_all)
+            logger.debug("PK already exists, skipping rebuild")
 
 
 def create_all_tables(engine) -> None:

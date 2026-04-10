@@ -65,11 +65,11 @@ def create_table(
     col_defs = ", ".join(d.column_ddl(c) for c in columns)
     pk_clause = ""
     if primary_key:
-        pk_cols = ", ".join(f'"{c}"' for c in primary_key)
+        pk_cols = ", ".join(d.qi(c) for c in primary_key)
         pk_clause = f", PRIMARY KEY ({pk_cols})"
 
     create_kw = d.create_table_kw(unlogged)
-    ddl = f'{create_kw} "{schema}"."{table_name}" ({col_defs}{pk_clause})'
+    ddl = f"{create_kw} {d.fqn(schema, table_name)} ({col_defs}{pk_clause})"
     with engine.begin() as conn:
         conn.execute(text(ddl))
     logger.info("Created table %s.%s", schema, table_name)
@@ -111,7 +111,7 @@ def ensure_columns(
     with engine.begin() as conn:
         for col in new_cols:
             conn.execute(text(
-                f'ALTER TABLE "{schema}"."{table_name}" ADD COLUMN {d.column_ddl(col)}'
+                f"ALTER TABLE {d.fqn(schema, table_name)} ADD COLUMN {d.column_ddl(col)}"
             ))
             logger.info("Added column '%s' to %s.%s", col.name, schema, table_name)
 
@@ -182,7 +182,8 @@ def write_to_temp(engine: Engine, table_name: str, df: pd.DataFrame) -> int:
 
 def read_temp_table(engine: Engine, table_name: str) -> pd.DataFrame:
     """Read the entire temp table into a DataFrame."""
-    return pd.read_sql(f'SELECT * FROM "{TEMP_SCHEMA}"."{table_name}"', engine)
+    d = get_dialect(engine)
+    return pd.read_sql(f"SELECT * FROM {d.fqn(TEMP_SCHEMA, table_name)}", engine)
 
 
 def drop_temp_table(engine: Engine, table_name: str) -> None:
@@ -248,11 +249,11 @@ def promote(
 def _promote_full_replace(conn, d, temp_schema, temp_table, main_schema, main_table,
                           primary_key, column_names) -> int:
     """Truncate main table, then INSERT...SELECT from temp."""
-    conn.execute(text(f'TRUNCATE TABLE "{main_schema}"."{main_table}"'))
-    cols = ", ".join(f'"{c}"' for c in column_names)
+    conn.execute(text(f"TRUNCATE TABLE {d.fqn(main_schema, main_table)}"))
+    cols = ", ".join(d.qi(c) for c in column_names)
     result = conn.execute(text(
-        f'INSERT INTO "{main_schema}"."{main_table}" ({cols}) '
-        f'SELECT {cols} FROM "{temp_schema}"."{temp_table}"'
+        f"INSERT INTO {d.fqn(main_schema, main_table)} ({cols}) "
+        f"SELECT {cols} FROM {d.fqn(temp_schema, temp_table)}"
     ))
     return result.rowcount
 
@@ -268,10 +269,10 @@ def _promote_upsert(conn, d, temp_schema, temp_table, main_schema, main_table,
 def _promote_append(conn, d, temp_schema, temp_table, main_schema, main_table,
                     primary_key, column_names) -> int:
     """INSERT...SELECT from temp (no conflict handling)."""
-    cols = ", ".join(f'"{c}"' for c in column_names)
+    cols = ", ".join(d.qi(c) for c in column_names)
     return conn.execute(text(
-        f'INSERT INTO "{main_schema}"."{main_table}" ({cols}) '
-        f'SELECT {cols} FROM "{temp_schema}"."{temp_table}"'
+        f"INSERT INTO {d.fqn(main_schema, main_table)} ({cols}) "
+        f"SELECT {cols} FROM {d.fqn(temp_schema, temp_table)}"
     )).rowcount
 
 

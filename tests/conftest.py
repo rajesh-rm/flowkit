@@ -133,6 +133,7 @@ _DB_CONFIGS = {
         "class": "MySqlContainer",
         "image": "mariadb:10.11",
         "label": "MariaDB",
+        "kwargs": {"dialect": "pymysql"},
     },
 }
 
@@ -149,7 +150,7 @@ def _create_db_engine(backend: str) -> tuple[Engine, object | None]:
         container_cls = getattr(mod, cfg["class"])
 
         _setup_container_runtime()
-        container = container_cls(cfg["image"])
+        container = container_cls(cfg["image"], **cfg.get("kwargs", {}))
         container.start()
         url = container.get_connection_url()
         return create_engine(url), container
@@ -167,13 +168,36 @@ def _create_db_engine(backend: str) -> tuple[Engine, object | None]:
         )
 
 
-def _setup_schemas(engine: Engine) -> None:
-    """Create schemas and metadata tables for testing."""
+def _setup_schemas(engine: Engine, container=None) -> None:
+    """Create schemas and metadata tables for testing.
+
+    For MariaDB, schema creation requires root access (CREATE DATABASE).
+    We use the container's root credentials if available, then grant
+    privileges to the regular user.
+    """
     from data_assets.db.models import create_all_tables
 
-    with engine.begin() as conn:
-        for schema in ["data_ops", "raw", "mart", "temp_store"]:
-            conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema}"))
+    dialect = engine.dialect.name
+
+    if dialect in ("mysql", "mariadb") and container is not None:
+        # MariaDB: use root to create schemas and grant privileges
+        root_url = (
+            f"mysql+pymysql://root:{container.root_password}"
+            f"@{container.get_container_host_ip()}"
+            f":{container.get_exposed_port(3306)}/{container.dbname}"
+        )
+        root_engine = create_engine(root_url)
+        with root_engine.begin() as conn:
+            for schema in ["data_ops", "raw", "mart", "temp_store"]:
+                conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema}"))
+            conn.execute(text(f"GRANT ALL PRIVILEGES ON *.* TO '{container.username}'@'%'"))
+            conn.execute(text("FLUSH PRIVILEGES"))
+        root_engine.dispose()
+    else:
+        with engine.begin() as conn:
+            for schema in ["data_ops", "raw", "mart", "temp_store"]:
+                conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema}"))
+
     create_all_tables(engine)
 
 
@@ -188,7 +212,7 @@ def db_engine():
     backend = _test_database()
     engine, container = _create_db_engine(backend)
 
-    _setup_schemas(engine)
+    _setup_schemas(engine, container)
     yield engine
 
     if container:

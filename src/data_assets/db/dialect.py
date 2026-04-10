@@ -35,6 +35,14 @@ class Dialect(ABC):
     """Abstract interface for dialect-specific SQL operations."""
 
     @abstractmethod
+    def qi(self, name: str) -> str:
+        """Quote a SQL identifier (table, column, schema name)."""
+
+    def fqn(self, schema: str, table: str) -> str:
+        """Return a fully qualified table name: schema.table."""
+        return f"{self.qi(schema)}.{self.qi(table)}"
+
+    @abstractmethod
     def set_query_timeout(self, conn: Connection, seconds: int) -> None:
         """Set a per-query timeout for the current transaction/session."""
 
@@ -73,6 +81,9 @@ class Dialect(ABC):
 
 class PostgresDialect(Dialect):
     """PostgreSQL 16+ dialect."""
+
+    def qi(self, name: str) -> str:
+        return f'"{name}"'
 
     def set_query_timeout(self, conn: Connection, seconds: int) -> None:
         conn.execute(text(f"SET LOCAL statement_timeout = '{seconds}s'"))
@@ -147,6 +158,9 @@ class PostgresDialect(Dialect):
 
 class MariaDBDialect(Dialect):
     """MariaDB 10.11+ dialect."""
+
+    def qi(self, name: str) -> str:
+        return f'`{name}`'
 
     def set_query_timeout(self, conn: Connection, seconds: int) -> None:
         conn.execute(text(f"SET max_statement_time = {seconds}"))
@@ -239,9 +253,11 @@ class MariaDBDialect(Dialect):
             )
             method = IndexMethod.BTREE
 
+        # MariaDB syntax: USING goes between index name and ON keyword
         ddl = (
             f'CREATE {unique}INDEX IF NOT EXISTS `{name}` '
-            f'ON `{schema}`.`{table_name}` USING {method} ({cols})'
+            f'USING {method} '
+            f'ON `{schema}`.`{table_name}` ({cols})'
         )
         # MariaDB does not support INCLUDE clause
         if idx.include:
