@@ -11,7 +11,6 @@ from sqlalchemy import DateTime, Float, Integer, Text, inspect, text
 from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy
 from data_assets.load.loader import (
-    _column_ddl,
     create_table,
     create_temp_table,
     drop_temp_table,
@@ -30,26 +29,6 @@ COLS = [
     Column("score", Float(), nullable=True),
 ]
 PK = ["id"]
-
-
-# ---------------------------------------------------------------------------
-# DDL string generation (no DB needed)
-# ---------------------------------------------------------------------------
-
-
-class TestColumnDDL:
-    def test_basic(self):
-        assert _column_ddl(Column("x", Text())) == '"x" TEXT'
-
-    def test_not_null(self):
-        assert _column_ddl(Column("id", Integer(), nullable=False)) == '"id" INTEGER NOT NULL'
-
-    def test_with_default(self):
-        col = Column("ts", DateTime(timezone=True), nullable=False, default="now()")
-        ddl = _column_ddl(col)
-        assert ddl.startswith('"ts" TIMESTAMP')
-        assert "NOT NULL" in ddl
-        assert "DEFAULT now()" in ddl
 
 
 # ---------------------------------------------------------------------------

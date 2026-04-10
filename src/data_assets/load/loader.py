@@ -30,24 +30,6 @@ TEMP_SCHEMA = "temp_store"
 # DDL helpers
 # ---------------------------------------------------------------------------
 
-def _column_ddl(col: Column, dialect=None) -> str:
-    """Build the DDL fragment for a single column.
-
-    If dialect is provided, compiles the type for that specific database.
-    Otherwise defaults to Postgres (backward compatible).
-    """
-    if dialect is None:
-        from sqlalchemy.dialects import postgresql
-        dialect = postgresql.dialect()
-    type_str = col.sa_type.compile(dialect=dialect)
-    parts = [f'"{col.name}" {type_str}']
-    if not col.nullable:
-        parts.append("NOT NULL")
-    if col.default is not None:
-        parts.append(f"DEFAULT {col.default}")
-    return " ".join(parts)
-
-
 def create_table(
     engine: Engine,
     schema: str,
@@ -61,19 +43,9 @@ def create_table(
     if insp.has_table(table_name, schema=schema):
         return
 
-    from sqlalchemy import String, Text as SAText
-
     d = get_dialect(engine)
     pk_set = set(primary_key) if primary_key else set()
-
-    # MariaDB cannot use TEXT columns in primary keys or unique indexes.
-    # Auto-convert TEXT PK columns to VARCHAR(255) for MariaDB.
-    adjusted_cols = []
-    for c in columns:
-        if c.name in pk_set and isinstance(c.sa_type, SAText) and engine.dialect.name in ("mysql", "mariadb"):
-            adjusted_cols.append(Column(c.name, String(255), nullable=c.nullable, default=c.default))
-        else:
-            adjusted_cols.append(c)
+    adjusted_cols = d.adjust_pk_columns(columns, pk_set)
 
     col_defs = ", ".join(d.column_ddl(c) for c in adjusted_cols)
     pk_clause = ""
@@ -181,39 +153,33 @@ def create_temp_table(
     return tname
 
 
-def write_to_temp(engine: Engine, table_name: str, df: pd.DataFrame) -> int:
-    """Append a DataFrame to the temp table. Returns rows written.
+def _coerce_datetime_strings(df: pd.DataFrame) -> pd.DataFrame:
+    """Convert ISO 8601 string columns to proper datetime objects in place."""
+    for col in df.columns:
+        if df[col].dtype not in ("object", "str", "string"):
+            continue
+        idx = df[col].first_valid_index()
+        sample = df[col].at[idx] if idx is not None else None
+        if isinstance(sample, str) and ("T" in sample or "Z" in sample):
+            try:
+                df[col] = pd.to_datetime(df[col], utc=True, errors="coerce")
+            except Exception:
+                pass  # not a datetime column
+    return df
 
-    Datetime columns containing ISO 8601 strings (e.g., '2025-12-01T08:00:00Z')
-    are converted to proper datetime objects before writing. This ensures
-    MariaDB DATETIME columns accept the values (MariaDB rejects the 'Z' suffix
-    and 'T' separator that Postgres auto-parses).
-    """
+
+def write_to_temp(engine: Engine, table_name: str, df: pd.DataFrame) -> int:
+    """Append a DataFrame to the temp table. Returns rows written."""
     if df.empty:
         return 0
     rows = len(df)
 
-    # Convert datetime-like string columns to proper datetime objects.
-    # MariaDB DATETIME rejects ISO 8601 strings with 'T' separator or
-    # timezone suffixes ('Z', '+00:00'). Convert to naive UTC datetimes
-    # so pandas sends format-agnostic values to any backend.
-    is_mariadb = engine.dialect.name in ("mysql", "mariadb")
     df = df.copy()
-    for col in df.columns:
-        if df[col].dtype in ("object", "str", "string") and len(df) > 0:
-            sample = df[col].dropna().iloc[0] if not df[col].dropna().empty else None
-            if isinstance(sample, str) and ("T" in sample or "Z" in sample):
-                try:
-                    converted = pd.to_datetime(df[col], utc=True, errors="coerce")
-                    # Strip timezone for MariaDB (DATETIME is tz-naive)
-                    if is_mariadb:
-                        converted = converted.dt.tz_localize(None)
-                    df[col] = converted
-                except Exception:
-                    pass  # not a datetime column
-        # Also strip tz from already-parsed datetime columns for MariaDB
-        elif is_mariadb and hasattr(df[col].dtype, "tz") and df[col].dtype.tz is not None:
-            df[col] = df[col].dt.tz_localize(None)
+    _coerce_datetime_strings(df)
+
+    # Dialect-specific adjustments (e.g., MariaDB strips timezone info).
+    d = get_dialect(engine)
+    df = d.prepare_dataframe(df)
 
     df.to_sql(
         table_name, engine, schema=TEMP_SCHEMA,

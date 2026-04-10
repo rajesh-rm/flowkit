@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -177,7 +178,7 @@ class TestCheckRowCountAnomaly:
         session = MagicMock()
         mock_session_cls.return_value.__enter__ = MagicMock(return_value=session)
         mock_session_cls.return_value.__exit__ = MagicMock(return_value=False)
-        session.execute.return_value.scalar.return_value = 100.0  # avg of last 5
+        session.execute.return_value.scalar.return_value = Decimal("100")  # avg of last 5
 
         with patch("data_assets.runner.logger") as mock_logger:
             _check_row_count_anomaly(MagicMock(), "test_asset", 40)  # 40 < 50% of 100
@@ -188,7 +189,7 @@ class TestCheckRowCountAnomaly:
         session = MagicMock()
         mock_session_cls.return_value.__enter__ = MagicMock(return_value=session)
         mock_session_cls.return_value.__exit__ = MagicMock(return_value=False)
-        session.execute.return_value.scalar.return_value = 100.0
+        session.execute.return_value.scalar.return_value = Decimal("100")
 
         with patch("data_assets.runner.logger") as mock_logger:
             _check_row_count_anomaly(MagicMock(), "test_asset", 80)

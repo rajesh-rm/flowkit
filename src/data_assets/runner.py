@@ -632,7 +632,7 @@ def _check_row_count_anomaly(
             result = session.execute(
                 select(func.avg(recent.c.rows_extracted))
             ).scalar()
-            if result and rows_extracted < result * ROW_COUNT_ANOMALY_THRESHOLD:
+            if result and rows_extracted < float(result) * ROW_COUNT_ANOMALY_THRESHOLD:
                 logger.warning(
                     "Row count anomaly for '%s': got %d, recent average is %.0f",
                     asset_name, rows_extracted, result,
