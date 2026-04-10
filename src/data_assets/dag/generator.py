@@ -237,7 +237,7 @@ def _build_run_connection(
     secrets_block = _build_secrets_block(mapping)
     return (
         'def _run(**context):\n'
-        '    from airflow.hooks.base import BaseHook\n'
+        '    from airflow.sdk import BaseHook\n'
         '    from data_assets import run_asset\n'
         '\n'
         f'    conn = BaseHook.get_connection("{connection_id}")\n'
@@ -278,7 +278,7 @@ def _build_run_multi_org(
 
     return (
         'def _run(**context):\n'
-        '    from airflow.hooks.base import BaseHook\n'
+        '    from airflow.sdk import BaseHook\n'
         '    from data_assets import run_asset\n'
         '\n'
         f'    conn = BaseHook.get_connection("{connection_id}")\n'

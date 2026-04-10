@@ -42,7 +42,7 @@ class CredentialResolver:
     @staticmethod
     def _from_airflow(key: str) -> str | None:
         try:
-            from airflow.hooks.base import BaseHook
+            from airflow.sdk import BaseHook
 
             conn = BaseHook.get_connection(key)
             return conn.password or conn.get_uri()

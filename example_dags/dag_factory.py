@@ -21,8 +21,8 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from airflow import DAG
-from airflow.operators.python import PythonOperator
+from airflow.sdk import DAG
+from airflow.providers.standard.operators.python import PythonOperator
 
 DEFAULT_SCHEDULES = {
     "full": "0 5 * * *",
@@ -53,7 +53,7 @@ def _resolve_secrets(source_name: str, org_override: dict | None = None) -> dict
     For GitHub multi-org, org_override provides per-org installation_id and org name.
     The GitHub App credentials (app_id, private_key) are shared across orgs.
     """
-    from airflow.hooks.base import BaseHook
+    from airflow.sdk import BaseHook
 
     conn_id = SOURCE_CONNECTIONS.get(source_name)
     if not conn_id:
@@ -124,7 +124,7 @@ def _get_github_orgs() -> list[dict]:
     Falls back to single-org if the legacy format is used:
         {"orgs": "my-org", "installation_id": "12345"}
     """
-    from airflow.hooks.base import BaseHook
+    from airflow.sdk import BaseHook
 
     try:
         conn = BaseHook.get_connection("github_app")

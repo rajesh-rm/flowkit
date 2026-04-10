@@ -2023,7 +2023,7 @@ paginating. Default: always `False` (let pagination exhaust naturally).
 injected into `os.environ` for the duration of the run and cleaned up after:
 
 ```python
-from airflow.hooks.base import BaseHook
+from airflow.sdk import BaseHook
 from data_assets import run_asset
 
 def _run_github(**context):

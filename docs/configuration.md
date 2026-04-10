@@ -92,7 +92,7 @@ Instead of pre-setting env vars on workers, pass secrets explicitly from Airflow
 Connections via the `secrets` parameter:
 
 ```python
-from airflow.hooks.base import BaseHook
+from airflow.sdk import BaseHook
 from data_assets import run_asset
 
 conn = BaseHook.get_connection("sonarqube")

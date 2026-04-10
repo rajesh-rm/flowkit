@@ -23,7 +23,7 @@ def _resolve_database_url(connection_key: str = "data_assets_db") -> str:
     """Resolve the Postgres connection string from available sources."""
     # 1. Try Airflow Connection
     try:
-        from airflow.hooks.base import BaseHook
+        from airflow.sdk import BaseHook
 
         conn = BaseHook.get_connection(connection_key)
         return conn.get_uri()

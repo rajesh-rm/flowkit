@@ -24,7 +24,7 @@ class TestResolveDatabaseUrl:
             "data_assets.db.engine.load_dotenv"
         ):
             # Simulate Airflow not installed by making the import raise
-            with patch.dict("sys.modules", {"airflow": None, "airflow.hooks": None, "airflow.hooks.base": None}):
+            with patch.dict("sys.modules", {"airflow": None, "airflow.sdk": None}):
                 url = _resolve_database_url()
 
         assert url == "postgresql://user:pass@localhost/db"
@@ -36,7 +36,7 @@ class TestResolveDatabaseUrl:
         with patch(
             "data_assets.db.engine.load_dotenv"
         ):
-            with patch.dict("sys.modules", {"airflow": None, "airflow.hooks": None, "airflow.hooks.base": None}):
+            with patch.dict("sys.modules", {"airflow": None, "airflow.sdk": None}):
                 url = _resolve_database_url()
 
         assert url == "postgresql://host/testdb"
@@ -46,7 +46,7 @@ class TestResolveDatabaseUrl:
         monkeypatch.delenv("DATABASE_URL", raising=False)
 
         with patch("data_assets.db.engine.load_dotenv"):
-            with patch.dict("sys.modules", {"airflow": None, "airflow.hooks": None, "airflow.hooks.base": None}):
+            with patch.dict("sys.modules", {"airflow": None, "airflow.sdk": None}):
                 with pytest.raises(RuntimeError, match="No database connection found"):
                     _resolve_database_url()
 
@@ -62,8 +62,7 @@ class TestResolveDatabaseUrl:
 
         with patch.dict("sys.modules", {
             "airflow": MagicMock(),
-            "airflow.hooks": MagicMock(),
-            "airflow.hooks.base": mock_module,
+            "airflow.sdk": mock_module,
         }):
             url = _resolve_database_url("my_conn")
 
@@ -83,8 +82,7 @@ class TestResolveDatabaseUrl:
         with patch("data_assets.db.engine.load_dotenv"):
             with patch.dict("sys.modules", {
                 "airflow": MagicMock(),
-                "airflow.hooks": MagicMock(),
-                "airflow.hooks.base": mock_module,
+                "airflow.sdk": mock_module,
             }):
                 url = _resolve_database_url()
 

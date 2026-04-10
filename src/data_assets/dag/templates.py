@@ -62,8 +62,8 @@ Do not edit — customise via dag_overrides.toml, then re-run: data-assets sync
 \"\"\"
 from datetime import timedelta
 
-from airflow import DAG
-from airflow.operators.python import PythonOperator
+from airflow.sdk import DAG
+from airflow.providers.standard.operators.python import PythonOperator
 
 _ASSET_FINGERPRINT = "$fingerprint"
 
@@ -95,7 +95,7 @@ $marker
 This DAG was automatically disabled by: data-assets sync
 Remove this file manually once you no longer need the Airflow run history.
 \"\"\"
-from airflow import DAG
+from airflow.sdk import DAG
 
 DAG(dag_id="$dag_id", schedule=None, catchup=False, is_paused_upon_creation=True)
 """)

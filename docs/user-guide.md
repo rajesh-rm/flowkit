@@ -4,7 +4,7 @@
 
 - Python 3.11+
 - PostgreSQL 14+
-- Apache Airflow 2.x+ (for DAG scheduling)
+- Apache Airflow 3.0+ (for DAG scheduling)
 
 ## Installation
 
@@ -68,7 +68,7 @@ For automated zero-touch updates (new package versions automatically generate ne
 **Passing secrets explicitly** (for remote workers or KubernetesExecutor):
 
 ```python
-from airflow.hooks.base import BaseHook
+from airflow.sdk import BaseHook
 from data_assets import run_asset
 
 conn = BaseHook.get_connection("sonarqube")

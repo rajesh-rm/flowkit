@@ -156,7 +156,7 @@ def run_asset(
 
     Example (Airflow multi-org DAG)::
 
-        from airflow.hooks.base import BaseHook
+        from airflow.sdk import BaseHook
 
         def _run_github(org_config, **kwargs):
             conn = BaseHook.get_connection("github_app")
