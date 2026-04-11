@@ -10,7 +10,7 @@ from data_assets.core.enums import LoadStrategy, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
-from sqlalchemy import Text
+from sqlalchemy import Boolean, Text
 
 
 @register
@@ -30,8 +30,16 @@ class JiraProjects(JiraAsset):
         Column("name", Text()),
         Column("project_type_key", Text()),
         Column("style", Text()),
-        Column("is_private", Text()),
+        Column("is_private", Boolean()),
     ]
+
+    column_max_lengths = {
+        "id": 100,
+        "key": 100,
+        "name": 500,
+        "project_type_key": 100,
+        "style": 100,
+    }
 
     # PK is "key" (not "id") because jira_issues uses project key in JQL
     # and entity-parallel fans out by primary key values.
@@ -65,7 +73,7 @@ class JiraProjects(JiraAsset):
                 "name": proj.get("name"),
                 "project_type_key": proj.get("projectTypeKey"),
                 "style": proj.get("style"),
-                "is_private": str(proj.get("isPrivate", False)).lower(),
+                "is_private": proj.get("isPrivate", False),
             }
             for proj in values
         ]

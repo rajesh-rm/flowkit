@@ -4,7 +4,7 @@
       "sys_id": "abc123def456",
       "number": "INC0010001",
       "short_description": "Email service down",
-      "description": "Users unable to send or receive emails since 8am.",
+      "description": "Users unable to send or receive emails since 8am. Exchange Online showing degraded status in the admin portal. Approximately 250 users in the EMEA region are affected. Initial triage suggests the issue is related to a DNS propagation delay after last night's maintenance window.",
       "state": "2",
       "priority": "1",
       "severity": "1",
@@ -29,6 +29,51 @@
       "opened_at": "2025-12-01T09:15:00Z",
       "closed_at": "2025-12-01T14:00:00Z",
       "sys_updated_on": "2025-12-01T14:00:00Z"
+    },
+    {
+      "sys_id": "ghi789jkl012",
+      "number": "INC0010003",
+      "short_description": "Printer not responding on 3rd floor",
+      "description": "",
+      "state": "1",
+      "priority": "4",
+      "severity": "3",
+      "category": "hardware",
+      "assigned_to": "",
+      "assignment_group": "",
+      "opened_at": "2025-12-01T11:00:00Z",
+      "closed_at": null,
+      "sys_updated_on": "2025-12-01T11:00:00Z"
+    },
+    {
+      "sys_id": "jkl012mno345",
+      "number": "INC0010004",
+      "short_description": "Application performance degradation in production CRM",
+      "description": "Response times for the CRM application have increased from ~200ms to >5s. The issue correlates with a recent database migration. DBA team investigating index rebuild status.",
+      "state": "2",
+      "priority": "2",
+      "severity": "2",
+      "category": "software",
+      "assigned_to": "john.doe",
+      "assignment_group": "Database Team",
+      "opened_at": "2025-12-01T13:00:00Z",
+      "closed_at": null,
+      "sys_updated_on": "2025-12-01T15:30:00Z"
+    },
+    {
+      "sys_id": "mno345pqr678",
+      "number": "INC0010005",
+      "short_description": "Password reset request",
+      "description": "User locked out after too many failed attempts.",
+      "state": "7",
+      "priority": "3",
+      "severity": "3",
+      "category": "access",
+      "assigned_to": "jane.smith",
+      "assignment_group": "Service Desk",
+      "opened_at": "2025-11-30T16:00:00Z",
+      "closed_at": "2025-11-30T16:15:00Z",
+      "sys_updated_on": "2025-11-30T16:15:00Z"
     }
   ]
 }

@@ -182,6 +182,19 @@ proxy's CA is already in the system trust store, no extra configuration is neede
 
 For **development tooling** proxy setup (uv, pip, git), see [quickstart-dev.md](quickstart-dev.md#2-enterprise-proxy-setup-corporate-networks-only).
 
+## Database Retry Configuration
+
+The framework automatically retries transient database errors during critical write operations (`write_to_temp`, `promote`, `save_checkpoint`). Configure via environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATA_ASSETS_DB_RETRY_ATTEMPTS` | `3` | Maximum retry attempts before failing the run |
+| `DATA_ASSETS_DB_RETRY_BASE_DELAY` | `2.0` | Initial delay in seconds; doubles each attempt (exponential backoff, capped at 30s) |
+
+Retryable errors: `OperationalError`, `DisconnectionError`, `ConnectionError`, `TimeoutError`. Non-retryable errors (`IntegrityError`, `ProgrammingError`) fail immediately without retry.
+
+On exhaustion, the run fails with `DatabaseRetryExhausted`. Logs include the number of attempts, total wait time, and the last underlying error — useful for Airflow admin triage.
+
 ## Runtime Overrides
 
 Pass overrides as keyword arguments to `run_asset()`. All overrides are optional — omitting them uses the asset's class-level defaults.

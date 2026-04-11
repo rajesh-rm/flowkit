@@ -35,6 +35,14 @@ class GitHubCommits(GitHubRepoAsset):
         Column("message", Text()),
         Column("html_url", Text()),
     ]
+    column_max_lengths = {
+        "sha": 40,
+        "repo_full_name": 200,
+        "author_login": 100,
+        "committer_login": 100,
+        "html_url": 2048,
+    }
+
     primary_key = ["sha"]
     indexes = [
         Index(columns=("repo_full_name",)),

@@ -14,6 +14,8 @@ import time
 from typing import Any
 
 import pandas as pd
+from sqlalchemy import Boolean as SABool
+from sqlalchemy import Float as SAFloat
 from sqlalchemy.engine import Engine
 
 from data_assets.core.api_asset import APIAsset
@@ -49,6 +51,17 @@ class ServiceNowTableAsset(APIAsset):
     indexes = [
         Index(columns=("sys_updated_on",)),
     ]
+
+    # Common ServiceNow column limits — subclasses inherit; override to extend.
+    column_max_lengths = {
+        "sys_id": 32,           # GUID hex without dashes
+        "number": 40,           # INCxxxxxxx, CHGxxxxxxx, etc.
+        "state": 100,
+        "priority": 100,
+        "category": 200,
+        "assigned_to": 32,      # sys_id reference
+        "assignment_group": 32,  # sys_id reference
+    }
 
     # Subclass must set this to the ServiceNow table name (e.g., "incident")
     table_name: str = ""
@@ -135,7 +148,18 @@ class ServiceNowTableAsset(APIAsset):
                 "%s: declared columns missing from API response: %s",
                 self.name, missing,
             )
-        return df[[c for c in column_names if c in df.columns]]
+        df = df[[c for c in column_names if c in df.columns]]
+
+        # Convert string "true"/"false" from pysnc to native Python booleans
+        for col in self.columns:
+            if isinstance(col.sa_type, SABool) and col.name in df.columns:
+                df[col.name] = df[col.name].map(
+                    {"true": True, "false": False}
+                ).astype("boolean")
+            elif isinstance(col.sa_type, SAFloat) and col.name in df.columns:
+                df[col.name] = pd.to_numeric(df[col.name], errors="coerce")
+
+        return df
 
     # -----------------------------------------------------------------------
     # Direct Table API methods (satisfy @abstractmethod, used in unit tests)

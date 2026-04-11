@@ -45,6 +45,17 @@ class SonarQubeAsset(APIAsset):
     token_manager_class = SonarQubeTokenManager
     rate_limit_per_second = 5.0
 
+    column_max_lengths = {
+        "key": 500,            # SonarQube project/issue key — API docs say 400
+        "project_key": 500,
+        "project": 500,
+        "rule": 500,
+        "severity": 100,
+        "status": 100,
+        "type": 100,
+        "category": 200,
+    }
+
     @property
     def api_url(self) -> str:
         """Resolve the SonarQube base URL (env var overrides class default)."""

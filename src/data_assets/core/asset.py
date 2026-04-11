@@ -11,6 +11,7 @@ from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy, RunMode, SchemaContract
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import ValidationResult
+from data_assets.validation.validators import validate_column_lengths, warn_oversized_strings
 
 
 class Asset(ABC):
@@ -47,6 +48,11 @@ class Asset(ABC):
     # --- Incremental support ---
     date_column: str | None = None
 
+    # --- Data quality ---
+    # Optional per-column max string lengths. When set, validate() checks
+    # these limits (blocking) and validate_warnings() warns on >10k chars.
+    column_max_lengths: dict[str, int] = {}
+
     # --- DAG generation ---
     dag_config: dict = {}
 
@@ -67,7 +73,8 @@ class Asset(ABC):
     def validate(self, df: pd.DataFrame, context: RunContext) -> ValidationResult:
         """Blocking validation — must pass before promotion.
 
-        Default: row count > 0 and primary key columns contain no nulls.
+        Default: row count > 0, primary key columns contain no nulls,
+        and string columns respect column_max_lengths (if defined).
         Override to add custom blocking checks. Call super() to keep defaults.
         """
         failures: list[str] = []
@@ -84,11 +91,16 @@ class Asset(ABC):
                     f"Primary key column '{pk_col}' has {null_count} null values"
                 )
 
+        if self.column_max_lengths:
+            length_result = validate_column_lengths(df, self.column_max_lengths)
+            failures.extend(length_result.failures)
+
         return ValidationResult(passed=len(failures) == 0, failures=failures)
 
     def validate_warnings(self, df: pd.DataFrame, context: RunContext) -> list[str]:
         """Non-blocking warnings — logged but don't prevent promotion.
 
+        Default: warns on any string column with values exceeding 10,000 chars.
         Override to add custom warning checks (e.g., row count below expected).
         """
-        return []
+        return warn_oversized_strings(df)

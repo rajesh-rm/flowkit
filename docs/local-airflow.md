@@ -206,6 +206,8 @@ For production deployment, see [Airflow Deployment Guide](airflow-deployment.md)
 | Port 8080 already in use | Another process using the port | Set `AIRFLOW__WEBSERVER__WEB_SERVER_PORT=8081` to use a different port |
 | Many `Airflow connection 'X' lookup failed` warnings | Airflow is installed in the same venv as your ad-hoc testing | Use separate venvs, or `unset AIRFLOW_HOME` before running. See [section 8](#8-why-separate-venvs-matter) |
 | `DATABASE_URL` is ignored, connects to wrong DB | Airflow Connection `data_assets_db` exists and takes priority | Remove the Airflow Connection, or use a separate dev venv without Airflow |
+| Task fails with `DatabaseRetryExhausted` | Database connection issues | Check database is running and healthy; retry the task. Adjust `DATA_ASSETS_DB_RETRY_ATTEMPTS` env var if needed |
+| Task fails with `ValueError: Column 'X' exceeds max length` | Extracted data exceeded declared limit | Check the asset's `column_max_lengths`; increase the limit or investigate source data |
 
 For Airflow-specific issues, see:
 

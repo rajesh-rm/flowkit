@@ -76,7 +76,7 @@ class TestSonarQubeE2E:
         result = run_asset("sonarqube_issues", run_mode="full")
 
         assert result["status"] == "success"
-        assert result["rows_loaded"] == 2
+        assert result["rows_loaded"] == 5
 
 
 # ---------------------------------------------------------------------------
@@ -120,11 +120,11 @@ class TestServiceNowE2E:
             result = run_asset("servicenow_incidents", run_mode="full")
 
         assert result["status"] == "success"
-        assert result["rows_loaded"] == 2
+        assert result["rows_loaded"] == 5
 
         df = pd.read_sql("SELECT * FROM raw.servicenow_incidents ORDER BY number", run_engine)
         assert "INC0010001" in df["number"].values
-        assert "INC0010002" in df["number"].values
+        assert "INC0010005" in df["number"].values
 
     def test_changes_full_run(self, run_engine, monkeypatch, load_fixture):
         monkeypatch.setenv("SERVICENOW_INSTANCE", SNOW_URL)
@@ -226,10 +226,10 @@ class TestGitHubE2E:
             result = run_asset("github_repos", run_mode="full")
 
         assert result["status"] == "success"
-        assert result["rows_loaded"] == 2
+        assert result["rows_loaded"] == 5
 
         df = pd.read_sql("SELECT * FROM raw.github_repos ORDER BY id", run_engine)
-        assert len(df) == 2
+        assert len(df) == 5
         assert set(df["owner_login"]) == {"org-one"}
 
     @respx.mock
@@ -241,10 +241,10 @@ class TestGitHubE2E:
 
         seed_table(run_engine, "raw", "github_repos", [
             {"id": 100001, "full_name": "org-one/service-api", "name": "service-api",
-             "owner_login": "org-one", "private": "false", "description": "API",
+             "owner_login": "org-one", "private": False, "description": "API",
              "language": "Python", "default_branch": "main",
              "created_at": "2024-01-15", "updated_at": "2025-12-01",
-             "pushed_at": "2025-12-01", "archived": "false",
+             "pushed_at": "2025-12-01", "archived": False,
              "html_url": "https://github.com/org-one/service-api"},
         ])
 
@@ -257,7 +257,7 @@ class TestGitHubE2E:
             result = run_asset("github_pull_requests", run_mode="full")
 
         assert result["status"] == "success"
-        assert result["rows_loaded"] == 2
+        assert result["rows_loaded"] == 5
 
         df = pd.read_sql("SELECT * FROM raw.github_pull_requests ORDER BY id", run_engine)
         assert 42 in df["number"].values

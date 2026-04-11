@@ -127,6 +127,8 @@ All ServiceNow assets share `ServiceNowTableAsset` base class. Extraction uses p
 
 **Missing column detection:** If the ServiceNow instance doesn't return a declared column (e.g., field deprecated or ACL changed), the framework logs a WARNING listing the missing columns. The extraction continues with those columns as NULL.
 
+**Notable column types:** `active` and `locked_out` (users), `active` (user_groups), and `inactive` (choices) are stored as native `Boolean` columns. pysnc returns these as strings (`"true"`/`"false"`) which are automatically coerced to Python booleans by `_batch_to_df()`. Location `latitude` and `longitude` are stored as `Float` columns (coerced from string via `pd.to_numeric`).
+
 ---
 
 ## GitHub
@@ -172,6 +174,7 @@ When an API response doesn't include the parent identifier (e.g., branches endpo
 - **Incremental PRs/runs:** Sort by `updated desc` with `should_stop()` watermark detection (no `since` param available).
 - **Workflow jobs:** Composite entity key `(repo_full_name, id)` loaded from `github_workflow_runs` table. The repo and run_id are used to build the URL; join to `github_workflow_runs` via `run_id` for repo context.
 - **Shared helpers:** `get_github_org()`, `get_github_base_url()`, `filter_to_current_org()` in `assets/github/helpers.py`.
+- **Notable column types:** `private` and `archived` (repos), `protected` (branches), `draft` (PRs), `default` and `allows_public_repositories` (runner_groups) are stored as native `Boolean` columns (not Text strings).
 
 ---
 
@@ -190,6 +193,8 @@ When an API response doesn't include the parent identifier (e.g., branches endpo
 **Why ENTITY_PARALLEL for issues?** Issues are scoped per project via JQL (`project = "KEY"`). We load project keys from `jira_projects` and fetch issues per project in parallel.
 
 **Date filtering:** Jira issues use JQL: `updated >= "2025-01-01"`. The `_build_jql()` helper constructs the query dynamically.
+
+**Notable column types:** `is_private` (projects) is stored as a native `Boolean` column.
 
 ---
 

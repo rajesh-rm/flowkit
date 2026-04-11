@@ -16,7 +16,7 @@ from data_assets.assets.servicenow.base import ServiceNowTableAsset
 from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy, RunMode
 from data_assets.core.registry import register
-from sqlalchemy import DateTime, Text
+from sqlalchemy import Boolean, DateTime, Float, Text
 
 # ---------------------------------------------------------------------------
 # ITSM tables
@@ -172,8 +172,8 @@ class ServiceNowUsers(ServiceNowTableAsset):
         Column("title", Text()),
         Column("department", Text()),
         Column("manager", Text()),
-        Column("active", Text()),
-        Column("locked_out", Text()),
+        Column("active", Boolean()),
+        Column("locked_out", Boolean()),
         Column("last_login_time", DateTime(timezone=True), nullable=True),
         Column("sys_updated_on", DateTime(timezone=True)),
     ]
@@ -199,7 +199,7 @@ class ServiceNowUserGroups(ServiceNowTableAsset):
         Column("description", Text()),
         Column("manager", Text()),
         Column("email", Text()),
-        Column("active", Text()),
+        Column("active", Boolean()),
         Column("type", Text()),
         Column("sys_updated_on", DateTime(timezone=True)),
     ]
@@ -248,8 +248,8 @@ class ServiceNowLocations(ServiceNowTableAsset):
         Column("city", Text()),
         Column("state", Text()),
         Column("country", Text()),
-        Column("latitude", Text()),
-        Column("longitude", Text()),
+        Column("latitude", Float(), nullable=True),
+        Column("longitude", Float(), nullable=True),
         Column("parent", Text()),
         Column("sys_updated_on", DateTime(timezone=True)),
     ]
@@ -414,7 +414,7 @@ class ServiceNowChoices(ServiceNowTableAsset):
         Column("value", Text()),
         Column("label", Text()),
         Column("language", Text()),
-        Column("inactive", Text()),
+        Column("inactive", Boolean()),
         Column("sys_updated_on", DateTime(timezone=True)),
     ]
     indexes = [

@@ -90,6 +90,12 @@ class SonarQubeProjects(RestAsset):
         Column("name", Text()),
         Column("qualifier", Text()),
     ]
+    column_max_lengths = {
+        "key": 500,
+        "name": 500,
+        "qualifier": 10,
+    }
+
     primary_key = ["key"]
     indexes = [
         Index(columns=("name",)),

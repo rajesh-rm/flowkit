@@ -12,6 +12,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from data_assets.db.models import Checkpoint, RunLock
+from data_assets.db.retry import db_retry
 
 logger = logging.getLogger(__name__)
 
@@ -207,6 +208,7 @@ def checkpoints_by_worker(checkpoints: list[Checkpoint]) -> dict[str, dict]:
     }
 
 
+@db_retry()
 def save_checkpoint(
     engine: Engine,
     run_id: uuid.UUID,

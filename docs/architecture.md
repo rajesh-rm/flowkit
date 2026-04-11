@@ -187,6 +187,12 @@ For child resources (PRs per repo, issues per project). Parent entity keys are l
 - **Entity-parallel unified checkpoint** — each checkpoint saves completed entities + current entity + pagination position, enabling exact mid-entity resume.
 - **Partition isolation** — `partition_key` on `run_asset()` scopes locks, watermarks, and checkpoints to `(asset_name, partition_key)`. Multiple orgs run concurrently without interference.
 
+## Data Quality
+
+- **Column type correctness** — Boolean fields from APIs are stored as native `Boolean()` columns (not Text strings). ServiceNow coordinates use `Float()`. The `_batch_to_df()` method in `ServiceNowTableAsset` automatically coerces pysnc string booleans (`"true"`/`"false"`) to native Python booleans.
+- **Column length validation** — Assets can declare `column_max_lengths` (a dict of column name → max chars). The base `Asset.validate()` method checks these during the validation step and blocks promotion if any value exceeds its limit. Additionally, `Asset.validate_warnings()` warns (non-blocking) if any string column contains values exceeding 10,000 characters.
+- **Database connection retry** — The `@db_retry()` decorator (in `db/retry.py`) automatically retries transient database errors on three critical operations: `write_to_temp()`, `promote()`, and `save_checkpoint()`. It retries `OperationalError`, `DisconnectionError`, `ConnectionError`, and `TimeoutError` with exponential backoff (default: 3 attempts, 2s base delay). Non-retryable errors (`IntegrityError`, `ProgrammingError`) fail immediately. Configurable via `DATA_ASSETS_DB_RETRY_ATTEMPTS` and `DATA_ASSETS_DB_RETRY_BASE_DELAY` env vars. On exhaustion, raises `DatabaseRetryExhausted` with clear logging for Airflow admins.
+
 ## See also
 
 - [User Guide](user-guide.md) — run modes, watermarks, multi-org pattern
