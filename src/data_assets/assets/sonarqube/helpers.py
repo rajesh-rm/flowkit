@@ -16,6 +16,13 @@ DEFAULT_METRICS = [
     "coverage", "duplicated_lines_density", "sqale_index",
 ]
 
+# New-code metrics: only available via /api/measures/component (current snapshot).
+# The search_history endpoint returns dates but no values for new_* metrics.
+NEW_CODE_METRICS = ["new_coverage", "new_lines_to_cover", "new_line_coverage"]
+
+# All metrics — used by sonarqube_measures (snapshot) which can fetch both.
+ALL_METRICS = DEFAULT_METRICS + NEW_CODE_METRICS
+
 
 def parse_paging(response: dict) -> PaginationState:
     """Extract standard SonarQube paging state from a response."""

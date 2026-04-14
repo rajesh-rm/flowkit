@@ -475,6 +475,7 @@ def test_fetch_pages_injects_entity_key_column():
     asset.name = "test_branches"
     asset.pagination_config = PaginationConfig(strategy="page_number")
     asset.entity_key_column = "repo_full_name"
+    asset.entity_key_map = None
     asset.parse_response.return_value = (
         pd.DataFrame({"name": ["main", "dev"], "protected": ["true", "false"]}),
         PaginationState(has_more=False),
@@ -504,12 +505,50 @@ def test_fetch_pages_injects_entity_key_column():
     assert list(df["repo_full_name"]) == ["org-one/service-api", "org-one/service-api"]
 
 
+def test_fetch_pages_injects_entity_key_map():
+    """When asset has entity_key_map set, dict entity key fields are injected as columns."""
+    asset = MagicMock()
+    asset.name = "test_measures"
+    asset.pagination_config = PaginationConfig(strategy="page_number")
+    asset.entity_key_column = None
+    asset.entity_key_map = {"project_key": "project_key", "name": "branch"}
+    asset.parse_response.return_value = (
+        pd.DataFrame({"metric": ["bugs", "coverage"], "value": ["3", "87.5"]}),
+        PaginationState(has_more=False),
+    )
+
+    client = MagicMock()
+    client.request.return_value = {}
+
+    written_dfs = []
+
+    def capture_write(engine, table, df):
+        written_dfs.append(df.copy())
+        return len(df)
+
+    with patch("data_assets.extract.parallel.write_to_temp", side_effect=capture_write):
+        rows = _fetch_pages(
+            asset, client, MagicMock(), "temp_tbl", _ctx(),
+            worker_id="main",
+            request_builder=lambda c: RequestSpec(method="GET", url="http://test"),
+            entity_key={"project_key": "proj-alpha", "name": "main"},
+        )
+
+    assert rows == 2
+    df = written_dfs[0]
+    assert "project_key" in df.columns
+    assert "branch" in df.columns
+    assert list(df["project_key"]) == ["proj-alpha", "proj-alpha"]
+    assert list(df["branch"]) == ["main", "main"]
+
+
 def test_fetch_pages_no_injection_without_entity_key_column():
     """When entity_key_column is None (default), no injection happens."""
     asset = MagicMock()
     asset.name = "test_prs"
     asset.pagination_config = PaginationConfig(strategy="page_number")
     asset.entity_key_column = None
+    asset.entity_key_map = None
     asset.parse_response.return_value = (
         pd.DataFrame({"id": [1], "title": ["fix bug"]}),
         PaginationState(has_more=False),
@@ -707,6 +746,7 @@ def test_extract_entity_parallel_max_pages_per_entity():
     asset.max_workers = 2
     asset.pagination_config = PaginationConfig(strategy="page_number", page_size=10)
     asset.entity_key_column = None
+    asset.entity_key_map = None
     asset.should_stop.return_value = False
     # Every entity response: 1 page with has_more=True (would go forever without cap)
     asset.parse_response.return_value = (

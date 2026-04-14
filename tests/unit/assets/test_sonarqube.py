@@ -142,11 +142,15 @@ class TestSonarQubeMeasures:
     def test_build_entity_request(self, sonarqube_env):
         from data_assets.assets.sonarqube.measures import SonarQubeMeasures
 
-        spec = SonarQubeMeasures().build_entity_request("proj-alpha", make_ctx())
+        entity_key = {"project_key": "proj-alpha", "name": "main"}
+        spec = SonarQubeMeasures().build_entity_request(entity_key, make_ctx())
         assert spec.url == "https://sonar.test/api/measures/component"
         assert spec.params["component"] == "proj-alpha"
+        assert spec.params["branch"] == "main"
         assert "ncloc" in spec.params["metricKeys"]
         assert "bugs" in spec.params["metricKeys"]
+        assert "new_coverage" in spec.params["metricKeys"]
+        assert "new_line_coverage" in spec.params["metricKeys"]
 
     def test_parse_response(self, sonarqube_env):
         from data_assets.assets.sonarqube.measures import SonarQubeMeasures
@@ -158,7 +162,18 @@ class TestSonarQubeMeasures:
         assert df.iloc[0]["ncloc"] == "12500"
         assert df.iloc[0]["bugs"] == "3"
         assert df.iloc[0]["coverage"] == "87.5"
+        assert df.iloc[0]["new_coverage"] == "92.0"
+        assert df.iloc[0]["new_lines_to_cover"] == "150"
+        assert df.iloc[0]["new_line_coverage"] == "88.5"
         assert state.has_more is False
+
+    def test_parse_response_has_collected_at(self, sonarqube_env):
+        from data_assets.assets.sonarqube.measures import SonarQubeMeasures
+
+        data = json.loads((FIXTURES / "measures_proj_alpha.json").read_text())
+        df, _ = SonarQubeMeasures().parse_response(data)
+        assert "collected_at" in df.columns
+        assert pd.notna(df.iloc[0]["collected_at"])
 
     def test_parse_empty_response(self, sonarqube_env):
         from data_assets.assets.sonarqube.measures import SonarQubeMeasures
@@ -170,12 +185,19 @@ class TestSonarQubeMeasures:
     def test_parent_asset(self, sonarqube_env):
         from data_assets.assets.sonarqube.measures import SonarQubeMeasures
 
-        assert SonarQubeMeasures().parent_asset_name == "sonarqube_projects"
+        assert SonarQubeMeasures().parent_asset_name == "sonarqube_branches"
 
     def test_primary_key(self, sonarqube_env):
         from data_assets.assets.sonarqube.measures import SonarQubeMeasures
 
-        assert SonarQubeMeasures().primary_key == ["project_key"]
+        assert SonarQubeMeasures().primary_key == ["project_key", "branch"]
+
+    def test_entity_key_map(self, sonarqube_env):
+        from data_assets.assets.sonarqube.measures import SonarQubeMeasures
+
+        asset = SonarQubeMeasures()
+        assert asset.entity_key_column is None
+        assert asset.entity_key_map == {"name": "branch"}
 
 
 # ---------------------------------------------------------------------------
@@ -853,21 +875,39 @@ class TestSonarQubeMeasuresHistory:
     def test_build_entity_request(self, sonarqube_env):
         from data_assets.assets.sonarqube.measures_history import SonarQubeMeasuresHistory
 
-        spec = SonarQubeMeasuresHistory().build_entity_request("proj-alpha", make_ctx())
+        entity_key = {"project_key": "proj-alpha", "name": "main"}
+        spec = SonarQubeMeasuresHistory().build_entity_request(entity_key, make_ctx())
         assert spec.url == "https://sonar.test/api/measures/search_history"
         assert spec.params["component"] == "proj-alpha"
+        assert spec.params["branch"] == "main"
         assert "coverage" in spec.params["metrics"]
+        assert "new_coverage" not in spec.params["metrics"]  # new_* excluded from history
         assert spec.params["p"] == 1
+        assert "from" in spec.params
+        assert "to" in spec.params
 
     def test_build_entity_request_with_start_date(self, sonarqube_env):
-        from datetime import UTC, datetime
+        from datetime import UTC, date, datetime, timedelta
 
         from data_assets.assets.sonarqube.measures_history import SonarQubeMeasuresHistory
 
+        entity_key = {"project_key": "proj-alpha", "name": "develop"}
         ctx = make_ctx(start_date=datetime(2025, 4, 1, tzinfo=UTC))
-        spec = SonarQubeMeasuresHistory().build_entity_request("proj-alpha", ctx)
-        assert "from" in spec.params
-        assert "2025-04-01" in spec.params["from"]
+        spec = SonarQubeMeasuresHistory().build_entity_request(entity_key, ctx)
+        # from = max(today - 720, start_date) — start_date wins when more recent
+        expected_from = max(date.today() - timedelta(days=720), date(2025, 4, 1)).isoformat()
+        assert spec.params["from"] == expected_from
+
+    def test_build_entity_request_from_to_dates(self, sonarqube_env):
+        from datetime import date, timedelta
+
+        from data_assets.assets.sonarqube.measures_history import SonarQubeMeasuresHistory
+
+        entity_key = {"project_key": "proj-alpha", "name": "main"}
+        spec = SonarQubeMeasuresHistory().build_entity_request(entity_key, make_ctx())
+        expected_from = (date.today() - timedelta(days=720)).isoformat()
+        assert spec.params["from"] == expected_from
+        assert spec.params["to"] == date.today().isoformat()
 
     def test_parse_response(self, sonarqube_env):
         from data_assets.assets.sonarqube.measures_history import SonarQubeMeasuresHistory
@@ -880,6 +920,14 @@ class TestSonarQubeMeasuresHistory:
         assert df[df["metric"] == "coverage"].iloc[0]["value"] == "85.5"
         assert not state.has_more
 
+    def test_parse_response_has_collected_at(self, sonarqube_env):
+        from data_assets.assets.sonarqube.measures_history import SonarQubeMeasuresHistory
+
+        data = json.loads((FIXTURES / "measures_history_proj_alpha.json").read_text())
+        df, _ = SonarQubeMeasuresHistory().parse_response(data)
+        assert "collected_at" in df.columns
+        assert all(pd.notna(df["collected_at"]))
+
     def test_parse_response_empty(self, sonarqube_env):
         from data_assets.assets.sonarqube.measures_history import SonarQubeMeasuresHistory
 
@@ -888,6 +936,7 @@ class TestSonarQubeMeasuresHistory:
         assert len(df) == 0
         assert "metric" in df.columns
         assert "date" in df.columns
+        assert "branch" in df.columns
 
     def test_entity_parallel_config(self, sonarqube_env):
         from data_assets.assets.sonarqube.measures_history import SonarQubeMeasuresHistory
@@ -895,7 +944,19 @@ class TestSonarQubeMeasuresHistory:
 
         asset = SonarQubeMeasuresHistory()
         assert asset.parallel_mode == ParallelMode.ENTITY_PARALLEL
-        assert asset.parent_asset_name == "sonarqube_projects"
-        assert asset.entity_key_column == "project_key"
-        assert asset.primary_key == ["project_key", "metric", "date"]
+        assert asset.parent_asset_name == "sonarqube_branches"
+        assert asset.entity_key_column is None
+        assert asset.entity_key_map == {"project_key": "project_key", "name": "branch"}
+        assert asset.primary_key == ["project_key", "branch", "metric", "date"]
         assert asset.date_column == "date"
+
+    def test_history_days_back_default(self, sonarqube_env):
+        from data_assets.assets.sonarqube.measures_history import SonarQubeMeasuresHistory
+
+        assert SonarQubeMeasuresHistory().history_days_back == 720
+
+    def test_history_days_back_from_env(self, sonarqube_env, monkeypatch):
+        from data_assets.assets.sonarqube.measures_history import SonarQubeMeasuresHistory
+
+        monkeypatch.setenv("SONARQUBE_HISTORY_DAYS_BACK", "180")
+        assert SonarQubeMeasuresHistory().history_days_back == 180
