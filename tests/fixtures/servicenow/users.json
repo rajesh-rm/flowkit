@@ -2,7 +2,8 @@
   "result": [
     {
       "sys_id": "user001abc",
-      "user_name": "john.doe",
+      "first_name": "John",
+      "last_name": "Doe",
       "name": "John Doe",
       "email": "john.doe@example.com",
       "title": "Senior Engineer",
@@ -14,7 +15,8 @@
     },
     {
       "sys_id": "user002abc",
-      "user_name": "jane.smith",
+      "first_name": "Jane",
+      "last_name": "Smith",
       "name": "Jane Smith",
       "email": "jane.smith@example.com",
       "title": "Engineering Manager",
@@ -26,7 +28,8 @@
     },
     {
       "sys_id": "user003abc",
-      "user_name": "bob.wilson",
+      "first_name": "Bob",
+      "last_name": "Wilson",
       "name": "Bob Wilson",
       "email": "bob.wilson@example.com",
       "title": "",
@@ -38,7 +41,8 @@
     },
     {
       "sys_id": "user004abc",
-      "user_name": "maria.garcia",
+      "first_name": "Maria",
+      "last_name": "Garcia",
       "name": "Maria Garcia",
       "email": "maria.garcia@example.com",
       "title": "Staff Software Engineer — Platform Infrastructure & Reliability",
@@ -50,7 +54,8 @@
     },
     {
       "sys_id": "user005abc",
-      "user_name": "external.contractor",
+      "first_name": "",
+      "last_name": "",
       "name": "External Contractor Account",
       "email": "",
       "title": "Contractor",

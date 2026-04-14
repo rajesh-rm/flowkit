@@ -15,8 +15,10 @@ import re
 import uuid
 
 import pandas as pd
+from sqlalchemy import Text as SAText
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import IntegrityError
 
 from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy, SchemaContract
@@ -115,14 +117,131 @@ def ensure_indexes(
     Uses CREATE INDEX IF NOT EXISTS so it is safe to call on every run.
     Each index is created in its own transaction so one failure does not
     block the others.
+
+    If a UNIQUE index fails due to duplicate values (IntegrityError),
+    falls back to a non-unique index and logs a warning.
     """
     d = get_dialect(engine)
     column_types = {c.name: c.sa_type for c in columns} if columns else None
     for idx in indexes:
         ddl = d.create_index_ddl(schema, table_name, idx, column_types=column_types)
-        with engine.begin() as conn:
-            conn.execute(text(ddl))
-        logger.debug("Ensured index on %s.%s", schema, table_name)
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(ddl))
+            logger.debug("Ensured index on %s.%s", schema, table_name)
+        except IntegrityError:
+            if not idx.unique:
+                raise
+            col_names = ", ".join(idx.columns)
+            logger.warning(
+                "UNIQUE index on %s.%s (%s) failed due to duplicate values. "
+                "Falling back to non-unique index. "
+                "Investigate duplicate data in column(s): %s",
+                schema, table_name, col_names, col_names,
+            )
+            fallback_idx = Index(
+                columns=idx.columns, unique=False, method=idx.method,
+                where=idx.where, include=idx.include,
+            )
+            fallback_ddl = d.create_index_ddl(
+                schema, table_name, fallback_idx, column_types=column_types,
+            )
+            with engine.begin() as conn:
+                conn.execute(text(fallback_ddl))
+            logger.info(
+                "Created non-unique fallback index on %s.%s (%s)",
+                schema, table_name, col_names,
+            )
+
+
+def _nullify_empty_strings_for_unique_indexes(
+    engine: Engine,
+    schema: str,
+    table_name: str,
+    indexes: list[Index],
+    columns: list[Column],
+) -> None:
+    """Replace empty strings with NULL in Text columns covered by unique indexes.
+
+    PostgreSQL and MariaDB both treat ``''`` as a regular value that violates
+    UNIQUE constraints, but allow multiple NULLs.  Running this before
+    ``ensure_indexes()`` prevents UniqueViolation on columns where the source
+    system sends empty strings for missing values.
+    """
+    text_col_names = {c.name for c in columns if isinstance(c.sa_type, SAText)}
+    unique_text_cols: set[str] = set()
+    for idx in indexes:
+        if idx.unique:
+            for col_name in idx.columns:
+                if col_name in text_col_names:
+                    unique_text_cols.add(col_name)
+
+    if not unique_text_cols:
+        return
+
+    d = get_dialect(engine)
+    fqn = d.fqn(schema, table_name)
+    with engine.begin() as conn:
+        for col_name in sorted(unique_text_cols):
+            qcol = d.qi(col_name)
+            result = conn.execute(text(
+                f"UPDATE {fqn} SET {qcol} = NULL WHERE {qcol} = ''"
+            ))
+            if result.rowcount > 0:
+                logger.info(
+                    "Nullified %d empty string(s) in %s.%s.%s for unique index",
+                    result.rowcount, schema, table_name, col_name,
+                )
+
+
+def _warn_unique_index_violations(
+    engine: Engine,
+    schema: str,
+    table_name: str,
+    indexes: list[Index],
+) -> None:
+    """Log diagnostics for columns covered by unique indexes.
+
+    Runs after nullification and before ``ensure_indexes()`` so the warnings
+    reflect the actual state that will be indexed.  Reports duplicate non-NULL
+    values that will prevent a unique index from being created.
+    """
+    unique_indexes = [idx for idx in indexes if idx.unique]
+    if not unique_indexes:
+        return
+
+    d = get_dialect(engine)
+    fqn = d.fqn(schema, table_name)
+    with engine.begin() as conn:
+        for idx in unique_indexes:
+            cols_sql = ", ".join(d.qi(c) for c in idx.columns)
+            col_label = ", ".join(idx.columns)
+
+            not_null_conditions = " AND ".join(
+                f"{d.qi(c)} IS NOT NULL" for c in idx.columns
+            )
+            dup_row = conn.execute(text(
+                f"SELECT {cols_sql}, COUNT(*) AS cnt "
+                f"FROM {fqn} "
+                f"WHERE {not_null_conditions} "
+                f"GROUP BY {cols_sql} "
+                f"HAVING COUNT(*) > 1 "
+                f"ORDER BY COUNT(*) DESC "
+                f"LIMIT 3"
+            )).fetchall()
+            if dup_row:
+                total_groups = len(dup_row)
+                samples = "; ".join(
+                    f"{{{', '.join(f'{c}={row._mapping[c]!r}' for c in idx.columns)}}} "
+                    f"({row._mapping['cnt']} rows)"
+                    for row in dup_row
+                )
+                logger.warning(
+                    "Unique index column(s) (%s) in %s.%s has duplicate values "
+                    "(top %d groups): %s. "
+                    "The unique index will fall back to non-unique.",
+                    col_label, schema, table_name, total_groups, samples,
+                )
 
 
 def drop_table(engine: Engine, schema: str, table_name: str) -> None:
@@ -266,6 +385,12 @@ def promote(
                                target_table, primary_key, column_names)
 
     if indexes:
+        _nullify_empty_strings_for_unique_indexes(
+            engine, target_schema, target_table, indexes, columns,
+        )
+        _warn_unique_index_violations(
+            engine, target_schema, target_table, indexes,
+        )
         ensure_indexes(engine, target_schema, target_table, indexes, columns)
 
     logger.info("Promoted %d rows to %s.%s via %s",
