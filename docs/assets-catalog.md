@@ -125,9 +125,15 @@ All ServiceNow assets share `ServiceNowTableAsset` base class. Extraction uses p
 
 **Reference fields:** With `sysparm_exclude_reference_link=true`, reference fields like `assigned_to` return the raw `sys_id` string instead of a verbose JSON object. Join to dimension tables (`servicenow_users`, `servicenow_user_groups`, `servicenow_locations`) by `sys_id` for human-readable values.
 
-**Missing column detection:** If the ServiceNow instance doesn't return a declared column (e.g., field deprecated or ACL changed), the framework logs a WARNING listing the missing columns. The extraction continues with those columns as NULL.
+**Missing column detection:** If the ServiceNow instance doesn't return a declared column (e.g., field deprecated or ACL changed), `_batch_to_df()` raises a `ValueError` listing the missing columns. This surfaces schema mismatches early so the asset definition can be corrected. Extra columns returned by the API that aren't in the asset's `columns` list are silently dropped.
 
-**Notable column types:** `active` and `locked_out` (users), `active` (user_groups), and `inactive` (choices) are stored as native `Boolean` columns. pysnc returns these as strings (`"true"`/`"false"`) which are automatically coerced to Python booleans by `_batch_to_df()`. Location `latitude` and `longitude` are stored as `Float` columns (coerced from string via `pd.to_numeric`).
+**Type coercion:** pysnc returns all field values as strings. `_batch_to_df()` automatically coerces them based on the declared column types:
+
+- **Boolean** — `active` (users, user_groups), `inactive` (choices): string `"true"`/`"false"` → Python `True`/`False` via `pandas.Series.map()`.
+- **Float** — `latitude`, `longitude` (locations): string → float via `pd.to_numeric(errors="coerce")`.
+- **DateTime** — `opened_at`, `closed_at`, `sys_updated_on`, `last_login_time`, etc.: empty strings `""` (ServiceNow's representation of null datetimes) are replaced with `None`, then parsed via `pd.to_datetime(utc=True, errors="coerce")`. This prevents PostgreSQL `InvalidDatetimeFormat` errors.
+
+The loader also applies a universal safety net (`_coerce_datetime_strings()` in `load/loader.py`) that detects datetime-like string columns by sampling and converts them. This catches datetime formats from all sources — both ISO 8601 (`2025-12-01T09:00:00Z`) and ServiceNow's space-separated format (`2025-12-01 09:00:00`).
 
 ---
 

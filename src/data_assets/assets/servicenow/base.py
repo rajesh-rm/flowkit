@@ -15,6 +15,7 @@ from typing import Any
 
 import pandas as pd
 from sqlalchemy import Boolean as SABool
+from sqlalchemy import DateTime as SADateTime
 from sqlalchemy import Float as SAFloat
 from sqlalchemy.engine import Engine
 
@@ -138,26 +139,33 @@ class ServiceNowTableAsset(APIAsset):
         )
         return total_rows
 
-    def _batch_to_df(self, batch: list[dict]) -> pd.DataFrame:
-        """Convert a batch of serialized records to a DataFrame with declared columns."""
-        df = pd.DataFrame(batch)
+    def _validate_and_select_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Ensure all declared columns exist in *df*, then select only those columns."""
         column_names = [c.name for c in self.columns]
         missing = [c for c in column_names if c not in df.columns]
         if missing:
-            logger.warning(
-                "%s: declared columns missing from API response: %s",
-                self.name, missing,
+            raise ValueError(
+                f"{self.name}: declared columns missing from API response: {missing}. "
+                f"Either the source API no longer returns these fields, or the "
+                f"column list in the asset definition needs updating."
             )
-        df = df[[c for c in column_names if c in df.columns]]
+        return df[column_names]
+
+    def _batch_to_df(self, batch: list[dict]) -> pd.DataFrame:
+        """Convert a batch of serialized records to a DataFrame with declared columns."""
+        df = self._validate_and_select_columns(pd.DataFrame(batch))
 
         # Convert string "true"/"false" from pysnc to native Python booleans
         for col in self.columns:
-            if isinstance(col.sa_type, SABool) and col.name in df.columns:
+            if isinstance(col.sa_type, SABool):
                 df[col.name] = df[col.name].map(
                     {"true": True, "false": False}
                 ).astype("boolean")
-            elif isinstance(col.sa_type, SAFloat) and col.name in df.columns:
+            elif isinstance(col.sa_type, SAFloat):
                 df[col.name] = pd.to_numeric(df[col.name], errors="coerce")
+            elif isinstance(col.sa_type, SADateTime):
+                df[col.name] = df[col.name].replace("", None)
+                df[col.name] = pd.to_datetime(df[col.name], utc=True, errors="coerce")
 
         return df
 
@@ -204,9 +212,7 @@ class ServiceNowTableAsset(APIAsset):
         results: list[dict[str, Any]] = response.get("result", [])
 
         if results:
-            df = pd.DataFrame(results)
-            column_names = [c.name for c in self.columns]
-            df = df[[c for c in column_names if c in df.columns]]
+            df = self._validate_and_select_columns(pd.DataFrame(results))
         else:
             df = pd.DataFrame(columns=[c.name for c in self.columns])
 
