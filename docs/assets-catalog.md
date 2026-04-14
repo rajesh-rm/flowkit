@@ -186,6 +186,8 @@ When an API response doesn't include the parent identifier (e.g., branches endpo
 ### Key design choices
 
 - **Multi-org:** One Airflow DAG per org. Each org can have its own GitHub App installation ID.
+- **Case-insensitive org filtering:** `filter_to_current_org()` matches `GITHUB_ORGS` against repo names case-insensitively. Setting `GITHUB_ORGS=td-universe` correctly matches repos stored as `TD-Universe/repo-name`.
+- **Empty repo handling:** `GitHubRepoAsset.classify_error()` returns `"skip"` for HTTP 409 (GitHub's response for empty/initializing repos with no commits or branches). The entity is skipped and extraction continues with the next repo.
 - **Incremental commits:** Uses GitHub's `since` query parameter for efficient forward sync.
 - **Incremental PRs/runs:** Sort by `updated desc` with `should_stop()` watermark detection (no `since` param available).
 - **Workflow jobs:** Composite entity key `(repo_full_name, id)` loaded from `github_workflow_runs` table. The repo and run_id are used to build the URL; join to `github_workflow_runs` via `run_id` for repo context.

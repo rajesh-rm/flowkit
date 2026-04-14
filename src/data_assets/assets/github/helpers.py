@@ -35,7 +35,8 @@ def filter_to_current_org(keys: list) -> list:
     org = os.environ.get("GITHUB_ORGS", "").split(",")[0].strip()
     if not org:
         return keys
-    return [k for k in keys if str(k).startswith(f"{org}/")]
+    prefix = f"{org.lower()}/"
+    return [k for k in keys if str(k).lower().startswith(prefix)]
 
 
 class GitHubOrgAsset(APIAsset):
@@ -119,6 +120,12 @@ class GitHubRepoAsset(APIAsset):
 
     def filter_entity_keys(self, keys: list) -> list:
         return filter_to_current_org(keys)
+
+    def classify_error(self, status_code: int, headers: dict) -> str:
+        """GitHub 409 = empty repo (no commits/branches). Skip, don't fail."""
+        if status_code == 409:
+            return "skip"
+        return super().classify_error(status_code, headers)
 
     def _paginated_entity_request(
         self, _entity_key: str, url_path: str,

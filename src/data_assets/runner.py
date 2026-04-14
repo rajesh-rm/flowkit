@@ -460,6 +460,7 @@ def _extract_api(
     timeout = overrides.get("request_timeout", asset.request_timeout)
     retries = overrides.get("max_retries", asset.max_retries)
     max_pages = overrides.get("max_pages")
+    max_entities = overrides.get("max_entities")
 
     if not asset.token_manager_class:
         raise ValueError(
@@ -485,6 +486,12 @@ def _extract_api(
         elif asset.parallel_mode == ParallelMode.ENTITY_PARALLEL:
             entity_keys = _load_entity_keys(engine, asset)
             entity_keys = asset.filter_entity_keys(entity_keys)
+            if max_entities and max_entities > 0:
+                logger.info(
+                    "Developer override: limiting to %d of %d entities",
+                    max_entities, len(entity_keys),
+                )
+                entity_keys = entity_keys[:max_entities]
             logger.info(
                 "Extracting %s (entity-parallel, %d entities, %d workers)",
                 asset.name, len(entity_keys), asset.max_workers,
@@ -499,6 +506,12 @@ def _extract_api(
             rows = extract_sequential(
                 asset, client, engine, temp_tbl, context, main_cp,
                 max_pages=max_pages,
+            )
+
+        if max_entities and asset.parallel_mode != ParallelMode.ENTITY_PARALLEL:
+            logger.warning(
+                "max_entities=%d ignored: asset %s is not entity-parallel",
+                max_entities, asset.name,
             )
 
         duration = time.monotonic() - extract_start
