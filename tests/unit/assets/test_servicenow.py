@@ -225,14 +225,30 @@ class TestPysncExtract:
         gr.__iter__ = MagicMock(return_value=iter(mock_records))
         return gr
 
+    _INCIDENT_COLUMNS: list[str] | None = None
+
+    @classmethod
+    def _full_incident(cls, overrides):
+        """Build a complete incident record with all declared columns."""
+        if cls._INCIDENT_COLUMNS is None:
+            from data_assets.assets.servicenow import ServiceNowIncidents
+            cls._INCIDENT_COLUMNS = [c.name for c in ServiceNowIncidents().columns]
+        base = {c: "" for c in cls._INCIDENT_COLUMNS}
+        base.update(overrides)
+        return base
+
     def test_extract_writes_to_temp_table(self, servicenow_env):
         from data_assets.assets.servicenow import ServiceNowIncidents
 
         records = [
-            {"sys_id": "a1", "number": "INC001", "state": "1",
-             "sys_updated_on": "2025-12-01T10:00:00Z"},
-            {"sys_id": "a2", "number": "INC002", "state": "2",
-             "sys_updated_on": "2025-12-01T11:00:00Z"},
+            self._full_incident({
+                "sys_id": "a1", "number": "INC001", "state": "1",
+                "sys_updated_on": "2025-12-01 10:00:00",
+            }),
+            self._full_incident({
+                "sys_id": "a2", "number": "INC002", "state": "2",
+                "sys_updated_on": "2025-12-01 11:00:00",
+            }),
         ]
         mock_gr = self._make_mock_gr(records)
         mock_client = MagicMock()
@@ -307,8 +323,10 @@ class TestPysncExtract:
         batch_size = 1000
         # Build 2 full batches + 1 partial — only the first should be written
         records = [
-            {"sys_id": f"id{i}", "number": f"INC{i:04d}", "state": "1",
-             "sys_updated_on": "2025-12-01T10:00:00Z"}
+            self._full_incident({
+                "sys_id": f"id{i}", "number": f"INC{i:04d}", "state": "1",
+                "sys_updated_on": "2025-12-01 10:00:00",
+            })
             for i in range(batch_size * 2 + 5)
         ]
         mock_gr = self._make_mock_gr(records)
@@ -464,3 +482,96 @@ class TestServiceNowChoices:
 
         spec = ServiceNowChoices().build_request(make_ctx())
         assert "sysparm_query" not in spec.params
+
+
+# ---------------------------------------------------------------------------
+# Column validation — _batch_to_df and parse_response
+# ---------------------------------------------------------------------------
+
+
+class TestBatchToDfColumnValidation:
+    def test_missing_column_raises(self, servicenow_env):
+        from data_assets.assets.servicenow import ServiceNowIncidents
+
+        asset = ServiceNowIncidents()
+        # Batch with only 2 of 13 columns — should raise for all missing ones.
+        batch = [{"sys_id": "a1", "number": "INC001"}]
+        with pytest.raises(ValueError, match="declared columns missing"):
+            asset._batch_to_df(batch)
+
+    def test_all_columns_present_succeeds(self, servicenow_env):
+        from data_assets.assets.servicenow import ServiceNowIncidents
+
+        asset = ServiceNowIncidents()
+        batch = [{c.name: "" for c in asset.columns}]
+        batch[0]["sys_id"] = "a1"
+        df = asset._batch_to_df(batch)
+        assert len(df) == 1
+        assert set(df.columns) == {c.name for c in asset.columns}
+
+    def test_extra_columns_from_api_are_dropped(self, servicenow_env):
+        from data_assets.assets.servicenow import ServiceNowIncidents
+
+        asset = ServiceNowIncidents()
+        batch = [{c.name: "" for c in asset.columns}]
+        batch[0]["sys_id"] = "a1"
+        batch[0]["extra_field_from_api"] = "should_be_dropped"
+        df = asset._batch_to_df(batch)
+        assert "extra_field_from_api" not in df.columns
+        assert set(df.columns) == {c.name for c in asset.columns}
+
+
+class TestParseResponseColumnValidation:
+    def test_missing_column_raises(self, servicenow_env):
+        from data_assets.assets.servicenow import ServiceNowIncidents
+
+        asset = ServiceNowIncidents()
+        response = {"result": [{"sys_id": "a1", "number": "INC001"}]}
+        with pytest.raises(ValueError, match="declared columns missing"):
+            asset.parse_response(response)
+
+    def test_empty_response_succeeds(self, servicenow_env):
+        from data_assets.assets.servicenow import ServiceNowIncidents
+
+        df, state = ServiceNowIncidents().parse_response({"result": []})
+        assert len(df) == 0
+        assert "sys_id" in df.columns
+
+
+# ---------------------------------------------------------------------------
+# DateTime coercion — _batch_to_df
+# ---------------------------------------------------------------------------
+
+
+class TestBatchToDfDatetimeCoercion:
+    def test_empty_string_datetime_becomes_nat(self, servicenow_env):
+        import pandas as pd
+
+        from data_assets.assets.servicenow import ServiceNowUsers
+
+        asset = ServiceNowUsers()
+        batch = [{c.name: "" for c in asset.columns}]
+        batch[0]["sys_id"] = "user001"
+        batch[0]["active"] = "true"
+        batch[0]["sys_updated_on"] = "2025-12-01 10:00:00"
+        df = asset._batch_to_df(batch)
+        assert pd.isna(df.iloc[0]["last_login_time"])
+
+    def test_servicenow_datetime_format_parsed(self, servicenow_env):
+        from data_assets.assets.servicenow import ServiceNowUsers
+
+        asset = ServiceNowUsers()
+        batch = [{c.name: "" for c in asset.columns}]
+        batch[0]["sys_id"] = "user001"
+        batch[0]["active"] = "true"
+        batch[0]["sys_updated_on"] = "2025-12-01 10:00:00"
+        batch[0]["last_login_time"] = "2025-12-01 09:00:00"
+        df = asset._batch_to_df(batch)
+        assert df["last_login_time"].dtype.name.startswith("datetime")
+        assert df["sys_updated_on"].dtype.name.startswith("datetime")
+
+    def test_locked_out_not_in_users_columns(self, servicenow_env):
+        from data_assets.assets.servicenow import ServiceNowUsers
+
+        col_names = [c.name for c in ServiceNowUsers().columns]
+        assert "locked_out" not in col_names

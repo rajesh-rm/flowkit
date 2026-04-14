@@ -173,7 +173,6 @@ class ServiceNowUsers(ServiceNowTableAsset):
         Column("department", Text()),
         Column("manager", Text()),
         Column("active", Boolean()),
-        Column("locked_out", Boolean()),
         Column("last_login_time", DateTime(timezone=True), nullable=True),
         Column("sys_updated_on", DateTime(timezone=True)),
     ]

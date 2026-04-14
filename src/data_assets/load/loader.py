@@ -11,6 +11,7 @@ All dialect-specific SQL is delegated to ``db.dialect``.
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 
 import pandas as pd
@@ -154,18 +155,31 @@ def create_temp_table(
     return tname
 
 
+# Matches ISO 8601 ("2025-12-01T09:00:00Z") and ServiceNow ("2025-12-01 09:00:00")
+_DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}")
+
+
 def _coerce_datetime_strings(df: pd.DataFrame) -> pd.DataFrame:
-    """Convert ISO 8601 string columns to proper datetime objects in place."""
+    """Convert datetime-like string columns to proper datetime objects in place.
+
+    Detects columns whose first non-empty sample matches a datetime pattern
+    (ISO 8601 or space-separated) and converts them via ``pd.to_datetime``.
+    Empty strings are replaced with ``None`` before conversion so they become
+    ``NaT`` rather than causing database type errors.
+    """
     for col in df.columns:
         if df[col].dtype not in ("object", "str", "string"):
             continue
-        idx = df[col].first_valid_index()
-        sample = df[col].at[idx] if idx is not None else None
-        if isinstance(sample, str) and ("T" in sample or "Z" in sample):
+        non_empty = df[col].loc[df[col].notna() & (df[col] != "")]
+        if non_empty.empty:
+            continue
+        sample = non_empty.iloc[0]
+        if isinstance(sample, str) and _DATETIME_RE.match(sample):
             try:
+                df[col] = df[col].replace("", None)
                 df[col] = pd.to_datetime(df[col], utc=True, errors="coerce")
             except Exception:
-                pass  # not a datetime column
+                pass  # not a datetime column after all
     return df
 
 
