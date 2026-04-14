@@ -166,7 +166,8 @@ class ServiceNowUsers(ServiceNowTableAsset):
 
     columns = [
         Column("sys_id", Text(), nullable=False),
-        Column("user_name", Text()),
+        Column("first_name", Text()),
+        Column("last_name", Text()),
         Column("name", Text()),
         Column("email", Text()),
         Column("title", Text()),
@@ -177,8 +178,8 @@ class ServiceNowUsers(ServiceNowTableAsset):
         Column("sys_updated_on", DateTime(timezone=True)),
     ]
     indexes = [
-        Index(columns=("user_name",), unique=True),
-        Index(columns=("email",)),
+        Index(columns=("email",), unique=True),
+        Index(columns=("last_name", "first_name")),
         Index(columns=("active",)),
         Index(columns=("sys_updated_on",)),
     ]

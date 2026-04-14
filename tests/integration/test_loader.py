@@ -253,3 +253,114 @@ class TestEnsureIndexes:
         idx_names = {i["name"] for i in inspect(clean_db).get_indexes("idx_promo", schema="raw")}
         assert "ix_idx_promo_name" in idx_names
         assert "ix_idx_promo_status" in idx_names
+
+
+@pytest.mark.integration
+class TestUniqueIndexWithEmptyStrings:
+    """Verify empty strings in unique-indexed columns are nullified before index creation."""
+
+    UCOLS = [
+        Column("id", Integer(), nullable=False),
+        Column("name", Text()),
+    ]
+    UPK = ["id"]
+
+    def test_empty_strings_nullified_for_unique_index(self, clean_db):
+        unique_idx = [Index(columns=("name",), unique=True)]
+        run_id = uuid.uuid4()
+        tname = create_temp_table(clean_db, "null_test", run_id, self.UCOLS)
+        df = pd.DataFrame({
+            "id": [1, 2, 3, 4],
+            "name": ["alice", "bob", "", ""],
+        })
+        write_to_temp(clean_db, tname, df)
+
+        rows = promote(clean_db, tname, "raw", "null_test", self.UCOLS, self.UPK,
+                        LoadStrategy.FULL_REPLACE, indexes=unique_idx)
+        assert rows == 4
+
+        result = pd.read_sql("SELECT * FROM raw.null_test ORDER BY id", clean_db)
+        assert result.iloc[0]["name"] == "alice"
+        assert result.iloc[1]["name"] == "bob"
+        assert pd.isna(result.iloc[2]["name"])
+        assert pd.isna(result.iloc[3]["name"])
+
+        idx_names = {i["name"] for i in inspect(clean_db).get_indexes("null_test", schema="raw")}
+        assert "ix_null_test_name_unique" in idx_names
+
+    def test_fallback_to_non_unique_on_genuine_duplicates(self, clean_db):
+        unique_idx = [Index(columns=("name",), unique=True)]
+        run_id = uuid.uuid4()
+        tname = create_temp_table(clean_db, "dup_test", run_id, self.UCOLS)
+        df = pd.DataFrame({
+            "id": [1, 2, 3],
+            "name": ["alice", "alice", "bob"],
+        })
+        write_to_temp(clean_db, tname, df)
+
+        rows = promote(clean_db, tname, "raw", "dup_test", self.UCOLS, self.UPK,
+                        LoadStrategy.FULL_REPLACE, indexes=unique_idx)
+        assert rows == 3
+
+        idx_info = inspect(clean_db).get_indexes("dup_test", schema="raw")
+        idx_names = {i["name"] for i in idx_info}
+        assert "ix_dup_test_name_unique" not in idx_names
+        assert "ix_dup_test_name" in idx_names
+
+    def test_non_text_unique_columns_unaffected(self, clean_db):
+        cols = [Column("id", Integer(), nullable=False), Column("code", Integer())]
+        unique_idx = [Index(columns=("code",), unique=True)]
+        run_id = uuid.uuid4()
+        tname = create_temp_table(clean_db, "int_test", run_id, cols)
+        df = pd.DataFrame({"id": [1, 2, 3], "code": [100, 200, 300]})
+        write_to_temp(clean_db, tname, df)
+
+        rows = promote(clean_db, tname, "raw", "int_test", cols, ["id"],
+                        LoadStrategy.FULL_REPLACE, indexes=unique_idx)
+        assert rows == 3
+
+        idx_names = {i["name"] for i in inspect(clean_db).get_indexes("int_test", schema="raw")}
+        assert "ix_int_test_code_unique" in idx_names
+
+    def test_upsert_nullifies_preexisting_empty_strings(self, clean_db):
+        unique_idx = [Index(columns=("name",), unique=True)]
+
+        create_table(clean_db, "raw", "upsert_null", self.UCOLS, self.UPK)
+        with clean_db.begin() as conn:
+            conn.execute(text(
+                "INSERT INTO raw.upsert_null (id, name) VALUES (99, '')"
+            ))
+
+        run_id = uuid.uuid4()
+        tname = create_temp_table(clean_db, "upsert_null", run_id, self.UCOLS)
+        df = pd.DataFrame({"id": [1], "name": [""]})
+        write_to_temp(clean_db, tname, df)
+
+        promote(clean_db, tname, "raw", "upsert_null", self.UCOLS, self.UPK,
+                LoadStrategy.UPSERT, indexes=unique_idx)
+
+        result = pd.read_sql("SELECT * FROM raw.upsert_null ORDER BY id", clean_db)
+        assert pd.isna(result[result["id"] == 1].iloc[0]["name"])
+        assert pd.isna(result[result["id"] == 99].iloc[0]["name"])
+
+        idx_names = {i["name"] for i in inspect(clean_db).get_indexes("upsert_null", schema="raw")}
+        assert "ix_upsert_null_name_unique" in idx_names
+
+    def test_warns_about_duplicates_before_index(self, clean_db, caplog):
+        """Duplicate diagnostics should be logged before index creation attempt."""
+        import logging
+
+        unique_idx = [Index(columns=("name",), unique=True)]
+        run_id = uuid.uuid4()
+        tname = create_temp_table(clean_db, "warn_test", run_id, self.UCOLS)
+        df = pd.DataFrame({
+            "id": [1, 2, 3],
+            "name": ["alice", "alice", "bob"],
+        })
+        write_to_temp(clean_db, tname, df)
+
+        with caplog.at_level(logging.WARNING, logger="data_assets.load.loader"):
+            promote(clean_db, tname, "raw", "warn_test", self.UCOLS, self.UPK,
+                    LoadStrategy.FULL_REPLACE, indexes=unique_idx)
+
+        assert any("duplicate values" in r.message for r in caplog.records)

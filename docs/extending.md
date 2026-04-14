@@ -1435,6 +1435,12 @@ Python booleans, `Float()` fields are parsed via `pd.to_numeric`, and
 `DateTime()` fields have empty strings replaced with `None` before parsing.
 No manual conversion needed in subclasses.
 
+**Unique indexes:** You can declare `Index(columns=("email",), unique=True)` on
+columns that should be unique. The framework handles edge cases automatically:
+empty strings are converted to NULL before index creation (since `''` violates
+UNIQUE but NULL does not), and if genuine duplicates exist, the index falls back
+to non-unique with a logged WARNING. This works on both PostgreSQL and MariaDB.
+
 ---
 
 ## 3. Step-by-Step: Adding a Transform Asset

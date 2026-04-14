@@ -389,7 +389,7 @@ class TestServiceNowTokenManagerValidation:
 
 # Each entry: (class_name, table_name, fixture_file, expected_rows, field_checks)
 _TABLE_ASSET_SPECS = [
-    ("ServiceNowUsers", "sys_user", "users.json", 5, {"user_name": "john.doe"}),
+    ("ServiceNowUsers", "sys_user", "users.json", 5, {"email": "john.doe@example.com"}),
     ("ServiceNowUserGroups", "sys_user_group", "user_groups.json", 2, {"name": "Network Team"}),
     ("ServiceNowLocations", "cmn_location", "locations.json", 5, {"city": "New York"}),
     ("ServiceNowDepartments", "cmn_department", "departments.json", 1, {"name": "Engineering"}),
@@ -570,8 +570,12 @@ class TestBatchToDfDatetimeCoercion:
         assert df["last_login_time"].dtype.name.startswith("datetime")
         assert df["sys_updated_on"].dtype.name.startswith("datetime")
 
-    def test_locked_out_not_in_users_columns(self, servicenow_env):
+    def test_users_schema_reflects_implementation(self, servicenow_env):
         from data_assets.assets.servicenow import ServiceNowUsers
 
         col_names = [c.name for c in ServiceNowUsers().columns]
         assert "locked_out" not in col_names
+        assert "user_name" not in col_names
+        assert "first_name" in col_names
+        assert "last_name" in col_names
+        assert "email" in col_names

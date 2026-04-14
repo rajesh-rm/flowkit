@@ -123,7 +123,7 @@ All ServiceNow assets share `ServiceNowTableAsset` base class. Extraction uses p
 
 **Why UPSERT?** In FORWARD mode we filter by `sys_updated_on >= last_watermark`. Records may reappear if updated between runs, so we upsert by `sys_id`.
 
-**Reference fields:** With `sysparm_exclude_reference_link=true`, reference fields like `assigned_to` return the raw `sys_id` string instead of a verbose JSON object. Join to dimension tables (`servicenow_users`, `servicenow_user_groups`, `servicenow_locations`) by `sys_id` for human-readable values.
+**Reference fields:** With `sysparm_exclude_reference_link=true`, reference fields like `assigned_to` return the raw `sys_id` string instead of a verbose JSON object. Join to dimension tables (`servicenow_users`, `servicenow_user_groups`, `servicenow_locations`) by `sys_id` for human-readable values. The `servicenow_users` asset has a unique index on `email` (the primary join key for downstream datasets) and a composite index on `(last_name, first_name)` for name lookups.
 
 **Missing column detection:** If the ServiceNow instance doesn't return a declared column (e.g., field deprecated or ACL changed), `_batch_to_df()` raises a `ValueError` listing the missing columns. This surfaces schema mismatches early so the asset definition can be corrected. Extra columns returned by the API that aren't in the asset's `columns` list are silently dropped.
 
@@ -134,6 +134,8 @@ All ServiceNow assets share `ServiceNowTableAsset` base class. Extraction uses p
 - **DateTime** — `opened_at`, `closed_at`, `sys_updated_on`, `last_login_time`, etc.: empty strings `""` (ServiceNow's representation of null datetimes) are replaced with `None`, then parsed via `pd.to_datetime(utc=True, errors="coerce")`. This prevents PostgreSQL `InvalidDatetimeFormat` errors.
 
 The loader also applies a universal safety net (`_coerce_datetime_strings()` in `load/loader.py`) that detects datetime-like string columns by sampling and converts them. This catches datetime formats from all sources — both ISO 8601 (`2025-12-01T09:00:00Z`) and ServiceNow's space-separated format (`2025-12-01 09:00:00`).
+
+**Unique index safety:** During promotion, the loader automatically converts empty strings to NULL in Text columns covered by unique indexes (`_nullify_empty_strings_for_unique_indexes()` in `load/loader.py`). This prevents `UniqueViolation` errors when the source system sends empty strings for missing values (e.g., service accounts with no email). Before creating indexes, the loader also checks for duplicate non-NULL values and logs a WARNING with sample duplicates. If a unique index still fails, it falls back to a non-unique index so the pipeline completes.
 
 ---
 
