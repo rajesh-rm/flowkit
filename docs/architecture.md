@@ -166,7 +166,7 @@ For child resources (PRs per repo, issues per project). Parent entity keys are l
 
 - **Rate limiter**: one sliding-window instance shared across all threads — 4 workers at 10/sec = 10/sec total
 - **Token manager**: thread-safe, shared — single token refreshed for all workers
-- **Error handling**: `SkippedRequestError` (e.g., 404) skips the entity, doesn't kill the run. Non-JSON responses (e.g., HTML error pages from proxies) are caught and wrapped with URL, status code, and body preview for diagnostics.
+- **Error handling**: `SkippedRequestError` (e.g., 404, or GitHub 409 for empty repos) skips the entity, doesn't kill the run. Non-JSON responses (e.g., HTML error pages from proxies) are caught and wrapped with URL, status code, and body preview for diagnostics. Assets can override `classify_error()` for source-specific behavior.
 - **Thread pool**: `_run_workers()` caps pool size at `min(max_workers, work_units)` — no wasted threads
 
 ## Asset Definition: Four Paths

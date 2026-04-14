@@ -2061,6 +2061,8 @@ def classify_error(self, status_code: int, headers: dict) -> str:
 
 Default: 404→skip, 429/5xx→retry, other 4xx→fail.
 
+**GitHub override:** `GitHubRepoAsset` adds 409→skip (empty repos return 409 Conflict). All repo-scoped GitHub assets inherit this — empty repos are skipped, not fatal. See `assets/github/helpers.py`.
+
 **Non-JSON responses:** If an API (or an intermediate proxy/CDN) returns a
 non-JSON response on a successful HTTP status, the framework catches the parse
 error and raises a `ValueError` with the URL, status code, and first 200 characters
@@ -2169,7 +2171,7 @@ run_asset(
 
 **Your asset doesn't need any code changes to support partition_key.** The framework handles lock and watermark scoping automatically via composite keys `(asset_name, partition_key)` on the operational tables.
 
-**Entity-parallel scoping**: For assets like `github_pull_requests` that fan out by repository, the `GITHUB_ORGS` env var is set per-run by the DAG. The base class `filter_entity_keys()` in `assets/github/helpers.py` reads it to scope extraction to only that org's repos.
+**Entity-parallel scoping**: For assets like `github_pull_requests` that fan out by repository, the `GITHUB_ORGS` env var is set per-run by the DAG. The base class `filter_entity_keys()` in `assets/github/helpers.py` reads it to scope extraction to only that org's repos. The match is **case-insensitive** — `GITHUB_ORGS=td-universe` matches repos stored as `TD-Universe/repo`.
 
 **DAG pattern**: Create one DAG per org. See `example_dags/flowkit_dags.py` for the production pattern, or `example_dags/dag_factory.py` for auto-generated DAGs from an Airflow Connection.
 
@@ -2225,7 +2227,8 @@ Copy `github/branches.py` as a starting template — it's the simplest at ~40 li
 Key settings (provided by `GitHubRepoAsset` base class):
 - `token_manager_class`, `rate_limit_per_second`, `pagination_config`, `parallel_mode`, `max_workers`
 - `parent_asset_name = "github_repos"`, `entity_key_column = "repo_full_name"`
-- `filter_entity_keys()` (org filtering), `build_request()` (default delegation)
+- `filter_entity_keys()` (case-insensitive org filtering via `GITHUB_ORGS`)
+- `classify_error()` — skips 409 (empty repos) in addition to the default 404 skip
 
 You only need to define:
 - `name`, `target_table`, `columns`, `primary_key`

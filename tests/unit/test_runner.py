@@ -622,6 +622,90 @@ class TestExtractApiTokenManagerNone:
             _extract_api(asset, MagicMock(), "tmp", MagicMock(), {}, {})
 
 
+class TestExtractApiMaxEntities:
+    """max_entities override slices entity list before extraction."""
+
+    @staticmethod
+    def _make_asset(parallel_mode=None):
+        from data_assets.core.enums import ParallelMode
+
+        asset = MagicMock(spec=APIAsset)
+        asset.name = "test_asset"
+        asset.rate_limit_per_second = 10.0
+        asset.request_timeout = 60.0
+        asset.max_retries = 3
+        asset.max_workers = 4
+        asset.parallel_mode = parallel_mode or ParallelMode.ENTITY_PARALLEL
+        asset.token_manager_class = MagicMock
+        asset.classify_error = MagicMock()
+        asset.filter_entity_keys.side_effect = lambda keys: keys
+        return asset
+
+    @patch("data_assets.runner.extract_entity_parallel", return_value=50)
+    @patch("data_assets.runner._load_entity_keys", return_value=[f"org/repo-{i}" for i in range(100)])
+    @patch("data_assets.runner.APIClient")
+    @patch("data_assets.runner.RateLimiter")
+    def test_max_entities_limits_entity_list(
+        self, _rl, _client_cls, mock_load, mock_extract,
+    ):
+        asset = self._make_asset()
+        overrides = {"max_entities": 5}
+        _extract_api(asset, MagicMock(), "tmp", MagicMock(), {}, overrides)
+
+        call_args = mock_extract.call_args
+        entity_keys_passed = call_args.args[5]  # 6th positional arg
+        assert len(entity_keys_passed) == 5
+        assert entity_keys_passed == [f"org/repo-{i}" for i in range(5)]
+
+    @patch("data_assets.runner.extract_entity_parallel", return_value=100)
+    @patch("data_assets.runner._load_entity_keys", return_value=[f"org/repo-{i}" for i in range(10)])
+    @patch("data_assets.runner.APIClient")
+    @patch("data_assets.runner.RateLimiter")
+    def test_no_max_entities_passes_all(
+        self, _rl, _client_cls, mock_load, mock_extract,
+    ):
+        asset = self._make_asset()
+        _extract_api(asset, MagicMock(), "tmp", MagicMock(), {}, {})
+
+        call_args = mock_extract.call_args
+        entity_keys_passed = call_args.args[5]
+        assert len(entity_keys_passed) == 10
+
+    @patch("data_assets.runner.extract_entity_parallel", return_value=100)
+    @patch("data_assets.runner._load_entity_keys", return_value=[f"org/repo-{i}" for i in range(100)])
+    @patch("data_assets.runner.APIClient")
+    @patch("data_assets.runner.RateLimiter")
+    def test_negative_max_entities_passes_all(
+        self, _rl, _client_cls, mock_load, mock_extract,
+    ):
+        """Negative max_entities is ignored — all entities pass through."""
+        asset = self._make_asset()
+        _extract_api(asset, MagicMock(), "tmp", MagicMock(), {}, {"max_entities": -3})
+
+        call_args = mock_extract.call_args
+        entity_keys_passed = call_args.args[5]
+        assert len(entity_keys_passed) == 100
+
+    @patch("data_assets.runner.extract_sequential", return_value=50)
+    @patch("data_assets.runner.APIClient")
+    @patch("data_assets.runner.RateLimiter")
+    def test_max_entities_warns_on_non_entity_parallel(
+        self, _rl, _client_cls, mock_extract, caplog,
+    ):
+        """max_entities on a sequential asset logs a warning."""
+        import logging
+        from data_assets.core.enums import ParallelMode
+
+        asset = self._make_asset(parallel_mode=ParallelMode.NONE)
+        with caplog.at_level(logging.WARNING, logger="data_assets.runner"):
+            _extract_api(asset, MagicMock(), "tmp", MagicMock(), {}, {"max_entities": 5})
+
+        assert any(
+            "max_entities=5 ignored" in r.message and "test_asset" in r.message
+            for r in caplog.records
+        )
+
+
 # ---------------------------------------------------------------------------
 # _compute_date_window — fallback (line 486)
 # ---------------------------------------------------------------------------

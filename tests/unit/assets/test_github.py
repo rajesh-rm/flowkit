@@ -133,6 +133,38 @@ class TestGitHubPullRequestsFilterEntityKeys:
         filtered = GitHubPullRequests().filter_entity_keys(keys)
         assert filtered == ["org-two/repo-b", "org-two/repo-c"]
 
+    def test_case_insensitive_org_match(self, github_env, monkeypatch):
+        from data_assets.assets.github.pull_requests import GitHubPullRequests
+
+        monkeypatch.setenv("GITHUB_ORGS", "ORG-ONE")
+        keys = ["org-one/repo-a", "Org-One/repo-b", "org-two/repo-c"]
+        filtered = GitHubPullRequests().filter_entity_keys(keys)
+        assert filtered == ["org-one/repo-a", "Org-One/repo-b"]
+
+
+class TestGitHubRepoAssetClassifyError:
+    """Test classify_error override via a concrete subclass (GitHubBranches)."""
+
+    def test_409_returns_skip(self, github_env):
+        from data_assets.assets.github.branches import GitHubBranches
+
+        assert GitHubBranches().classify_error(409, {}) == "skip"
+
+    def test_404_still_skip(self, github_env):
+        from data_assets.assets.github.branches import GitHubBranches
+
+        assert GitHubBranches().classify_error(404, {}) == "skip"
+
+    def test_500_still_retry(self, github_env):
+        from data_assets.assets.github.branches import GitHubBranches
+
+        assert GitHubBranches().classify_error(500, {}) == "retry"
+
+    def test_400_still_fail(self, github_env):
+        from data_assets.assets.github.branches import GitHubBranches
+
+        assert GitHubBranches().classify_error(400, {}) == "fail"
+
 
 class TestGitHubPullRequestsShouldStop:
     def test_stops_in_forward_mode_past_watermark(self, github_env):

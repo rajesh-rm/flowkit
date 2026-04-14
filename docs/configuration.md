@@ -85,7 +85,7 @@ When all four credentials are set, `ServiceNowTokenManager.get_pysnc_auth()` ret
 | `GITHUB_APP_ID` | GitHub App ID |
 | `GITHUB_PRIVATE_KEY` | PEM-encoded private key |
 | `GITHUB_INSTALLATION_ID` | Installation ID for the target org(s) |
-| `GITHUB_ORGS` | Comma-separated org names (e.g., `"org1,org2"`) |
+| `GITHUB_ORGS` | Comma-separated org names (e.g., `"org1,org2"`). Case-insensitive for entity filtering — `TD-Universe` and `td-universe` both match |
 | `GITHUB_API_URL` | Optional API URL override (default: `https://api.github.com`) |
 
 **How to set up a GitHub App:**
@@ -222,6 +222,7 @@ run_asset(
 | `secrets` | `dict` | Env vars injected for this run (from Airflow Connections, etc.) |
 | `dry_run` | `bool` | Extract and validate but skip promotion to target table |
 | `max_pages` | `int` | **Developer testing**: stop after N pages (see below) |
+| `max_entities` | `int` | **Developer testing**: limit entity count for entity-parallel (see below) |
 | `rate_limit_per_second` | `float` | Override the asset's API rate limit |
 | `max_workers` | `int` | Override thread count for parallel extraction modes |
 | `request_timeout` | `float` | HTTP request timeout in seconds |
@@ -250,3 +251,16 @@ Behavior per extraction mode:
 | SonarQube Projects | Cap each pagination shard at N pages |
 
 > **Do not use `max_pages` in production.** Partial data will overwrite the full dataset with `FULL_REPLACE`, and can leave `UPSERT` tables incomplete. Use `dry_run=True` alongside `max_pages` to prevent any writes to the target table.
+
+### max_entities — developer testing
+
+`max_entities` limits how many parent entities the extractor processes in entity-parallel mode. This is useful when the parent table has thousands of entities (e.g., 52K repos) and you want a quick smoke test without waiting for all of them.
+
+```python
+# Process only the first 10 repos, 1 page each, skip the DB write
+run_asset("github_commits", max_entities=10, max_pages=1, dry_run=True)
+```
+
+The slice is applied **after** `filter_entity_keys()`, so the limited set only includes entities from the correct org/partition.
+
+> **Do not use `max_entities` in production.** It produces incomplete data. Always pair with `dry_run=True`.

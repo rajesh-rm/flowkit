@@ -399,7 +399,9 @@ See [docs/extending.md](extending.md) for the comprehensive step-by-step guide.
 | `RuntimeError: Checkpoint rejected` | Another worker took over your run (stale-run takeover). Normal recovery — retry the task |
 | `DatabaseRetryExhausted: ... after 3 attempts` | Database unreachable or overloaded. Check DB is running, verify `DATABASE_URL`. Adjust `DATA_ASSETS_DB_RETRY_ATTEMPTS` / `DATA_ASSETS_DB_RETRY_BASE_DELAY` if transient |
 | `ValueError: Column 'X' has N value(s) exceeding max length` | API returned data longer than the asset's `column_max_lengths` limit. Check the asset class — increase the limit or investigate the source data |
-| Asset runs for hours locally | Use `max_pages=3, dry_run=True` to validate the flow against a small slice of real data — see "Testing with limited data" below |
+| Asset runs for hours locally | Use `max_pages=3, dry_run=True` to validate the flow against a small slice of real data. For entity-parallel assets with many entities (e.g., 52K repos), also use `max_entities=10` — see "Testing with limited data" below |
+| `HTTPStatusError: 409 Conflict` on GitHub assets | Empty repos (no commits) return 409. This is handled automatically — the repo is skipped. If you see this error, your asset may not inherit from `GitHubRepoAsset` |
+| `max_workers must be greater than 0` with 0 entities | `GITHUB_ORGS` case doesn't match repo names in the database (e.g., `td-universe` vs `TD-Universe`). Org filtering is case-insensitive, so check for typos or extra whitespace |
 
 ### Running a single asset locally
 
@@ -418,20 +420,22 @@ print(result)
 
 ### Testing with limited data
 
-Assets like `github_prs` or `servicenow_incidents` can take hours to run in full against a real org. Use `max_pages` to fetch a small slice of data and validate the flow without waiting:
+Assets like `github_prs` or `servicenow_incidents` can take hours to run in full against a real org. Use `max_pages` and `max_entities` to fetch a small slice of data and validate the flow without waiting:
 
 ```python
 from data_assets import run_asset
 
 # Fetch at most 3 pages — then stop.  dry_run skips the DB write.
 result = run_asset("github_prs", run_mode="full", max_pages=3, dry_run=True)
-print(result)
-# {'rows_extracted': 300, 'rows_loaded': 0, 'status': 'success'}
+
+# For entity-parallel assets with many parent entities (e.g., 52K repos):
+# max_entities limits how many repos to process, max_pages limits pages per repo.
+result = run_asset("github_commits", max_entities=10, max_pages=1, dry_run=True)
 ```
 
-`max_pages` works across all extraction modes (sequential, page-parallel, entity-parallel, ServiceNow, and SonarQube). See [configuration.md](configuration.md#max_pages--developer-testing) for the full per-mode behavior reference.
+`max_pages` works across all extraction modes (sequential, page-parallel, entity-parallel, ServiceNow, and SonarQube). `max_entities` only applies to entity-parallel assets — a warning is logged if set on other modes. See [configuration.md](configuration.md#max_pages--developer-testing) for the full per-mode behavior reference.
 
-> **Note:** `max_pages` is a developer testing tool. Do not set it in production DAGs — partial data will overwrite the full dataset when using `FULL_REPLACE` load strategy, and can leave `UPSERT` tables incomplete.
+> **Note:** Both `max_pages` and `max_entities` are developer testing tools. Do not set them in production DAGs — partial data will overwrite the full dataset when using `FULL_REPLACE` load strategy, and can leave `UPSERT` tables incomplete.
 
 ### Resetting local state
 
