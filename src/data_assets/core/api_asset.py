@@ -51,6 +51,11 @@ class APIAsset(Asset):
     # Use for APIs whose response doesn't include the parent identifier
     # (e.g., GitHub branches response has no repo_full_name field).
     entity_key_column: str | None = None
+    # Maps entity_key dict fields to DataFrame column names. Use when the parent
+    # has a composite PK and multiple columns need injection.
+    # Example: {"project_key": "project_key", "name": "branch"}
+    # Mutually exclusive with entity_key_column.
+    entity_key_map: dict[str, str] | None = None
 
     # --- Incremental support ---
     api_date_param: str | None = None

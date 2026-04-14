@@ -18,7 +18,7 @@ This catalog documents every built-in asset. Use it as a reference when building
 
 | Asset | Table | Load | Parallel | Pagination | API Endpoint |
 |-------|-------|------|----------|------------|--------------|
-| `sonarqube_measures` | `raw.sonarqube_measures` | FULL_REPLACE | ENTITY_PARALLEL (3 workers) | none (one call per project) | `/api/measures/component` |
+| `sonarqube_measures` | `raw.sonarqube_measures` | FULL_REPLACE | ENTITY_PARALLEL (3 workers) | none (one call per branch) | `/api/measures/component` |
 | `sonarqube_measures_history` | `raw.sonarqube_measures_history` | UPSERT | ENTITY_PARALLEL (3 workers) | page_number (`p`, `ps`) | `/api/measures/search_history` |
 
 ### Issues and analysis
@@ -32,24 +32,24 @@ This catalog documents every built-in asset. Use it as a reference when building
 
 ### Data dependency graph
 
-All entity-parallel assets depend on `sonarqube_projects` — the runner loads project keys from `raw.sonarqube_projects` and fans out one request per project.
+Most entity-parallel assets depend directly on `sonarqube_projects`. The two measures assets depend on `sonarqube_branches` (which itself depends on `sonarqube_projects`) so they fan out by (project, branch) pairs.
 
 ```
 sonarqube_projects
 ├── sonarqube_project_details
-├── sonarqube_measures
-├── sonarqube_measures_history
 ├── sonarqube_issues
 ├── sonarqube_analyses
 ├── sonarqube_analysis_events
 └── sonarqube_branches
+    ├── sonarqube_measures
+    └── sonarqube_measures_history
 ```
 
-Run `sonarqube_projects` first (or let the DAG factory handle ordering).
+Run `sonarqube_projects` first, then `sonarqube_branches` before either measures asset (or let the DAG factory handle ordering).
 
 ### Key design choices
 
-**Shared base class.** All entity-parallel assets extend `SonarQubeAsset` (in `assets/sonarqube/helpers.py`), which sets `token_manager_class`, `source_name`, `target_schema`, and `rate_limit_per_second` (5 req/s). It also provides an `api_url` property that resolves `SONARQUBE_URL` from env vars, and a shared `DEFAULT_METRICS` constant used by both measures assets. `SonarQubeProjects` uses `RestAsset` instead and overrides `extract()` for the sharding logic.
+**Shared base class.** All entity-parallel assets extend `SonarQubeAsset` (in `assets/sonarqube/helpers.py`), which sets `token_manager_class`, `source_name`, `target_schema`, and `rate_limit_per_second` (5 req/s). It also provides an `api_url` property that resolves `SONARQUBE_URL` from env vars. Three metric lists are defined in `helpers.py`: `DEFAULT_METRICS` (standard metrics used by both assets), `NEW_CODE_METRICS` (`new_coverage`, `new_lines_to_cover`, `new_line_coverage`), and `ALL_METRICS` (combined, used only by `sonarqube_measures`). `SonarQubeProjects` uses `RestAsset` instead and overrides `extract()` for the sharding logic.
 
 **Why custom `extract()` for projects?** SonarQube's `/api/components/search` is backed by Elasticsearch, which caps results at 10,000. For instances with >9,900 projects, standard pagination fails. The custom extraction shards queries using the `q` parameter with 2-character alphanumeric prefixes, recursively extending for hot prefixes, and deduplicates by project key. Safety guards: max pages per shard, max recursion depth (4), >5% shortfall abort.
 
@@ -57,11 +57,19 @@ Run `sonarqube_projects` first (or let the DAG factory handle ordering).
 
 **Why UPSERT for issues, analyses, and measures_history?** These assets run in FORWARD mode — they fetch only data created/updated since the last watermark. The same key may appear in overlapping date windows, so UPSERT by PK prevents duplicates.
 
-**Why FULL_REPLACE for branches and analysis_events?** Branches can be renamed or deleted between runs — FULL_REPLACE ensures stale branches are removed. Analysis events have no date column for incremental tracking, so a full refresh is the correct strategy.
+**Why FULL_REPLACE for measures, branches, and analysis_events?** `sonarqube_measures` is a live snapshot — every run captures the complete current state of all project branches. Branches can be renamed or deleted between runs — FULL_REPLACE ensures stale branches are removed. Analysis events have no date column for incremental tracking, so a full refresh is the correct strategy.
 
 **Why two assets for the same API (analyses + events)?** `/api/project_analyses/search` returns analyses with nested events. Rather than using JSONB or a custom multi-table `extract()` override, the events are extracted as a separate normalized asset. Both assets call the same endpoint independently — the API is hit twice per project, which is acceptable at 5 req/s with 3 workers. This keeps both assets in the standard entity-parallel pipeline with no custom extract logic.
 
-**Measures history flattening.** The API returns metrics grouped by type (`{metric: "coverage", history: [{date, value}, ...]}`). `parse_response()` flattens this into one row per `(project_key, metric, date)`. In FORWARD mode, the `from` parameter filters to only new data points since the last watermark.
+**Multi-branch measures.** Both measures assets use `sonarqube_branches` as their parent, fanning out by `(project_key, branch)` pairs. Since the parent has a composite PK, entity keys are dicts like `{"project_key": "proj-1", "name": "main"}`. The `entity_key_map` attribute tells the framework which dict fields to inject as DataFrame columns after `parse_response()` — only fields **not already in the API response** need mapping. For `sonarqube_measures`, the response includes `project_key` via `component.key`, so only `branch` needs injection: `entity_key_map = {"name": "branch"}`. For `sonarqube_measures_history`, the response contains neither, so both are injected: `entity_key_map = {"project_key": "project_key", "name": "branch"}`. The `branch` API parameter requires SonarQube Developer Edition; Community Edition instances gracefully degrade to main-branch-only data (since `sonarqube_branches` returns only `main` for CE).
+
+**New code metrics.** `sonarqube_measures` includes `new_coverage`, `new_lines_to_cover`, and `new_line_coverage` (from `ALL_METRICS`). These are NOT included in `sonarqube_measures_history` because the SonarQube `/api/measures/search_history` endpoint does not return values for `new_*` metrics — only dates without values (a documented SonarQube API limitation).
+
+**Measures history windowing.** `sonarqube_measures_history` uses `from`/`to` date parameters to bound API requests. The `history_days_back` attribute (default: 720, overridable via `SONARQUBE_HISTORY_DAYS_BACK` env var) controls the maximum lookback. In FORWARD mode: `from = max(watermark, today - 720)`. The table accumulates data past this window naturally as runs add newer data.
+
+**Measures history flattening.** The API returns metrics grouped by type (`{metric: "coverage", history: [{date, value}, ...]}`). `parse_response()` flattens this into one row per `(project_key, branch, metric, date)`.
+
+**`collected_at` timestamp.** Both measures assets include a `collected_at` column set to the UTC timestamp when the data was fetched. For `sonarqube_measures` (live snapshot), this records when the snapshot was taken. For `sonarqube_measures_history`, it records when the historical data was pulled.
 
 ---
 
@@ -173,7 +181,7 @@ The loader also applies a universal safety net (`_coerce_datetime_strings()` in 
 
 ### Architecture: Entity Key Injection
 
-When an API response doesn't include the parent identifier (e.g., branches endpoint doesn't return `repo_full_name`), the `entity_key_column` attribute on the asset tells the extraction framework to inject the entity key as a column after parsing. This is handled automatically by `_fetch_pages()` — no custom code needed in the asset.
+When an API response doesn't include the parent identifier (e.g., branches endpoint doesn't return `repo_full_name`), the `entity_key_column` attribute on the asset tells the extraction framework to inject the entity key as a column after parsing. For composite parent keys (e.g., SonarQube measures fanning out by project+branch), use `entity_key_map` instead — it maps dict fields from the parent's composite PK to DataFrame column names. Both are handled automatically by `_fetch_pages()` — no custom code needed in the asset.
 
 ### Key design choices
 

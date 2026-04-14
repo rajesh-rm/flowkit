@@ -128,6 +128,15 @@ def _next_checkpoint(
     }
 
 
+def _inject_entity_key(df: Any, asset: APIAsset, entity_key: Any) -> None:
+    """Inject entity key column(s) into a DataFrame in place."""
+    if asset.entity_key_map and isinstance(entity_key, dict):
+        for src_field, df_col in asset.entity_key_map.items():
+            df[df_col] = str(entity_key[src_field])
+    elif asset.entity_key_column:
+        df[asset.entity_key_column] = str(entity_key)
+
+
 # ---------------------------------------------------------------------------
 # Shared fetch loop — used by all three modes
 # ---------------------------------------------------------------------------
@@ -192,8 +201,8 @@ def _fetch_pages(
             break
 
         df, state = asset.parse_response(data)
-        if entity_key is not None and asset.entity_key_column and not df.empty:
-            df[asset.entity_key_column] = str(entity_key)
+        if entity_key is not None and not df.empty:
+            _inject_entity_key(df, asset, entity_key)
         rows += write_to_temp(engine, temp_table, df)
         page_count += 1
 

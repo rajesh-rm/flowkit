@@ -790,6 +790,17 @@ class PagerDutyIncidents(APIAsset):
     # Leave as None if the response already contains the parent identifier
     # (e.g., GitHub PRs response includes base.repo.full_name).
 
+    entity_key_map = None
+    # For ENTITY_PARALLEL assets whose parent has a composite PK (multiple
+    # columns). Maps entity_key dict fields to DataFrame column names.
+    # Mutually exclusive with entity_key_column.
+    #
+    # Example: sonarqube_measures uses sonarqube_branches as parent
+    # (PK: project_key, name). Entity keys are dicts like
+    # {"project_key": "proj-1", "name": "main"}.
+    # Setting entity_key_map = {"name": "branch"} injects the branch
+    # name as the "branch" column (project_key comes from the response).
+
     # ---------------------------------------------------------------
     # Load strategy
     # ---------------------------------------------------------------
@@ -2187,14 +2198,15 @@ Extend `SonarQubeAsset` (in `helpers.py`) which provides `token_manager_class`, 
 |---------|----------|-------------|
 | Unpaginated per-project | `branches.py` | API returns all data in one call per project |
 | Paginated per-project | `analyses.py` | API uses `p`/`ps` pagination with `paging.total` |
-| Flat response flattening | `measures.py` | One row per project, multiple values to flatten |
-| Nested response flattening | `measures_history.py` | Metric-grouped or time-series response to flatten into rows |
+| Flat response flattening | `measures.py` | One row per (project, branch), multiple metric values to flatten |
+| Nested response flattening | `measures_history.py` | Metric-grouped time-series response to flatten into rows |
 
-Key settings for all SonarQube entity-parallel assets:
-- `parent_asset_name = "sonarqube_projects"` — fans out by project key
-- `entity_key_column = "project_key"` — injects the project key if the API response doesn't include it
+Key settings for SonarQube entity-parallel assets:
+- Most assets: `parent_asset_name = "sonarqube_projects"` — fans out by project key, use `entity_key_column = "project_key"` if the response doesn't include it
+- Measures assets: `parent_asset_name = "sonarqube_branches"` — fans out by (project, branch) pairs, use `entity_key_map` to inject fields not present in the API response (e.g., `{"name": "branch"}` when the response already contains `project_key`)
 - Use `self.api_url` (not `os.environ.get(...)`) for the base URL
 - Use `parse_paging()` from `helpers.py` for standard `paging` response extraction
+- Metric constants: `DEFAULT_METRICS` (standard), `NEW_CODE_METRICS` (new code period), `ALL_METRICS` (combined)
 - SonarQube API docs: https://next.sonarqube.com/sonarqube/web_api
 
 ### Adding a ServiceNow endpoint
