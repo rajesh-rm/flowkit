@@ -157,14 +157,21 @@ class TestSonarQubeMeasures:
 
         data = json.loads((FIXTURES / "measures_proj_alpha.json").read_text())
         df, state = SonarQubeMeasures().parse_response(data)
-        assert len(df) == 1
-        assert df.iloc[0]["project_key"] == "proj-alpha"
-        assert df.iloc[0]["ncloc"] == "12500"
-        assert df.iloc[0]["bugs"] == "3"
-        assert df.iloc[0]["coverage"] == "87.5"
-        assert df.iloc[0]["new_coverage"] == "92.0"
-        assert df.iloc[0]["new_lines_to_cover"] == "150"
-        assert df.iloc[0]["new_line_coverage"] == "88.5"
+        # 10 metrics in fixture → 10 EAV rows
+        assert len(df) == 10
+        assert set(df.columns) >= {"project_key", "metric_key", "metric_value", "collected_at"}
+        assert all(df["project_key"] == "proj-alpha")
+
+        # Spot-check a top-level value metric
+        ncloc_row = df[df["metric_key"] == "ncloc"].iloc[0]
+        assert ncloc_row["metric_value"] == "12500"
+
+        # Spot-check period.value metrics (the bug fix)
+        nc_row = df[df["metric_key"] == "new_coverage"].iloc[0]
+        assert nc_row["metric_value"] == "92.0"
+        nlc_row = df[df["metric_key"] == "new_line_coverage"].iloc[0]
+        assert nlc_row["metric_value"] == "88.5"
+
         assert state.has_more is False
 
     def test_parse_response_has_collected_at(self, sonarqube_env):
@@ -173,13 +180,30 @@ class TestSonarQubeMeasures:
         data = json.loads((FIXTURES / "measures_proj_alpha.json").read_text())
         df, _ = SonarQubeMeasures().parse_response(data)
         assert "collected_at" in df.columns
-        assert pd.notna(df.iloc[0]["collected_at"])
+        assert all(pd.notna(df["collected_at"]))
+
+    def test_parse_response_value_takes_precedence_over_period(self, sonarqube_env):
+        from data_assets.assets.sonarqube.measures import SonarQubeMeasures
+
+        response = {
+            "component": {
+                "key": "proj-alpha",
+                "measures": [
+                    {"metric": "bugs", "value": "3", "period": {"index": 1, "value": "999"}},
+                ],
+            }
+        }
+        df, _ = SonarQubeMeasures().parse_response(response)
+        assert len(df) == 1
+        assert df.iloc[0]["metric_value"] == "3"
 
     def test_parse_empty_response(self, sonarqube_env):
         from data_assets.assets.sonarqube.measures import SonarQubeMeasures
 
         df, state = SonarQubeMeasures().parse_response({"component": {}})
         assert len(df) == 0
+        assert "metric_key" in df.columns
+        assert "metric_value" in df.columns
         assert state.has_more is False
 
     def test_parent_asset(self, sonarqube_env):
@@ -190,7 +214,7 @@ class TestSonarQubeMeasures:
     def test_primary_key(self, sonarqube_env):
         from data_assets.assets.sonarqube.measures import SonarQubeMeasures
 
-        assert SonarQubeMeasures().primary_key == ["project_key", "branch"]
+        assert SonarQubeMeasures().primary_key == ["project_key", "branch", "metric_key"]
 
     def test_entity_key_map(self, sonarqube_env):
         from data_assets.assets.sonarqube.measures import SonarQubeMeasures
@@ -881,7 +905,8 @@ class TestSonarQubeMeasuresHistory:
         assert spec.params["component"] == "proj-alpha"
         assert spec.params["branch"] == "main"
         assert "coverage" in spec.params["metrics"]
-        assert "new_coverage" not in spec.params["metrics"]  # new_* excluded from history
+        assert "new_coverage" in spec.params["metrics"]  # included via HISTORY_METRICS
+        assert "security_hotspots" in spec.params["metrics"]
         assert spec.params["p"] == 1
         assert "from" in spec.params
         assert "to" in spec.params
@@ -914,10 +939,14 @@ class TestSonarQubeMeasuresHistory:
 
         data = json.loads((FIXTURES / "measures_history_proj_alpha.json").read_text())
         df, state = SonarQubeMeasuresHistory().parse_response(data)
-        # 2 metrics × 2 dates = 4 rows
-        assert len(df) == 4
-        assert set(df["metric"]) == {"coverage", "bugs"}
-        assert df[df["metric"] == "coverage"].iloc[0]["value"] == "85.5"
+        # 5 metrics × 2 dates = 10 rows
+        assert len(df) == 10
+        assert set(df["metric_key"]) == {"coverage", "bugs", "ncloc", "new_coverage", "security_hotspots"}
+        assert df[df["metric_key"] == "coverage"].iloc[0]["value"] == "85.5"
+        # new_coverage first entry has no value (tests nullable path)
+        nc_rows = df[df["metric_key"] == "new_coverage"].sort_values("analysis_date")
+        assert pd.isna(nc_rows.iloc[0]["value"])
+        assert nc_rows.iloc[1]["value"] == "94.1"
         assert not state.has_more
 
     def test_parse_response_has_collected_at(self, sonarqube_env):
@@ -934,8 +963,8 @@ class TestSonarQubeMeasuresHistory:
         resp = {"paging": {"pageIndex": 1, "pageSize": 100, "total": 0}, "measures": []}
         df, state = SonarQubeMeasuresHistory().parse_response(resp)
         assert len(df) == 0
-        assert "metric" in df.columns
-        assert "date" in df.columns
+        assert "metric_key" in df.columns
+        assert "analysis_date" in df.columns
         assert "branch" in df.columns
 
     def test_entity_parallel_config(self, sonarqube_env):
@@ -947,8 +976,8 @@ class TestSonarQubeMeasuresHistory:
         assert asset.parent_asset_name == "sonarqube_branches"
         assert asset.entity_key_column is None
         assert asset.entity_key_map == {"project_key": "project_key", "name": "branch"}
-        assert asset.primary_key == ["project_key", "branch", "metric", "date"]
-        assert asset.date_column == "date"
+        assert asset.primary_key == ["project_key", "branch", "metric_key", "analysis_date"]
+        assert asset.date_column == "analysis_date"
 
     def test_history_days_back_default(self, sonarqube_env):
         from data_assets.assets.sonarqube.measures_history import SonarQubeMeasuresHistory

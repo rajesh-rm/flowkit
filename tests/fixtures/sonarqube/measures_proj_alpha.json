@@ -12,9 +12,9 @@
       {"metric": "coverage", "value": "87.5"},
       {"metric": "duplicated_lines_density", "value": "2.3"},
       {"metric": "sqale_index", "value": "180"},
-      {"metric": "new_coverage", "value": "92.0"},
-      {"metric": "new_lines_to_cover", "value": "150"},
-      {"metric": "new_line_coverage", "value": "88.5"}
+      {"metric": "new_coverage", "period": {"index": 1, "value": "92.0", "bestValue": false}},
+      {"metric": "new_lines_to_cover", "period": {"index": 1, "value": "150", "bestValue": false}},
+      {"metric": "new_line_coverage", "period": {"index": 1, "value": "88.5", "bestValue": false}}
     ]
   }
 }

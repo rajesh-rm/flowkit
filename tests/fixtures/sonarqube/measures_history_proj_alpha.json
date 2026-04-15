@@ -2,7 +2,7 @@
   "paging": {
     "pageIndex": 1,
     "pageSize": 100,
-    "total": 4
+    "total": 10
   },
   "measures": [
     {
@@ -17,6 +17,27 @@
       "history": [
         {"date": "2025-04-01T00:00:00+0000", "value": "12"},
         {"date": "2025-04-08T00:00:00+0000", "value": "8"}
+      ]
+    },
+    {
+      "metric": "ncloc",
+      "history": [
+        {"date": "2025-04-01T00:00:00+0000", "value": "11500"},
+        {"date": "2025-04-08T00:00:00+0000", "value": "12500"}
+      ]
+    },
+    {
+      "metric": "new_coverage",
+      "history": [
+        {"date": "2025-04-01T00:00:00+0000"},
+        {"date": "2025-04-08T00:00:00+0000", "value": "94.1"}
+      ]
+    },
+    {
+      "metric": "security_hotspots",
+      "history": [
+        {"date": "2025-04-01T00:00:00+0000", "value": "2"},
+        {"date": "2025-04-08T00:00:00+0000", "value": "1"}
       ]
     }
   ]
