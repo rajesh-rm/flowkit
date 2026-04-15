@@ -423,6 +423,6 @@ The sync regenerates all DAGs from the downgraded package. Previously disabled a
 ## See Also
 
 - [Running DAGs Locally](local-airflow.md) — try the full DAG pipeline on your local machine first
-- [User Guide](user-guide.md) — running assets, run modes, watermarks
+- [How-To Guides](how-to-guides.md) — run modes, watermarks, multi-org, debugging
 - [Configuration](configuration.md) — credentials and Airflow Connection setup
 - [Assets Catalog](assets-catalog.md) — all built-in assets

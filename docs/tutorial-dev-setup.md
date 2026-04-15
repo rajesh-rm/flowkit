@@ -1,4 +1,6 @@
-# Local Development Quickstart
+# Tutorial: Local Development Setup
+
+By the end of this tutorial, you will have a working local development environment with the package installed, a database running, and all tests passing.
 
 Get the `data_assets` package running locally in under 5 minutes.
 
@@ -346,7 +348,7 @@ See [Running DAGs Locally](local-airflow.md) for a step-by-step guide to install
 
 ### Adding a new asset
 
-See [docs/extending.md](extending.md) for the comprehensive step-by-step guide.
+See [Tutorial: Build Your First Asset](tutorial-first-asset.md) for the step-by-step guide, or [Extending Reference](extending-reference.md) for the full attribute documentation.
 
 **API assets** (fetch data from external APIs):
 
@@ -368,41 +370,7 @@ See [docs/extending.md](extending.md) for the comprehensive step-by-step guide.
 
 ### Debugging checklist
 
-**Setup and environment errors:**
-
-| Symptom | Likely cause |
-|---------|-------------|
-| `RuntimeError: No database connection found...` | `DATABASE_URL` not set. Export it or add to `.env` file in the repo root |
-| `ConnectionRefusedError` / `OperationalError` | Database not running or wrong `DATABASE_URL`. Verify the connection from Python (see section 6). |
-| `RuntimeError: GitHubAppTokenManager requires GITHUB_APP_ID...` | Missing GitHub env vars. Set all four: `GITHUB_APP_ID`, `GITHUB_PRIVATE_KEY`, `GITHUB_INSTALLATION_ID`, `GITHUB_ORGS` |
-| `RuntimeError: ServiceNowTokenManager requires SERVICENOW_INSTANCE` | Missing ServiceNow env vars. Set `SERVICENOW_INSTANCE`, `SERVICENOW_USERNAME`, `SERVICENOW_PASSWORD` |
-| `RuntimeError: SonarQubeTokenManager requires SONARQUBE_TOKEN` | `SONARQUBE_TOKEN` env var not set |
-| `RuntimeError: JiraTokenManager requires JIRA_PAT...` | Missing Jira creds. Set `JIRA_PAT` (Data Center) or `JIRA_EMAIL` + `JIRA_API_TOKEN` (Cloud) |
-| `uv pip install` fails with SSL/certificate error | Corporate proxy doing TLS inspection — set `SSL_CERT_FILE` and `UV_NATIVE_TLS=true` (see section 2c) |
-| `uv pip install` fails with timeout/connection refused | Proxy not configured — set `HTTPS_PROXY` (see section 2a) |
-| `pip install` downloads from wrong index | Internal mirror not configured — set `UV_INDEX_URL` or `PIP_INDEX_URL` (see section 2b) |
-| `podman: command not found` or Docker socket errors | Container runtime not set up — see section 3 above |
-| Integration tests skip with `No Postgres available` | Podman socket not active. Run `systemctl --user start podman.socket` and export `DOCKER_HOST` |
-
-**Runtime errors:**
-
-| Symptom | Likely cause |
-|---------|-------------|
-| `KeyError: Asset 'xyz' not found in registry` | Typo in asset name, or missing `@register` decorator / `__init__.py` import. Run `data-assets list` to see registered names |
-| `build_request` never called | Entity-parallel assets use `build_entity_request` instead |
-| API returns errors | `base_url` is empty — make sure the source env var is set and read at runtime in `build_request` |
-| Data missing from table | Column names in `parse_response` DataFrame don't match the asset's `columns` list |
-| Duplicate rows | Check `primary_key` is set correctly, use `UPSERT` load strategy |
-| `ValueError: Validation failed for 'X'` | Extracted data failed a validator (e.g., null primary keys, empty DataFrame). Check the error details |
-| `TypeError: Asset 'X' has type Y, expected APIAsset...` | Custom asset class doesn't inherit from `APIAsset` or `TransformAsset` |
-| `LockError: Asset 'X' is locked by run ...` | Previous run still active or crashed. Locks are released automatically on failure (including Ctrl+C). If a lock is stuck, it auto-clears after `stale_heartbeat_minutes` (default 20 min) or `max_run_hours` (default 5h) |
-| `RuntimeError: Checkpoint rejected` | Another worker took over your run (stale-run takeover). Normal recovery — retry the task |
-| `DatabaseRetryExhausted: ... after 3 attempts` | Database unreachable or overloaded. Check DB is running, verify `DATABASE_URL`. Adjust `DATA_ASSETS_DB_RETRY_ATTEMPTS` / `DATA_ASSETS_DB_RETRY_BASE_DELAY` if transient |
-| `ValueError: Column 'X' has N value(s) exceeding max length` | API returned data longer than the asset's `column_max_lengths` limit. Check the asset class — increase the limit or investigate the source data. Stale checkpoints from the failed run are auto-cleared, so a retry will re-extract fresh data |
-| `psycopg2.errors.NumericValueOutOfRange: integer out of range` | An ID column uses `Integer()` (32-bit, max 2.1B) but the source API returned a larger value. Change the column type to `BigInteger()`. All GitHub assets already use BigInteger for ID columns |
-| Asset runs for hours locally | Use `max_pages=3, dry_run=True` to validate the flow against a small slice of real data. For entity-parallel assets with many entities (e.g., 52K repos), also use `max_entities=10` — see "Testing with limited data" below |
-| `HTTPStatusError: 409 Conflict` on GitHub assets | Empty repos (no commits) return 409. This is handled automatically — the repo is skipped. If you see this error, your asset may not inherit from `GitHubRepoAsset` |
-| `max_workers must be greater than 0` with 0 entities | `GITHUB_ORGS` case doesn't match repo names in the database (e.g., `td-universe` vs `TD-Universe`). Org filtering is case-insensitive, so check for typos or extra whitespace |
+See [How to debug a failed run](how-to-guides.md#how-to-debug-a-failed-run) for comprehensive setup and runtime error tables.
 
 ### Running a single asset locally
 
@@ -421,38 +389,11 @@ print(result)
 
 ### Testing with limited data
 
-Assets like `github_prs` or `servicenow_incidents` can take hours to run in full against a real org. Use `max_pages` and `max_entities` to fetch a small slice of data and validate the flow without waiting:
-
-```python
-from data_assets import run_asset
-
-# Fetch at most 3 pages — then stop.  dry_run skips the DB write.
-result = run_asset("github_prs", run_mode="full", max_pages=3, dry_run=True)
-
-# For entity-parallel assets with many parent entities (e.g., 52K repos):
-# max_entities limits how many repos to process, max_pages limits pages per repo.
-result = run_asset("github_commits", max_entities=10, max_pages=1, dry_run=True)
-```
-
-`max_pages` works across all extraction modes (sequential, page-parallel, entity-parallel, ServiceNow, and SonarQube). `max_entities` only applies to entity-parallel assets — a warning is logged if set on other modes. See [configuration.md](configuration.md#max_pages--developer-testing) for the full per-mode behavior reference.
-
-> **Note:** Both `max_pages` and `max_entities` are developer testing tools. Do not set them in production DAGs — partial data will overwrite the full dataset when using `FULL_REPLACE` load strategy, and can leave `UPSERT` tables incomplete.
+See [How to run against a test slice of data](how-to-guides.md#how-to-run-against-a-test-slice-of-data) for using `max_pages`, `max_entities`, and `dry_run`.
 
 ### Resetting local state
 
-If you need to wipe test data:
-
-```sql
--- Drop all asset data tables
-DROP SCHEMA raw CASCADE; CREATE SCHEMA raw;
-DROP SCHEMA mart CASCADE; CREATE SCHEMA mart;
-DROP SCHEMA temp_store CASCADE; CREATE SCHEMA temp_store;
-
--- Clear operational metadata
-TRUNCATE data_ops.run_locks, data_ops.run_history,
-         data_ops.checkpoints, data_ops.asset_registry,
-         data_ops.coverage_tracker;
-```
+See [How to reset local state](how-to-guides.md#how-to-reset-local-state) for SQL commands to wipe test data.
 
 ## Environment variables reference
 

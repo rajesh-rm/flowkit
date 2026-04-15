@@ -41,15 +41,23 @@ See the [Assets Catalog](docs/assets-catalog.md) for the full reference.
 
 ## Documentation
 
-1. [Local Dev Quickstart](docs/quickstart-dev.md) -- get running locally
-2. [Running DAGs Locally](docs/local-airflow.md) -- install Airflow, generate DAGs, trigger runs
-3. [User Guide](docs/user-guide.md) -- run modes, watermarks, runtime overrides
-4. [Airflow Deployment](docs/airflow-deployment.md) -- DAG generation, systemd automation, admin overrides
-5. [Architecture](docs/architecture.md) -- ETL lifecycle and component design
-6. [Configuration](docs/configuration.md) -- credentials, Airflow Connections, proxy setup
-7. [Assets Catalog](docs/assets-catalog.md) -- all built-in assets with API details
-8. [Extending](docs/extending.md) -- adding new sources, transforms, and token managers
-9. [Testing Guide](docs/testing.md) -- test structure, fixtures, and coverage
+### Tutorials (learning-oriented)
+- [Dev Environment Setup](docs/tutorial-dev-setup.md) -- clone, install, run tests
+- [Build Your First Asset](docs/tutorial-first-asset.md) -- create, test, register a new asset
+
+### How-To Guides (task-oriented)
+- [How-To Guides](docs/how-to-guides.md) -- debug runs, test with limited data, multi-org, monitoring
+- [Running DAGs Locally](docs/local-airflow.md) -- install Airflow, generate and trigger DAGs
+- [Airflow Deployment](docs/airflow-deployment.md) -- production DAGs, systemd automation, admin overrides
+
+### Reference (information-oriented)
+- [Configuration](docs/configuration.md) -- credentials, proxy, database, runtime overrides
+- [Assets Catalog](docs/assets-catalog.md) -- all built-in assets with API details
+- [Extending Reference](docs/extending-reference.md) -- asset attributes, token managers, base classes
+- [Testing Guide](docs/testing.md) -- test structure, fixtures, and coverage
+
+### Explanation (understanding-oriented)
+- [Architecture](docs/architecture.md) -- ETL lifecycle, run modes, component design
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow and PR guidelines.
 

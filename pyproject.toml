@@ -10,9 +10,9 @@ readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.11"
 authors = [
-    { name = "EngMX Team" },
+    { name = "FreeFlow Data" },
 ]
-keywords = ["airflow", "etl", "data-assets", "postgres", "data-engineering"]
+keywords = ["airflow", "etl", "data-assets", "postgres", "mariadb", "data-engineering"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -42,7 +42,6 @@ dev = [
     "data-assets[postgres,mariadb]",
     "pytest>=8.0",
     "pytest-cov",
-    "pytest-mock",
     "respx>=0.21",
     "testcontainers[postgres,mysql]>=4.0",
     "ruff",
@@ -66,16 +65,16 @@ strict = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "integration: marks tests requiring a live Postgres instance (Docker)",
+    "integration: marks tests requiring a live Postgres or MariaDB instance (Docker)",
 ]
 
 [tool.uv]
 dev-dependencies = [
+    "data-assets[postgres,mariadb]",
     "pytest>=8.0",
     "pytest-cov",
-    "pytest-mock",
     "respx>=0.21",
-    "testcontainers[postgres]>=4.0",
+    "testcontainers[postgres,mysql]>=4.0",
     "ruff",
     "mypy",
 ]

@@ -39,6 +39,30 @@ When Airflow calls `run_asset("my_asset", mode="forward")`:
 
 On failure (including Ctrl+C): checkpoints are cleared, temp table is dropped, and lock is released. Each cleanup step is independently guarded — if one fails (e.g., DB unreachable), the remaining steps still run.
 
+## Run Modes
+
+| Mode | When to use |
+|------|-------------|
+| `full` | Initial load or periodic full refresh |
+| `forward` | Incremental — fetch new data since last run |
+| `backfill` | Fill in historical data going backwards |
+| `transform` | Run SQL transforms (database-to-database) |
+
+### Example: running the same asset across modes
+
+```python
+# Day 1: First load — fetches all SonarQube projects
+run_asset("sonarqube_projects", run_mode="full")
+# forward_watermark → 2026-04-01T12:00:00Z
+
+# Day 2: Incremental — only projects updated since last run
+run_asset("sonarqube_projects", run_mode="forward")
+# start_date = 2026-04-01T12:00:00Z, end_date = now
+# forward_watermark → 2026-04-02T08:00:00Z
+```
+
+For which assets support incremental mode, see [assets-catalog.md](assets-catalog.md). For the practical decision tree on choosing a run mode, see [How-To Guides](how-to-guides.md#how-to-choose-a-run-mode). For details on how watermarks work, see [How-To Guides](how-to-guides.md#how-watermarks-work).
+
 ## Extraction Data Flow
 
 This diagram shows how data flows through a single extraction cycle:
@@ -120,30 +144,7 @@ IMPORTANT: 4 workers at 10/sec = still 10 calls/sec TOTAL, not 40.
 The limiter is shared. Workers wait their turn.
 ```
 
-## Key Design Decisions
-
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| Load strategies | Full replace, upsert, append | Covers all ETL patterns |
-| Failure model | Temp table + checkpoints | Zero wasted API calls on retry |
-| Transform safety | Per-query `statement_timeout` (default 300s, configurable per asset) | Prevents runaway SQL from holding connections indefinitely |
-| Bulk write safety | `chunksize=1000` on temp table inserts | Prevents bind-parameter overflow on large DataFrames |
-| Declarative indexes | Every asset declares `indexes` (at least one required); created after promotion via `CREATE INDEX IF NOT EXISTS` | Proactive query performance — indexes reflect expected query patterns, not reactive DBA work |
-| Schema management | Auto-create, additive migration via SchemaContract enum (EVOLVE/FREEZE/DISCARD) | Safe evolution, no data loss |
-| Rate limiting | In-process sliding-window counter (thread-safe) | Simple, no external state |
-| Parallelism | Thread pool for page/entity fan-out | Shared rate limiter + token manager |
-| DB layer | SQLAlchemy ORM (metadata) + Core (DDL) | Best of both worlds |
-| In-memory format | pandas DataFrames | Standard, well-supported |
-| Multi-org isolation | `partition_key` on locks + watermarks | Same asset, concurrent orgs, no lock collision |
-
-## Database Schema Layout
-
-| Schema | Purpose |
-|--------|---------|
-| `raw` | Default landing zone for API-sourced assets |
-| `mart` | Transformed / derived assets |
-| `temp_store` | Unlogged temp tables (one per active run) |
-| `data_ops` | Operational metadata: locks, history, checkpoints, registry, coverage. Locks and coverage use composite PK `(asset_name, partition_key)` for multi-org isolation. |
+For the key design decisions table and database schema layout, see [Extending Reference](extending-reference.md#key-design-decisions) and [Configuration](configuration.md#database-schemas).
 
 ## Parallel Extraction Modes
 
@@ -169,15 +170,7 @@ For child resources (PRs per repo, issues per project). Parent entity keys are l
 - **Error handling**: `SkippedRequestError` (e.g., 404, or GitHub 409 for empty repos) skips the entity, doesn't kill the run. Non-JSON responses (e.g., HTML error pages from proxies) are caught and wrapped with URL, status code, and body preview for diagnostics. Assets can override `classify_error()` for source-specific behavior.
 - **Thread pool**: `_run_workers()` caps pool size at `min(max_workers, work_units)` — no wasted threads
 
-## Asset Definition: Four Paths
-
-- **RestAsset** (declarative) — for standard REST APIs. Declare endpoint, pagination, field_map as class attributes. No `build_request()`/`parse_response()` needed. Can be combined with an `extract()` override for APIs with special constraints (e.g., `sonarqube/projects.py` shards queries to work around a 10k result limit while reusing RestAsset's `build_request`/`parse_response` internally).
-- **APIAsset** (custom) — for APIs needing custom logic (JQL construction, keyset pagination, multi-org iteration). Override `parse_response()` and either `build_request()` (sequential) or `build_entity_request()` (entity-parallel).
-- **GitHubRepoAsset** (shared base) — for GitHub repo-scoped entity-parallel assets. Provides token manager, pagination, org filtering, and response parsing helpers. See `assets/github/helpers.py`.
-- **GitHubOrgAsset** (shared base) — for GitHub org-scoped sequential assets (repos, members, runner groups). Provides shared `build_request()` with org-level pagination. Subclasses set `org_endpoint` and optionally `org_request_params`. See `assets/github/helpers.py`.
-- **JiraAsset** (shared base) — for Jira assets. Provides shared `source_name`, `token_manager_class`, `rate_limit_per_second`, and `get_jira_url()`. See `assets/jira/helpers.py`.
-- **SonarQubeAsset** (shared base) — for SonarQube assets using APIAsset. Provides shared token manager, rate limit, and source config. See `assets/sonarqube/helpers.py`.
-- **ServiceNowTableAsset** (pysnc/extract hook) — for ServiceNow tables. Uses pysnc's GlideRecord client instead of httpx. Authentication via `ServiceNowTokenManager.get_pysnc_auth()`. Subclasses only set `name`, `target_table`, `table_name`, and `columns`. All table assets are defined in `assets/servicenow/tables.py`; base class in `assets/servicenow/base.py`.
+For the complete catalog of asset definition patterns (RestAsset, APIAsset, shared base classes), see [Extending Reference](extending-reference.md#shared-base-classes).
 
 ## Run Resilience
 
@@ -197,6 +190,7 @@ For child resources (PRs per repo, issues per project). Parent entity keys are l
 
 ## See also
 
-- [User Guide](user-guide.md) — run modes, watermarks, multi-org pattern
-- [Extending](extending.md) — how to implement new data sources
+- [How-To Guides](how-to-guides.md) — run modes, watermarks, multi-org pattern, debugging
+- [Extending Reference](extending-reference.md) — asset attributes, token managers, contracts
+- [Tutorial: Build Your First Asset](tutorial-first-asset.md) — step-by-step walkthrough
 - [Testing Guide](testing.md) — test structure, fixtures, patterns

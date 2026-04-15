@@ -2,7 +2,7 @@
 
 ## Setup
 
-See [docs/quickstart-dev.md](docs/quickstart-dev.md) for environment setup (uv, venv, enterprise proxy).
+See [docs/tutorial-dev-setup.md](docs/tutorial-dev-setup.md) for environment setup (uv, venv, enterprise proxy).
 
 ## Branch and PR Workflow
 
@@ -52,7 +52,7 @@ See [docs/testing.md](docs/testing.md) for the full guide — directory structur
 
 ## Adding a New Asset
 
-See [docs/extending.md](docs/extending.md) for the step-by-step guide.
+See [docs/tutorial-first-asset.md](docs/tutorial-first-asset.md) for the step-by-step tutorial, or [docs/extending-reference.md](docs/extending-reference.md) for the full attribute reference.
 
 **API assets:**
 

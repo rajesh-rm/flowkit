@@ -14,7 +14,7 @@ Run the full Airflow + data-assets pipeline on your local machine. Useful for:
 Before starting, you need:
 
 - **Python 3.11+** installed
-- **PostgreSQL 16+ or MariaDB 10.11+** running locally (see [quickstart-dev.md](quickstart-dev.md) section 6 for setup)
+- **PostgreSQL 16+ or MariaDB 10.11+** running locally (see [tutorial-dev-setup.md](tutorial-dev-setup.md) section 6 for setup)
 - **Source credentials** set as environment variables (see [configuration.md](configuration.md))
 - **`DATABASE_URL`** exported:
   ```bash
@@ -216,6 +216,6 @@ For Airflow-specific issues, see:
 
 ## See Also
 
-- [Local Dev Quickstart](quickstart-dev.md) -- package development setup
+- [Dev Environment Setup](tutorial-dev-setup.md) -- package development setup
 - [Airflow Deployment Guide](airflow-deployment.md) -- production deployment with systemd
 - [Configuration](configuration.md) -- credentials and runtime overrides

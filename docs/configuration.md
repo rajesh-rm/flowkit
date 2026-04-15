@@ -44,6 +44,17 @@ If both `DATABASE_BACKEND` and `DATABASE_URL` are set and conflict (e.g., `DATAB
 
 No application code changes are needed — the dialect abstraction layer handles all differences.
 
+## Database Schemas
+
+| Schema | Purpose |
+|--------|---------|
+| `raw` | Default landing zone for API-sourced assets |
+| `mart` | Transformed / derived assets |
+| `temp_store` | Unlogged temp tables (one per active run) |
+| `data_ops` | Operational metadata: locks, history, checkpoints, registry, coverage. Locks and coverage use composite PK `(asset_name, partition_key)` for multi-org isolation. |
+
+All schemas are auto-created on the first `run_asset()` call.
+
 ## Source Credentials
 
 ### SonarQube
@@ -119,49 +130,9 @@ When all four credentials are set, `ServiceNowTokenManager.get_pysnc_auth()` ret
 
 ## Passing Secrets from Airflow
 
-Instead of pre-setting env vars on workers, pass secrets explicitly from Airflow
-Connections via the `secrets` parameter:
+Instead of pre-setting env vars on workers, pass secrets explicitly from Airflow Connections via the `secrets` parameter on `run_asset()`. The `secrets` dict maps env var names to values — they are injected into `os.environ` for the run duration and cleaned up after.
 
-```python
-from airflow.sdk import BaseHook
-from data_assets import run_asset
-
-conn = BaseHook.get_connection("sonarqube")
-run_asset("sonarqube_projects", secrets={
-    "SONARQUBE_URL": f"https://{conn.host}",
-    "SONARQUBE_TOKEN": conn.password,
-})
-```
-
-### Airflow Connection setup (one-time)
-
-```bash
-airflow connections add sonarqube \
-    --conn-type generic \
-    --conn-host "sonar.company.com" \
-    --conn-password "squ_your_token"
-
-airflow connections add github_app \
-    --conn-type generic \
-    --conn-login "12345" \
-    --conn-password "$(cat github-app-private-key.pem)" \
-    --conn-extra '{"installation_id": "789", "orgs": "my-org"}'
-
-airflow connections add jira \
-    --conn-type generic \
-    --conn-host "company.atlassian.net" \
-    --conn-login "user@company.com" \
-    --conn-password "jira-api-token"
-
-airflow connections add servicenow \
-    --conn-type generic \
-    --conn-host "company.service-now.com" \
-    --conn-login "etl_user" \
-    --conn-password "password"
-```
-
-With a secret backend (Vault, AWS SSM), Airflow resolves these at runtime — values
-never touch the metadata DB.
+For step-by-step setup including `airflow connections add` commands for all sources, the GitHub multi-org pattern, and secret backend integration, see [How to pass secrets from Airflow](how-to-guides.md#how-to-pass-secrets-from-airflow).
 
 ## Network and Proxy
 
@@ -180,7 +151,7 @@ client) can reach external APIs.
 `httpx` respects `HTTPS_PROXY` and `SSL_CERT_FILE` natively. If your corporate
 proxy's CA is already in the system trust store, no extra configuration is needed.
 
-For **development tooling** proxy setup (uv, pip, git), see [quickstart-dev.md](quickstart-dev.md#2-enterprise-proxy-setup-corporate-networks-only).
+For **development tooling** proxy setup (uv, pip, git), see [tutorial-dev-setup.md](tutorial-dev-setup.md#2-enterprise-proxy-setup-corporate-networks-only).
 
 ## Database Retry Configuration
 
@@ -264,3 +235,47 @@ run_asset("github_commits", max_entities=10, max_pages=1, dry_run=True)
 The slice is applied **after** `filter_entity_keys()`, so the limited set only includes entities from the correct org/partition.
 
 > **Do not use `max_entities` in production.** It produces incomplete data. Always pair with `dry_run=True`.
+
+## Source API Endpoints
+
+Quick reference of all external API endpoints used by built-in assets.
+
+### SonarQube
+
+| Endpoint | Used by |
+|----------|---------|
+| `/api/components/search` | `sonarqube_projects` |
+| `/api/components/show` | `sonarqube_project_details` |
+| `/api/issues/search` | `sonarqube_issues` |
+| `/api/measures/component` | `sonarqube_measures` |
+| `/api/measures/search_history` | `sonarqube_measures_history` |
+| `/api/project_branches/list` | `sonarqube_branches` |
+| `/api/project_analyses/search` | `sonarqube_analyses`, `sonarqube_analysis_events` |
+
+### GitHub REST API
+
+| Endpoint | Used by |
+|----------|---------|
+| `/orgs/{org}/repos` | `github_repos` |
+| `/orgs/{org}/members` | `github_members` |
+| `/orgs/{org}/actions/runner-groups` | `github_runner_groups` |
+| `/orgs/{org}/actions/runner-groups/{id}/repositories` | `github_runner_group_repos` |
+| `/users/{login}` | `github_user_details` |
+| `/repos/{owner}/{repo}/branches` | `github_branches` |
+| `/repos/{owner}/{repo}/commits` | `github_commits` |
+| `/repos/{owner}/{repo}/pulls` | `github_pull_requests` |
+| `/repos/{owner}/{repo}/actions/workflows` | `github_workflows` |
+| `/repos/{owner}/{repo}/actions/runs` | `github_workflow_runs` |
+| `/repos/{owner}/{repo}/actions/runs/{run_id}/jobs` | `github_workflow_jobs` |
+| `/repos/{owner}/{repo}/properties/values` | `github_repo_properties` |
+
+### ServiceNow
+
+All ServiceNow assets use pysnc (GlideRecord client) via the `/api/now/table/{table_name}` endpoint pattern. See [assets-catalog.md](assets-catalog.md#servicenow) for the full table mapping.
+
+### Jira
+
+| Endpoint | Used by |
+|----------|---------|
+| `/rest/api/3/project/search` | `jira_projects` |
+| `/rest/api/3/search` | `jira_issues` |
