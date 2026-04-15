@@ -509,3 +509,100 @@ class TestGitHubRepoProperties:
         from data_assets.assets.github.repo_properties import GitHubRepoProperties
 
         assert GitHubRepoProperties().entity_key_column == "repo_full_name"
+
+
+# ---------------------------------------------------------------------------
+# BigInteger ID columns — all GitHub assets with numeric IDs
+# ---------------------------------------------------------------------------
+
+
+class TestGitHubBigIntegerIds:
+    """All GitHub assets must use BigInteger for ID columns (GitHub IDs exceed 2^31)."""
+
+    def test_pull_requests_id(self, github_env):
+        from sqlalchemy import BigInteger
+
+        from data_assets.assets.github.pull_requests import GitHubPullRequests
+
+        id_col = [c for c in GitHubPullRequests().columns if c.name == "id"][0]
+        assert isinstance(id_col.sa_type, BigInteger)
+
+    def test_repos_id(self, github_env):
+        from sqlalchemy import BigInteger
+
+        from data_assets.assets.github.repos import GitHubRepos
+
+        id_col = [c for c in GitHubRepos().columns if c.name == "id"][0]
+        assert isinstance(id_col.sa_type, BigInteger)
+
+    def test_workflows_id(self, github_env):
+        from sqlalchemy import BigInteger
+
+        from data_assets.assets.github.workflows import GitHubWorkflows
+
+        id_col = [c for c in GitHubWorkflows().columns if c.name == "id"][0]
+        assert isinstance(id_col.sa_type, BigInteger)
+
+    def test_workflow_runs_id(self, github_env):
+        from sqlalchemy import BigInteger
+
+        from data_assets.assets.github.workflow_runs import GitHubWorkflowRuns
+
+        id_col = [c for c in GitHubWorkflowRuns().columns if c.name == "id"][0]
+        assert isinstance(id_col.sa_type, BigInteger)
+
+    def test_workflow_runs_workflow_id(self, github_env):
+        from sqlalchemy import BigInteger
+
+        from data_assets.assets.github.workflow_runs import GitHubWorkflowRuns
+
+        col = [c for c in GitHubWorkflowRuns().columns if c.name == "workflow_id"][0]
+        assert isinstance(col.sa_type, BigInteger)
+
+    def test_workflow_jobs_id(self, github_env):
+        from sqlalchemy import BigInteger
+
+        from data_assets.assets.github.workflow_jobs import GitHubWorkflowJobs
+
+        id_col = [c for c in GitHubWorkflowJobs().columns if c.name == "id"][0]
+        assert isinstance(id_col.sa_type, BigInteger)
+
+    def test_members_id(self, github_env):
+        from sqlalchemy import BigInteger
+
+        from data_assets.assets.github.members import GitHubMembers
+
+        id_col = [c for c in GitHubMembers().columns if c.name == "id"][0]
+        assert isinstance(id_col.sa_type, BigInteger)
+
+    def test_runner_groups_id(self, github_env):
+        from sqlalchemy import BigInteger
+
+        from data_assets.assets.github.runner_groups import GitHubRunnerGroups
+
+        id_col = [c for c in GitHubRunnerGroups().columns if c.name == "id"][0]
+        assert isinstance(id_col.sa_type, BigInteger)
+
+    def test_runner_group_repos_ids(self, github_env):
+        from sqlalchemy import BigInteger
+
+        from data_assets.assets.github.runner_group_repos import GitHubRunnerGroupRepos
+
+        cols = {c.name: c for c in GitHubRunnerGroupRepos().columns}
+        assert isinstance(cols["runner_group_id"].sa_type, BigInteger)
+        assert isinstance(cols["repo_id"].sa_type, BigInteger)
+
+    def test_pull_requests_fixture_exceeds_int32(self, github_env):
+        """Fixture IDs must exceed 2^31 to exercise BigInteger path."""
+        from data_assets.assets.github.pull_requests import GitHubPullRequests
+
+        data = json.loads((FIXTURES / "pull_requests.json").read_text())
+        df, _ = GitHubPullRequests().parse_response(data)
+        assert df["id"].max() > 2_147_483_647
+
+
+class TestGitHubWorkflowRunsNameMaxLength:
+    def test_name_max_length_is_1024(self, github_env):
+        from data_assets.assets.github.workflow_runs import GitHubWorkflowRuns
+
+        assert GitHubWorkflowRuns().column_max_lengths["name"] == 1024

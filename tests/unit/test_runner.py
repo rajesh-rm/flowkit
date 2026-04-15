@@ -604,6 +604,106 @@ class TestRunTransformAndValidateCustomTransform:
 
 
 # ---------------------------------------------------------------------------
+# _handle_run_failure — clears checkpoints and releases lock
+# ---------------------------------------------------------------------------
+
+from data_assets.runner import _handle_run_failure
+
+
+class TestHandleRunFailure:
+    @patch("data_assets.runner.release_lock")
+    @patch("data_assets.runner.clear_checkpoints")
+    @patch("data_assets.runner.drop_temp_table")
+    @patch("data_assets.runner.record_run_failure")
+    def test_clears_checkpoints_on_failure(
+        self, mock_record, mock_drop, mock_clear_cp, mock_release,
+    ):
+        """Failed runs must clear checkpoints to prevent stale resume."""
+        engine = MagicMock()
+        _handle_run_failure(
+            engine, "run-1", "test_asset", "", ValueError("boom"), temp_tbl="tmp_1",
+        )
+        mock_clear_cp.assert_called_once_with(engine, "test_asset", partition_key="")
+        mock_release.assert_called_once_with(engine, "test_asset", partition_key="")
+
+    @patch("data_assets.runner.release_lock")
+    @patch("data_assets.runner.clear_checkpoints", side_effect=Exception("DB gone"))
+    @patch("data_assets.runner.drop_temp_table")
+    @patch("data_assets.runner.record_run_failure")
+    def test_release_lock_runs_even_if_clear_checkpoints_fails(
+        self, mock_record, mock_drop, mock_clear_cp, mock_release,
+    ):
+        """Lock must be released even when checkpoint clearing fails."""
+        engine = MagicMock()
+        _handle_run_failure(
+            engine, "run-1", "test_asset", "", ValueError("boom"), temp_tbl="tmp_1",
+        )
+        mock_clear_cp.assert_called_once()
+        mock_release.assert_called_once_with(engine, "test_asset", partition_key="")
+
+    @patch("data_assets.runner.release_lock")
+    @patch("data_assets.runner.clear_checkpoints", side_effect=Exception("DB gone"))
+    @patch("data_assets.runner.drop_temp_table", side_effect=Exception("DB gone"))
+    @patch("data_assets.runner.record_run_failure")
+    def test_release_lock_runs_when_both_cleanup_steps_fail(
+        self, mock_record, mock_drop, mock_clear_cp, mock_release,
+    ):
+        """Lock released even when both drop_temp_table and clear_checkpoints fail."""
+        engine = MagicMock()
+        _handle_run_failure(
+            engine, "run-1", "test_asset", "", ValueError("boom"), temp_tbl="tmp_1",
+        )
+        mock_drop.assert_called_once()
+        mock_clear_cp.assert_called_once()
+        mock_release.assert_called_once_with(engine, "test_asset", partition_key="")
+
+    @patch("data_assets.runner.release_lock")
+    @patch("data_assets.runner.clear_checkpoints")
+    @patch("data_assets.runner.record_run_failure")
+    def test_clears_checkpoints_without_temp_table(
+        self, mock_record, mock_clear_cp, mock_release,
+    ):
+        """Checkpoints cleared even when no temp table exists."""
+        engine = MagicMock()
+        _handle_run_failure(
+            engine, "run-1", "test_asset", "org-one", KeyboardInterrupt(), temp_tbl=None,
+        )
+        mock_clear_cp.assert_called_once_with(engine, "test_asset", partition_key="org-one")
+
+
+class TestRunAssetKeyboardInterrupt:
+    @patch("data_assets.runner._handle_run_failure")
+    @patch("data_assets.runner._run_extraction", side_effect=KeyboardInterrupt)
+    @patch("data_assets.runner._prepare_temp_table", return_value="tmp_1")
+    @patch("data_assets.runner.acquire_or_takeover", return_value=(None, None))
+    @patch("data_assets.runner.get_checkpoints", return_value=[])
+    @patch("data_assets.runner.record_run_start")
+    @patch("data_assets.runner._inject_secrets", return_value=[])
+    @patch("data_assets.runner.get_engine")
+    @patch("data_assets.runner.get")
+    def test_keyboard_interrupt_triggers_failure_handler(
+        self, mock_get, mock_engine, mock_secrets, mock_record,
+        mock_get_cp, mock_acquire, mock_prep, mock_extract, mock_fail,
+    ):
+        """Ctrl+C (KeyboardInterrupt) must trigger _handle_run_failure for lock release."""
+        mock_asset = MagicMock()
+        mock_asset.name = "test_asset"
+        mock_asset.stale_heartbeat_minutes = 20
+        mock_asset.max_run_hours = 5
+        mock_asset.default_run_mode = RunMode.FULL
+        mock_asset.date_column = None
+        mock_asset.dag_config = None
+        mock_get.return_value = lambda: mock_asset
+
+        with pytest.raises(KeyboardInterrupt):
+            run_asset("test_asset")
+
+        mock_fail.assert_called_once()
+        exc_arg = mock_fail.call_args.args[4]
+        assert isinstance(exc_arg, KeyboardInterrupt)
+
+
+# ---------------------------------------------------------------------------
 # _extract_api — token_manager_class is None (line 409)
 # ---------------------------------------------------------------------------
 

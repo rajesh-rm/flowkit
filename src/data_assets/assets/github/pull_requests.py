@@ -12,7 +12,7 @@ from data_assets.core.enums import LoadStrategy, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationState, RequestSpec
-from sqlalchemy import Boolean, DateTime, Integer, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, Integer, Text
 
 
 @register
@@ -35,7 +35,7 @@ class GitHubPullRequests(GitHubRepoAsset):
     default_run_mode = RunMode.FORWARD
 
     columns = [
-        Column("id", Integer(), nullable=False),
+        Column("id", BigInteger(), nullable=False),
         Column("number", Integer()),
         Column("title", Text()),
         Column("state", Text()),

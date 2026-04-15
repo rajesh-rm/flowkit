@@ -37,7 +37,7 @@ When Airflow calls `run_asset("my_asset", mode="forward")`:
 4. **Promote** — Move from temp table to main table via FULL_REPLACE, UPSERT, or APPEND (single transaction)
 5. **Finalize** — Update coverage tracker, record metrics, clear checkpoints, drop temp table, release lock
 
-On failure: lock is released, temp table cleanup is attempted (failures logged at WARNING), checkpoints are preserved for retry.
+On failure (including Ctrl+C): checkpoints are cleared, temp table is dropped, and lock is released. Each cleanup step is independently guarded — if one fails (e.g., DB unreachable), the remaining steps still run.
 
 ## Extraction Data Flow
 
@@ -182,7 +182,7 @@ For child resources (PRs per repo, issues per project). Parent entity keys are l
 ## Run Resilience
 
 - **UUIDv7 run IDs** — timestamp-ordered, sortable. Each run gets a unique ID that sorts chronologically.
-- **Stale-run takeover** — if a worker dies, the next retry detects the abandoned run (no heartbeat in `stale_heartbeat_minutes` (default 20) OR exceeded `max_run_hours` (default 5)), inherits its temp table and checkpoints, and resumes extraction. Both thresholds are configurable per asset on the base `Asset` class.
+- **Stale-run takeover** — if a worker is killed without cleanup (kill -9, OOM), the next retry detects the abandoned run (no heartbeat in `stale_heartbeat_minutes` (default 20) OR exceeded `max_run_hours` (default 5)), inherits its temp table, and resumes extraction. Clean failures (exceptions, Ctrl+C) clear checkpoints and release the lock immediately — no takeover needed.
 - **Secrets injection** — `run_asset(secrets={...})` injects credentials as env vars for the run duration. Cleaned up in `finally` block. Airflow DAGs use this to pass secrets from Connections.
 - **Entity-parallel unified checkpoint** — each checkpoint saves completed entities + current entity + pagination position, enabling exact mid-entity resume.
 - **Partition isolation** — `partition_key` on `run_asset()` scopes locks, watermarks, and checkpoints to `(asset_name, partition_key)`. Multiple orgs run concurrently without interference.

@@ -10,7 +10,7 @@ from data_assets.assets.github.helpers import GitHubOrgAsset
 from data_assets.core.column import Column, Index
 from data_assets.core.registry import register
 from data_assets.core.types import PaginationState
-from sqlalchemy import Boolean, Integer, Text
+from sqlalchemy import BigInteger, Boolean, Text
 
 
 @register
@@ -22,7 +22,7 @@ class GitHubRunnerGroups(GitHubOrgAsset):
     org_endpoint = "/actions/runner-groups"
 
     columns = [
-        Column("id", Integer(), nullable=False),
+        Column("id", BigInteger(), nullable=False),
         Column("name", Text()),
         Column("visibility", Text()),
         Column("default", Boolean()),
