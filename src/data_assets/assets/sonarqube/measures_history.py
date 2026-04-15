@@ -8,8 +8,8 @@ Entity-parallel: fans out by (project_key, branch) from sonarqube_branches.
 Incremental: uses the `from` parameter to fetch only new data points
 since the last watermark, bounded by a configurable lookback window.
 
-Note: new_* metrics (new_coverage, etc.) are NOT included because the
-search_history endpoint returns dates but no values for those metrics.
+Note: new_* metrics (new_coverage, etc.) may have history entries without
+values on some analyses; those are stored as NULL.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from typing import Any
 
 import pandas as pd
 
-from data_assets.assets.sonarqube.helpers import DEFAULT_METRICS, SonarQubeAsset, parse_paging
+from data_assets.assets.sonarqube.helpers import HISTORY_METRICS, SonarQubeAsset, parse_paging
 from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.registry import register
@@ -49,21 +49,21 @@ class SonarQubeMeasuresHistory(SonarQubeAsset):
 
     load_strategy = LoadStrategy.UPSERT
     default_run_mode = RunMode.FORWARD
-    date_column = "date"
+    date_column = "analysis_date"
 
     columns = [
         Column("project_key", Text(), nullable=False),
         Column("branch", Text(), nullable=False),
-        Column("metric", Text(), nullable=False),
-        Column("date", DateTime(timezone=True), nullable=False),
+        Column("metric_key", Text(), nullable=False),
+        Column("analysis_date", DateTime(timezone=True), nullable=False),
         Column("value", Text()),
         Column("collected_at", DateTime(timezone=True)),
     ]
 
-    primary_key = ["project_key", "branch", "metric", "date"]
+    primary_key = ["project_key", "branch", "metric_key", "analysis_date"]
     indexes = [
-        Index(columns=("date",)),
-        Index(columns=("metric",)),
+        Index(columns=("analysis_date",)),
+        Index(columns=("metric_key",)),
         Index(columns=("branch",)),
     ]
 
@@ -87,7 +87,7 @@ class SonarQubeMeasuresHistory(SonarQubeAsset):
         params: dict[str, Any] = {
             "component": project_key,
             "branch": branch,
-            "metrics": ",".join(DEFAULT_METRICS),
+            "metrics": ",".join(HISTORY_METRICS),
             "ps": 100,
             "p": page,
             "from": from_date.isoformat(),
@@ -103,8 +103,8 @@ class SonarQubeMeasuresHistory(SonarQubeAsset):
             metric = measure.get("metric", "")
             for entry in measure.get("history", []):
                 rows.append({
-                    "metric": metric,
-                    "date": entry.get("date"),
+                    "metric_key": metric,
+                    "analysis_date": entry.get("date"),
                     "value": entry.get("value"),
                     "collected_at": now,
                 })

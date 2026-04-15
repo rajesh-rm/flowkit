@@ -23,6 +23,35 @@ NEW_CODE_METRICS = ["new_coverage", "new_lines_to_cover", "new_line_coverage"]
 # All metrics — used by sonarqube_measures (snapshot) which can fetch both.
 ALL_METRICS = DEFAULT_METRICS + NEW_CODE_METRICS
 
+# Full metric set for the measures-history endpoint (search_history).
+# Broader than DEFAULT_METRICS; intentionally includes new_* metrics because
+# the history endpoint still returns date rows (values may be absent for
+# new_* metrics on some analyses, stored as NULL).
+HISTORY_METRICS = [
+    "bugs",
+    "vulnerabilities",
+    "code_smells",
+    "coverage",
+    "security_hotspots",
+    "open_issues",
+    "complexity",
+    "ncloc",
+    "lines_to_cover",
+    "conditions_to_cover",
+    "uncovered_lines",
+    "uncovered_conditions",
+    "new_lines_to_cover",
+    "new_conditions_to_cover",
+    "new_uncovered_lines",
+    "new_uncovered_conditions",
+    "reliability_rating",
+    "sqale_rating",
+    "duplicated_lines",
+    "new_coverage",
+    "security_rating",
+    "tests",
+]
+
 
 def parse_paging(response: dict) -> PaginationState:
     """Extract standard SonarQube paging state from a response."""

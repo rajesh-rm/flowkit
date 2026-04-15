@@ -134,7 +134,7 @@ class GitHubRepos(GitHubOrgAsset):
     # ... only columns, primary_key, indexes, and parse_response() needed
 ```
 
-**SonarQube** — `SonarQubeAsset` (in `assets/sonarqube/helpers.py`) provides shared config for all 7 entity-parallel SonarQube assets. It sets `token_manager_class`, `source_name`, `target_schema`, `rate_limit_per_second`, an `api_url` property (resolves `SONARQUBE_URL` from env), a shared `DEFAULT_METRICS` list, and a `parse_paging()` helper for standard pagination:
+**SonarQube** — `SonarQubeAsset` (in `assets/sonarqube/helpers.py`) provides shared config for all 7 entity-parallel SonarQube assets. It sets `token_manager_class`, `source_name`, `target_schema`, `rate_limit_per_second`, an `api_url` property (resolves `SONARQUBE_URL` from env), metric constants (`ALL_METRICS` for the component endpoint, `HISTORY_METRICS` for search_history), and a `parse_paging()` helper for standard pagination:
 
 ```python
 # assets/sonarqube/helpers.py

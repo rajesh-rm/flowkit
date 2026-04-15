@@ -4,10 +4,13 @@ Uses /api/measures/component to fetch key quality metrics (bugs, vulnerabilities
 code_smells, coverage, ncloc, new_coverage, etc.) for each project branch.
 Entity-parallel: fans out by (project_key, branch) from sonarqube_branches.
 
-Response structure:
+Response structure (standard metrics):
     {"component": {"key": "...", "measures": [{"metric": "bugs", "value": "3"}, ...]}}
 
-Each measure is flattened into one row per project+branch with metric columns.
+Response structure (new-code metrics — value nested in ``period``):
+    {"metric": "new_coverage", "period": {"index": 1, "value": "100.0"}}
+
+Each measure is stored as one row per (project, branch, metric) in EAV format.
 """
 
 from __future__ import annotations
@@ -22,12 +25,12 @@ from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
-from sqlalchemy import BigInteger, DateTime, Float, Integer, Text
+from sqlalchemy import DateTime, Text
 
 
 @register
 class SonarQubeMeasures(SonarQubeAsset):
-    """Current quality measures per project per branch — one row per (project, branch)."""
+    """Current quality measures per project per branch — one row per (project, branch, metric)."""
 
     name = "sonarqube_measures"
     target_table = "sonarqube_measures"
@@ -48,22 +51,14 @@ class SonarQubeMeasures(SonarQubeAsset):
     columns = [
         Column("project_key", Text(), nullable=False),
         Column("branch", Text(), nullable=False),
-        Column("ncloc", BigInteger()),
-        Column("bugs", Integer()),
-        Column("vulnerabilities", Integer()),
-        Column("code_smells", Integer()),
-        Column("coverage", Float()),
-        Column("duplicated_lines_density", Float()),
-        Column("sqale_index", BigInteger()),
-        Column("new_coverage", Float()),
-        Column("new_lines_to_cover", BigInteger()),
-        Column("new_line_coverage", Float()),
+        Column("metric_key", Text(), nullable=False),
+        Column("metric_value", Text()),
         Column("collected_at", DateTime(timezone=True)),
     ]
 
-    primary_key = ["project_key", "branch"]
+    primary_key = ["project_key", "branch", "metric_key"]
     indexes = [
-        Index(columns=("ncloc",)),
+        Index(columns=("metric_key",)),
         Index(columns=("branch",)),
     ]
 
@@ -87,17 +82,30 @@ class SonarQubeMeasures(SonarQubeAsset):
         project_key = component.get("key", "")
         measures_list = component.get("measures", [])
 
+        if not project_key:
+            return pd.DataFrame(columns=[c.name for c in self.columns]), PaginationState(has_more=False)
+
         valid_metrics = set(ALL_METRICS)
-        row: dict[str, Any] = {"project_key": project_key}
+        rows: list[dict[str, Any]] = []
+        now = pd.Timestamp.now(tz="UTC")
+
         for m in measures_list:
             metric = m.get("metric")
+            # Standard metrics use top-level "value"; new-code metrics
+            # nest the value inside "period.value".
             value = m.get("value")
+            if value is None:
+                value = m.get("period", {}).get("value")
             if metric in valid_metrics:
-                row[metric] = value
+                rows.append({
+                    "project_key": project_key,
+                    "metric_key": metric,
+                    "metric_value": value,
+                    "collected_at": now,
+                })
 
-        if project_key:
-            row["collected_at"] = pd.Timestamp.now(tz="UTC")
-            df = pd.DataFrame([row])
+        if rows:
+            df = pd.DataFrame(rows)
         else:
             df = pd.DataFrame(columns=[c.name for c in self.columns])
 

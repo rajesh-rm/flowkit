@@ -298,7 +298,7 @@ Extend `SonarQubeAsset` (in `helpers.py`) which provides `token_manager_class`, 
 |---------|----------|-------------|
 | Unpaginated per-project | `branches.py` | API returns all data in one call per project |
 | Paginated per-project | `analyses.py` | API uses `p`/`ps` pagination with `paging.total` |
-| Flat response flattening | `measures.py` | One row per (project, branch), multiple metric values to flatten |
+| EAV response flattening | `measures.py` | One row per (project, branch, metric) — extracts `value` or `period.value` |
 | Nested response flattening | `measures_history.py` | Metric-grouped time-series response to flatten into rows |
 
 Key settings for SonarQube entity-parallel assets:
@@ -306,7 +306,7 @@ Key settings for SonarQube entity-parallel assets:
 - Measures assets: `parent_asset_name = "sonarqube_branches"` — fans out by (project, branch) pairs, use `entity_key_map` to inject fields not present in the API response (e.g., `{"name": "branch"}` when the response already contains `project_key`)
 - Use `self.api_url` (not `os.environ.get(...)`) for the base URL
 - Use `parse_paging()` from `helpers.py` for standard `paging` response extraction
-- Metric constants: `DEFAULT_METRICS` (standard), `NEW_CODE_METRICS` (new code period), `ALL_METRICS` (combined)
+- Metric constants: `DEFAULT_METRICS` (7 standard), `NEW_CODE_METRICS` (new code period), `ALL_METRICS` (combined — component endpoint), `HISTORY_METRICS` (22 metrics — search_history endpoint)
 - SonarQube API docs: https://next.sonarqube.com/sonarqube/web_api
 
 ### Adding a ServiceNow table
