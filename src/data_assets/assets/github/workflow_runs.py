@@ -29,7 +29,7 @@ class GitHubWorkflowRuns(GitHubRepoAsset):
         Column("id", BigInteger(), nullable=False),
         Column("repo_full_name", Text()),
         Column("name", Text()),
-        Column("workflow_id", Integer()),
+        Column("workflow_id", BigInteger()),
         Column("status", Text()),
         Column("conclusion", Text()),
         Column("head_branch", Text()),
@@ -44,7 +44,7 @@ class GitHubWorkflowRuns(GitHubRepoAsset):
     ]
     column_max_lengths = {
         "repo_full_name": 200,
-        "name": 500,
+        "name": 1024,
         "status": 100,
         "conclusion": 100,
         "head_branch": 256,

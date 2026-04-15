@@ -10,7 +10,7 @@ from data_assets.assets.github.helpers import GitHubOrgAsset
 from data_assets.core.column import Column, Index
 from data_assets.core.registry import register
 from data_assets.core.types import PaginationState
-from sqlalchemy import Integer, Text
+from sqlalchemy import BigInteger, Text
 
 
 @register
@@ -23,7 +23,7 @@ class GitHubMembers(GitHubOrgAsset):
 
     columns = [
         Column("login", Text(), nullable=False),
-        Column("id", Integer()),
+        Column("id", BigInteger()),
         Column("avatar_url", Text()),
         Column("type", Text()),
     ]

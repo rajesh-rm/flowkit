@@ -876,8 +876,8 @@ class PagerDutyIncidents(APIAsset):
     #   name:     Column name (must match the DataFrame column from parse_response).
     #   sa_type:  SQLAlchemy type object. Common choices:
     #               Text()                   -- strings of any length
-    #               Integer()                -- whole numbers
-    #               BigInteger()             -- large whole numbers
+    #               Integer()                -- whole numbers (32-bit, max ~2.1B)
+    #               BigInteger()             -- large whole numbers (64-bit) — use for API IDs
     #               Float()                  -- floating-point numbers
     #               Boolean()                -- true / false
     #               DateTime(timezone=True)  -- timestamp with timezone

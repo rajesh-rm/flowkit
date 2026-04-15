@@ -11,7 +11,7 @@ from data_assets.core.column import Column, Index
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationState, RequestSpec
-from sqlalchemy import DateTime, Integer, Text
+from sqlalchemy import BigInteger, DateTime, Text
 
 
 @register
@@ -22,7 +22,7 @@ class GitHubWorkflows(GitHubRepoAsset):
     target_table = "github_workflows"
 
     columns = [
-        Column("id", Integer(), nullable=False),
+        Column("id", BigInteger(), nullable=False),
         Column("repo_full_name", Text()),
         Column("name", Text()),
         Column("path", Text()),

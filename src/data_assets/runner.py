@@ -105,7 +105,7 @@ def _cleanup_secrets(injected_keys: list[str]) -> None:
 
 def _handle_run_failure(
     engine: Engine, run_id, asset_name: str, partition_key: str,
-    exc: Exception, temp_tbl: str | None = None,
+    exc: BaseException, temp_tbl: str | None = None,
 ) -> None:
     """Log the failure, record it in run history, and clean up resources."""
     error_msg = str(exc)
@@ -118,7 +118,14 @@ def _handle_run_failure(
                 drop_temp_table(engine, temp_tbl)
             except Exception:
                 logger.warning("Failed to drop temp table on error cleanup", exc_info=True)
-        release_lock(engine, asset_name, partition_key=partition_key)
+        try:
+            clear_checkpoints(engine, asset_name, partition_key=partition_key)
+        except Exception:
+            logger.warning("Failed to clear checkpoints on error cleanup", exc_info=True)
+        try:
+            release_lock(engine, asset_name, partition_key=partition_key)
+        except Exception:
+            logger.warning("Failed to release lock on error cleanup", exc_info=True)
 
 
 def run_asset(
@@ -314,7 +321,7 @@ def run_asset(
                 "metadata": run_metadata,
             }
 
-        except Exception as exc:
+        except BaseException as exc:
             _handle_run_failure(
                 engine, run_id, asset_name, partition_key, exc,
                 temp_tbl=locals().get("temp_tbl"),
