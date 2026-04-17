@@ -46,6 +46,7 @@ class ServiceNowIncidents(ServiceNowTableAsset):
         Column("closed_at", DateTime(timezone=True), nullable=True),
         Column("sys_updated_on", DateTime(timezone=True)),
     ]
+    column_null_thresholds = {"closed_at": 1.0}  # open incidents
     indexes = [
         Index(columns=("number",), unique=True),
         Index(columns=("state",)),
@@ -82,6 +83,7 @@ class ServiceNowChanges(ServiceNowTableAsset):
         Column("end_date", DateTime(timezone=True), nullable=True),
         Column("sys_updated_on", DateTime(timezone=True)),
     ]
+    column_null_thresholds = {"closed_at": 1.0, "start_date": 1.0, "end_date": 1.0}
     indexes = [
         Index(columns=("number",), unique=True),
         Index(columns=("state",)),
@@ -113,6 +115,7 @@ class ServiceNowChangeTasks(ServiceNowTableAsset):
         Column("planned_end_date", DateTime(timezone=True), nullable=True),
         Column("sys_updated_on", DateTime(timezone=True)),
     ]
+    column_null_thresholds = {"planned_start_date": 1.0, "planned_end_date": 1.0}
     indexes = [
         Index(columns=("number",), unique=True),
         Index(columns=("change_request",)),
@@ -142,6 +145,7 @@ class ServiceNowProblems(ServiceNowTableAsset):
         Column("closed_at", DateTime(timezone=True), nullable=True),
         Column("sys_updated_on", DateTime(timezone=True)),
     ]
+    column_null_thresholds = {"closed_at": 1.0}  # open problems
     indexes = [
         Index(columns=("number",), unique=True),
         Index(columns=("state",)),
@@ -177,6 +181,7 @@ class ServiceNowUsers(ServiceNowTableAsset):
         Column("last_login_time", DateTime(timezone=True), nullable=True),
         Column("sys_updated_on", DateTime(timezone=True)),
     ]
+    column_null_thresholds = {"last_login_time": 1.0}  # never-logged-in users
     indexes = [
         Index(columns=("email",), unique=True),
         Index(columns=("last_name", "first_name")),
@@ -253,6 +258,7 @@ class ServiceNowLocations(ServiceNowTableAsset):
         Column("parent", Text()),
         Column("sys_updated_on", DateTime(timezone=True)),
     ]
+    column_null_thresholds = {"latitude": 1.0, "longitude": 1.0}
     indexes = [
         Index(columns=("name",)),
         Index(columns=("country",)),
@@ -353,6 +359,7 @@ class ServiceNowCatalogItems(ServiceNowTableAsset):
         Column("closed_at", DateTime(timezone=True), nullable=True),
         Column("sys_updated_on", DateTime(timezone=True)),
     ]
+    column_null_thresholds = {"closed_at": 1.0}  # open catalog items
     indexes = [
         Index(columns=("number",), unique=True),
         Index(columns=("request",)),
@@ -379,6 +386,7 @@ class ServiceNowCatalogRequests(ServiceNowTableAsset):
         Column("closed_at", DateTime(timezone=True), nullable=True),
         Column("sys_updated_on", DateTime(timezone=True)),
     ]
+    column_null_thresholds = {"closed_at": 1.0}  # open catalog requests
     indexes = [
         Index(columns=("number",), unique=True),
         Index(columns=("request_state",)),

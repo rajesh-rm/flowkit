@@ -58,6 +58,7 @@ class SonarQubeIssues(SonarQubeAsset):
     ]
 
     primary_key = ["key"]
+    column_null_thresholds = {"line": 1.0}  # file-level issues have no line number
     indexes = [
         Index(columns=("project",)),
         Index(columns=("update_date",)),
