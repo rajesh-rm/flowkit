@@ -11,7 +11,11 @@ from data_assets.core.column import Column, Index
 from data_assets.core.enums import LoadStrategy, RunMode, SchemaContract
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import ValidationResult
-from data_assets.validation.validators import validate_column_lengths, warn_oversized_strings
+from data_assets.validation.validators import (
+    validate_column_lengths,
+    validate_column_null_rates,
+    warn_oversized_strings,
+)
 
 
 class Asset(ABC):
@@ -53,6 +57,13 @@ class Asset(ABC):
     # these limits (blocking) and validate_warnings() warns on >10k chars.
     column_max_lengths: dict[str, int] = {}
 
+    # Maximum allowed null fraction per column (0.0–1.0). Default: 2%.
+    # Columns not listed use default_null_threshold. Set a column to 1.0
+    # to exempt it (e.g., EAV metric_value that is nullable by design).
+    # PK columns are excluded automatically (they have a zero-null check).
+    default_null_threshold: float = 0.02
+    column_null_thresholds: dict[str, float] = {}
+
     # --- DAG generation ---
     dag_config: dict = {}
 
@@ -74,7 +85,8 @@ class Asset(ABC):
         """Blocking validation — must pass before promotion.
 
         Default: row count > 0, primary key columns contain no nulls,
-        and string columns respect column_max_lengths (if defined).
+        string columns respect column_max_lengths (if defined), and
+        non-PK columns respect null rate thresholds.
         Override to add custom blocking checks. Call super() to keep defaults.
         """
         failures: list[str] = []
@@ -94,6 +106,14 @@ class Asset(ABC):
         if self.column_max_lengths:
             length_result = validate_column_lengths(df, self.column_max_lengths)
             failures.extend(length_result.failures)
+
+        null_rate_result = validate_column_null_rates(
+            df,
+            default_threshold=self.default_null_threshold,
+            column_thresholds=self.column_null_thresholds,
+            exclude_columns=self.primary_key,
+        )
+        failures.extend(null_rate_result.failures)
 
         return ValidationResult(passed=len(failures) == 0, failures=failures)
 

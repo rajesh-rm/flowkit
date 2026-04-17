@@ -60,6 +60,87 @@ def test_default_validate_fails_missing_pk_column():
 
 
 # ---------------------------------------------------------------------------
+# Null-rate threshold validation
+# ---------------------------------------------------------------------------
+
+
+def test_null_rate_catches_high_null_rate():
+    """A column with >2% nulls should fail validation by default."""
+    asset = StubAsset()
+    df = pd.DataFrame({"id": range(100), "value": [None] * 10 + ["x"] * 90})
+    result = asset.validate(df, make_ctx())
+    assert not result.passed
+    assert any("null rate" in f for f in result.failures)
+
+
+def test_null_rate_passes_low_null_rate():
+    """A column with <=2% nulls should pass validation."""
+    asset = StubAsset()
+    df = pd.DataFrame({"id": range(100), "value": [None] * 2 + ["x"] * 98})
+    result = asset.validate(df, make_ctx())
+    assert result.passed
+
+
+def test_null_rate_pk_excluded():
+    """PK columns should not trigger null-rate failures (they have their own check)."""
+    asset = StubAsset()
+    df = pd.DataFrame({"id": [1, None, 3], "value": ["a", "b", "c"]})
+    result = asset.validate(df, make_ctx())
+    assert not result.passed
+    # Only PK null failure, not a redundant null-rate failure for 'id'
+    assert len(result.failures) == 1
+    assert "primary key" in result.failures[0].lower()
+
+
+def test_null_rate_per_column_override():
+    """Subclass can raise threshold for specific columns."""
+
+    class LooseAsset(Asset):
+        name = "loose"
+        target_table = "loose"
+        columns = [Column("id", Integer(), nullable=False), Column("notes", Text())]
+        primary_key = ["id"]
+        column_null_thresholds = {"notes": 0.5}
+
+    asset = LooseAsset()
+    df = pd.DataFrame({"id": range(100), "notes": [None] * 30 + ["x"] * 70})
+    result = asset.validate(df, make_ctx())
+    assert result.passed
+
+
+def test_null_rate_exempt_column():
+    """A column set to threshold 1.0 should pass even at 100% null."""
+
+    class EAVAsset(Asset):
+        name = "eav"
+        target_table = "eav"
+        columns = [Column("id", Integer(), nullable=False), Column("metric_value", Text())]
+        primary_key = ["id"]
+        column_null_thresholds = {"metric_value": 1.0}
+
+    asset = EAVAsset()
+    df = pd.DataFrame({"id": range(10), "metric_value": [None] * 10})
+    result = asset.validate(df, make_ctx())
+    assert result.passed
+
+
+def test_null_rate_global_threshold_override():
+    """Subclass can change the global default threshold."""
+
+    class StrictAsset(Asset):
+        name = "strict"
+        target_table = "strict"
+        columns = [Column("id", Integer(), nullable=False), Column("value", Text())]
+        primary_key = ["id"]
+        default_null_threshold = 0.0
+
+    asset = StrictAsset()
+    df = pd.DataFrame({"id": range(100), "value": [None] + ["x"] * 99})
+    result = asset.validate(df, make_ctx())
+    assert not result.passed
+
+
+# ---------------------------------------------------------------------------
 # APIAsset: classify_error and should_stop
 # ---------------------------------------------------------------------------
 
