@@ -239,10 +239,41 @@ def test_date_param_absent_when_no_start_date(monkeypatch):
 
 # --- Missing fields in response ---
 
-def test_missing_fields_default_to_none():
-    """If a column is not in the API response, it should be None."""
+def test_missing_required_field_raises():
+    """A required API field absent from the response raises MissingKeyError."""
+    import pytest
+
+    from data_assets.validation.missing_keys import MissingKeyError
+
     asset = ItemsAsset()
     response = {"data": {"items": [{"id": 1}]}}  # missing "name" and "created_at"
+    with pytest.raises(MissingKeyError):
+        asset.parse_response(response)
+
+
+def test_optional_fields_default_to_none():
+    """Columns listed in optional_columns may be absent; they become None."""
+
+    class ItemsOptional(RestAsset):
+        name = "test_items_optional"
+        source_name = "test_api"
+        target_table = "test_items_optional"
+        endpoint = "/api/items"
+        base_url_env = "TEST_API_URL"
+        token_manager_class = FakeTokenManager
+        response_path = "data.items"
+        pagination = {"strategy": "offset", "page_size": 50}
+        columns = [
+            Column("id", Integer(), nullable=False),
+            Column("item_name", Text()),
+            Column("created_at", DateTime(timezone=True)),
+        ]
+        primary_key = ["id"]
+        field_map = {"name": "item_name"}
+        optional_columns = ["item_name", "created_at"]
+
+    asset = ItemsOptional()
+    response = {"data": {"items": [{"id": 1}]}}
     df, _ = asset.parse_response(response)
     assert len(df) == 1
     assert df.iloc[0]["item_name"] is None

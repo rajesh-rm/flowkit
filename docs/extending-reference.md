@@ -614,6 +614,27 @@ primary_key = ["id"]
 # For composite keys: primary_key = ["project_key", "incident_id"]
 ```
 
+### Optional columns (missing-key exemptions)
+
+```python
+optional_columns = ["closed_at", "assignee"]
+# Columns that MAY be absent from individual API response dicts.
+# Listed columns are exempted from the missing-key check (which fails
+# the run when a required key is absent from the raw response).
+#
+# Distinct from Column(nullable=True):
+#   - nullable=True   → the DB column may contain NULL values
+#   - optional_columns → the API may omit the key entirely from a response
+#
+# Example: GitHub PRs always include `closed_at` (as null for open PRs),
+# so it is NOT optional. SonarQube issues omit `line` entirely for
+# file-level issues, so it IS optional.
+#
+# Guardrail: the registry rejects any entry that is used in primary_key
+# or in an index (unique or covering). Identity and lookup columns
+# cannot be opted out — schema drift on those is always blocking.
+```
+
 ### Indexes (required — at least one per asset)
 
 ```python
@@ -650,6 +671,30 @@ column_max_lengths = {
 #   - Exact length for fixed-format fields (SHA: 40, GUID: 32)
 #   - Generous limits with buffer for variable fields
 #   - Omit unbounded user content (descriptions, messages, bios)
+```
+
+### Null-rate warning thresholds (optional)
+
+```python
+default_null_threshold = 0.02            # Default 2%
+column_null_thresholds = {
+    "closed_at": 1.0,                    # Silence warning entirely
+    "description": 0.5,                  # Warn only if > 50% null
+}
+# Controls the "High null rate" warning emitted by validate_warnings().
+# Non-blocking — promotion proceeds regardless. The warning is a single
+# consolidated string listing every offending column, landing in:
+#   - Application logs at WARNING level
+#   - run_history.metadata["warnings"] as a JSON list
+#
+# Threshold 1.0 silences the warning for that column (e.g., EAV columns
+# that are nullable by design). PK columns are auto-excluded — they
+# have a stricter zero-null blocking check in validate().
+#
+# Null rate and missing-key are different signals:
+#   - High null rate: API returns the key with value null (tolerated)
+#   - Missing key: API omits the key entirely (blocks via MissingKeyError)
+# Use optional_columns for the latter; null thresholds only tune the warning.
 ```
 
 ### Incremental support (date-based watermarks)
@@ -826,6 +871,36 @@ Key details:
 - **Nested JSON fields** need to be flattened manually.
 - **Storing raw JSON** as JSONB (`"raw_json": inc`) is useful for debugging.
 - **Always specify `columns=` in the DataFrame constructor** to guarantee consistent column presence even with zero records.
+
+### Missing-key check — required-keys declaration
+
+Every custom `parse_response()` must declare which API fields back each column, so the framework can catch schema drift (a required key going missing) before the DataFrame collapses "absent" and "null" into a single `NaN`. Call `self._check_required_keys(records, field_to_column)` once, with the raw list of response dicts and an explicit mapping from dotted API path → DataFrame column name. It raises `MissingKeyError` on the first record where a non-optional column's path is absent:
+
+```python
+def parse_response(self, response):
+    incidents = response.get("incidents", [])
+
+    self._check_required_keys(incidents, {
+        "id":                     "id",
+        "incident_number":        "incident_number",
+        "title":                  "title",
+        "service.id":             "service_id",       # nested — dotted path
+        "service.summary":        "service_name",
+        "priority.summary":       "priority_name",
+        "created_at":             "created_at",
+        "last_status_change_at":  "updated_at",
+        "resolved_at":            "resolved_at",
+        "html_url":               "html_url",
+    })
+
+    # …continue with the flattening loop and DataFrame construction…
+```
+
+Rules:
+- **Explicit map, no defaults.** Identity maps (`{col: col}`) only work when every column is a top-level response key; for nested payloads (`fields.assignee.displayName` → `assignee`) a default would silently mis-report. `RestAsset` derives the map automatically from `field_map`; custom asset authors must pass one.
+- **Skip entity-injected columns.** If the framework fills a column via `entity_key_column` or `entity_key_map` after `parse_response()` returns (e.g., `repo_full_name` injected by `_inject_entity_key`), leave that column out of the map — the API never sent it.
+- **Null parents are tolerated.** `{"fields": {"assignee": null}}` with path `fields.assignee.displayName` does **not** trip the check — the API explicitly said "no sub-entity here." Only a genuinely absent key fires.
+- **Opt out per column via `optional_columns`.** If the API legitimately omits a key for some records (e.g., SonarQube issues at file level have no `line`), list the column name in the asset's `optional_columns` attribute.
 
 ---
 
@@ -1019,6 +1094,20 @@ Subclasses set `name`, `target_table`, `table_name`, `columns`, and `indexes` �
 - **Check column names.** The DataFrame column names produced by `parse_response()` must exactly match the `name` fields in your `columns` list. A mismatch causes the data to be silently dropped.
 - **Check that `parse_response()` returns rows.** Add a temporary print statement: `print(f"Parsed {len(df)} rows")`.
 - **Check the load strategy.** If using `FULL_REPLACE`, the table is truncated before loading. If the extraction fails mid-run, you end up with an empty table.
+
+### Run failing with `MissingKeyError`?
+
+```
+Asset 'jira_issues': required column 'assignee' (API field
+'fields.assignee.displayName') is absent from response record #3.
+If this field is legitimately missing for some responses, add
+'assignee' to the asset's optional_columns list.
+```
+
+- **Confirm it's absent, not null.** A `null` value does not trigger this — only key absence does. Paste the offending record (the error gives its index) into a REPL and run `"assignee" in record["fields"]` to verify.
+- **Real schema drift?** The source API removed the field. Update your column list and `field_to_column` map in `parse_response()` to match, or remove the column if the field is permanently gone.
+- **Legitimately optional?** Add the column to `optional_columns`. Note that PK columns and any column used in an index cannot be optional — the registry will reject that at import time.
+- **Null parent, unexpected fail?** If the offending field is nested (e.g., `user.login`) and the parent is `null`, that is tolerated by design and should NOT raise. If you see this case, something is off — check the raw record's shape.
 
 ### Duplicate data in the table?
 

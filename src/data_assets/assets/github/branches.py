@@ -42,6 +42,11 @@ class GitHubBranches(GitHubRepoAsset):
         return self._paginated_entity_request(entity_key, f"/repos/{entity_key}/branches", checkpoint)
 
     def parse_response(self, response: list[dict[str, Any]]) -> tuple[pd.DataFrame, PaginationState]:
+        self._check_required_keys(response, {
+            "name": "name",
+            "protected": "protected",
+            "commit.sha": "commit_sha",
+        })
         return self._parse_array_response(response, lambda b: {
             "repo_full_name": "",
             "name": b["name"],

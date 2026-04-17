@@ -70,8 +70,24 @@ class TestGitHubReposParseResponse:
         """100 results (= page_size) should signal has_more=True."""
         from data_assets.assets.github.repos import GitHubRepos
 
-        fake_repos = [{"id": i, "full_name": f"org/repo-{i}", "owner": {"login": "org"}}
-                      for i in range(100)]
+        fake_repos = [
+            {
+                "id": i,
+                "full_name": f"org/repo-{i}",
+                "name": f"repo-{i}",
+                "owner": {"login": "org"},
+                "private": False,
+                "description": None,
+                "language": None,
+                "default_branch": "main",
+                "created_at": "2025-01-01T00:00:00Z",
+                "updated_at": "2025-01-01T00:00:00Z",
+                "pushed_at": None,
+                "archived": False,
+                "html_url": f"https://github.com/org/repo-{i}",
+            }
+            for i in range(100)
+        ]
         _, state = GitHubRepos().parse_response(fake_repos)
         assert state.has_more is True
 

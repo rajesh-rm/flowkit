@@ -153,6 +153,13 @@ class RestAsset(APIAsset):
         column_names = {c.name for c in self.columns}
         reverse_map = self._reverse_field_map
 
+        # Fail fast if any required column's API field is absent from a response.
+        # Done before the loop below collapses absent-vs-None into None.
+        field_to_column = {
+            reverse_map.get(c.name, c.name): c.name for c in self.columns
+        }
+        self._check_required_keys(records_raw, field_to_column)
+
         records = []
         for raw in records_raw:
             row: dict[str, Any] = {}

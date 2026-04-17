@@ -253,3 +253,43 @@ def test_null_rates_failure_message_format():
     assert "50.0%" in msg
     assert "5/10" in msg
     assert "2.0%" in msg
+
+
+# ---------------------------------------------------------------------------
+# warn_column_null_rates — single-string consolidation for validate_warnings
+# ---------------------------------------------------------------------------
+
+from data_assets.validation.validators import warn_column_null_rates
+
+
+def test_warn_null_rates_empty_when_all_under_threshold():
+    df = pd.DataFrame({"a": [1] * 100})
+    warnings = warn_column_null_rates(df, default_threshold=0.02)
+    assert warnings == []
+
+
+def test_warn_null_rates_single_string_per_run():
+    """One run emits one warning string, even across multiple columns."""
+    df = pd.DataFrame({
+        "a": [None] * 50 + [1] * 50,
+        "b": [None] * 30 + ["x"] * 70,
+    })
+    warnings = warn_column_null_rates(df, default_threshold=0.02)
+    assert len(warnings) == 1
+    # Both offending column names appear inside the one string
+    assert "a" in warnings[0]
+    assert "b" in warnings[0]
+    assert warnings[0].startswith("High null rate:")
+
+
+def test_warn_null_rates_empty_df():
+    df = pd.DataFrame({"a": pd.Series([], dtype="object")})
+    assert warn_column_null_rates(df) == []
+
+
+def test_warn_null_rates_respects_exempt_columns():
+    df = pd.DataFrame({"a": [None] * 100})
+    warnings = warn_column_null_rates(
+        df, default_threshold=0.02, column_thresholds={"a": 1.0},
+    )
+    assert warnings == []

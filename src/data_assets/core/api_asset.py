@@ -10,6 +10,7 @@ import pandas as pd
 from data_assets.core.asset import Asset
 from data_assets.core.enums import AssetType, LoadStrategy, ParallelMode, RunMode
 from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
+from data_assets.validation.missing_keys import check_required_keys
 
 if TYPE_CHECKING:
     from data_assets.core.run_context import RunContext
@@ -107,6 +108,20 @@ class APIAsset(Asset):
     def parse_response(self, response: Any) -> tuple[pd.DataFrame, PaginationState]:
         """Parse an API response into rows and pagination state."""
         ...
+
+    def _check_required_keys(
+        self, records: list[dict], field_to_column: dict[str, str]
+    ) -> None:
+        """Fail fast if any required column's API field is absent from a record.
+
+        Call from inside parse_response (or an equivalent pre-DataFrame hook)
+        with the list of raw response dicts and an explicit map from API field
+        path (dotted for nested) to DataFrame column name. Columns listed in
+        self.optional_columns are exempted.
+        """
+        check_required_keys(
+            records, field_to_column, self.optional_columns, self.name
+        )
 
     def filter_entity_keys(self, keys: list) -> list:
         """Filter parent entity keys before entity-parallel fan-out.

@@ -41,6 +41,14 @@ class GitHubWorkflows(GitHubRepoAsset):
         )
 
     def parse_response(self, response: dict[str, Any]) -> tuple[pd.DataFrame, PaginationState]:
+        self._check_required_keys(response.get("workflows", []), {
+            "id": "id",
+            "name": "name",
+            "path": "path",
+            "state": "state",
+            "created_at": "created_at",
+            "updated_at": "updated_at",
+        })
         return self._parse_wrapped_response(response, "workflows", lambda w: {
             "id": w["id"],
             "repo_full_name": "",

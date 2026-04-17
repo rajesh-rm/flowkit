@@ -492,11 +492,12 @@ class TestServiceNowChoices:
 class TestBatchToDfColumnValidation:
     def test_missing_column_raises(self, servicenow_env):
         from data_assets.assets.servicenow import ServiceNowIncidents
+        from data_assets.validation.missing_keys import MissingKeyError
 
         asset = ServiceNowIncidents()
-        # Batch with only 2 of 13 columns — should raise for all missing ones.
+        # Batch with only 2 of 13 columns — missing-key check fires first.
         batch = [{"sys_id": "a1", "number": "INC001"}]
-        with pytest.raises(ValueError, match="declared columns missing"):
+        with pytest.raises(MissingKeyError):
             asset._batch_to_df(batch)
 
     def test_all_columns_present_succeeds(self, servicenow_env):

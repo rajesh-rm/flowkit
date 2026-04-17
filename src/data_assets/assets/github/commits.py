@@ -60,6 +60,15 @@ class GitHubCommits(GitHubRepoAsset):
         )
 
     def parse_response(self, response: list[dict[str, Any]]) -> tuple[pd.DataFrame, PaginationState]:
+        self._check_required_keys(response, {
+            "sha": "sha",
+            "author.login": "author_login",
+            "commit.author.date": "author_date",
+            "committer.login": "committer_login",
+            "commit.committer.date": "committer_date",
+            "commit.message": "message",
+            "html_url": "html_url",
+        })
         return self._parse_array_response(response, lambda c: {
             "sha": c["sha"],
             "repo_full_name": "",

@@ -39,6 +39,10 @@ class GitHubRepoProperties(GitHubRepoAsset):
         )
 
     def parse_response(self, response: list[dict[str, Any]]) -> tuple[pd.DataFrame, PaginationState]:
+        self._check_required_keys(response, {
+            "property_name": "property_name",
+            "value": "value",
+        })
         return self._parse_array_response(response, lambda p: {
             "repo_full_name": "",
             "property_name": p.get("property_name", ""),

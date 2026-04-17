@@ -52,6 +52,10 @@ class GitHubRunnerGroupRepos(GitHubRepoAsset):
         )
 
     def parse_response(self, response: dict[str, Any]) -> tuple[pd.DataFrame, PaginationState]:
+        self._check_required_keys(response.get("repositories", []), {
+            "id": "repo_id",
+            "full_name": "repo_full_name",
+        })
         return self._parse_wrapped_response(response, "repositories", lambda r: {
             "runner_group_id": 0,
             "repo_id": r["id"],

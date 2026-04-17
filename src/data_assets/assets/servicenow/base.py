@@ -153,6 +153,9 @@ class ServiceNowTableAsset(APIAsset):
 
     def _batch_to_df(self, batch: list[dict]) -> pd.DataFrame:
         """Convert a batch of serialized records to a DataFrame with declared columns."""
+        self._check_required_keys(
+            batch, {c.name: c.name for c in self.columns}
+        )
         df = self._validate_and_select_columns(pd.DataFrame(batch))
 
         # Convert string "true"/"false" from pysnc to native Python booleans

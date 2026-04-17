@@ -90,6 +90,23 @@ class GitHubPullRequests(GitHubRepoAsset):
                 PaginationState(has_more=False),
             )
 
+        self._check_required_keys(response, {
+            "id": "id",
+            "number": "number",
+            "title": "title",
+            "state": "state",
+            "user.login": "user_login",
+            "base.repo.full_name": "repo_full_name",
+            "created_at": "created_at",
+            "updated_at": "updated_at",
+            "closed_at": "closed_at",
+            "merged_at": "merged_at",
+            "draft": "draft",
+            "head.ref": "head_ref",
+            "base.ref": "base_ref",
+            "html_url": "html_url",
+        })
+
         records = []
         for pr in response:
             records.append({
