@@ -146,6 +146,9 @@ def index_name(table: str, idx: Index) -> str:
     candidate = "_".join(parts)
     if len(candidate) <= MAX_IDENTIFIER_LENGTH:
         return candidate
-    # Truncate and append short hash for uniqueness
-    h = hashlib.md5(candidate.encode()).hexdigest()[:8]
+    # Truncate and append short hash for uniqueness.
+    # usedforsecurity=False: this is a non-cryptographic identifier collision
+    # suffix (DB index names), not a security primitive. Flagged otherwise by
+    # static analyzers (SonarQube python:S4790).
+    h = hashlib.md5(candidate.encode(), usedforsecurity=False).hexdigest()[:8]
     return candidate[: MAX_IDENTIFIER_LENGTH - 9] + "_" + h
