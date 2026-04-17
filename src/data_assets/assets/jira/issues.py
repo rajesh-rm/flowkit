@@ -61,10 +61,6 @@ class JiraIssues(JiraAsset):
     }
 
     primary_key = ["id"]
-    column_null_thresholds = {
-        "assignee": 0.5, "reporter": 0.2,
-        "resolution_date": 1.0, "labels": 1.0,
-    }
     indexes = [
         Index(columns=("key",), unique=True),
         Index(columns=("project_key",)),

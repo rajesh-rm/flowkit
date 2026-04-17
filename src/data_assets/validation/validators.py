@@ -59,49 +59,6 @@ def validate_no_full_null_columns(df: pd.DataFrame) -> ValidationResult:
     return ValidationResult(passed=len(failures) == 0, failures=failures)
 
 
-def validate_column_null_rates(
-    df: pd.DataFrame,
-    default_threshold: float = 0.02,
-    column_thresholds: dict[str, float] | None = None,
-    exclude_columns: list[str] | None = None,
-) -> ValidationResult:
-    """Check that no column exceeds its allowed null rate.
-
-    Args:
-        df: DataFrame to validate.
-        default_threshold: Maximum null fraction (0.0–1.0) for columns
-            not in column_thresholds. Default 0.02 (2%).
-        column_thresholds: Per-column overrides. Map column name to max
-            allowed null fraction. Use 1.0 to exempt a column entirely.
-        exclude_columns: Columns to skip (e.g., primary key columns,
-            which have their own null check).
-    """
-    if len(df) == 0:
-        return ValidationResult(passed=True)
-
-    column_thresholds = column_thresholds or {}
-    exclude = set(exclude_columns or [])
-    failures: list[str] = []
-    total_rows = len(df)
-
-    for col in df.columns:
-        if col in exclude:
-            continue
-        threshold = column_thresholds.get(col, default_threshold)
-        if threshold >= 1.0:
-            continue
-        null_count = int(df[col].isnull().sum())
-        null_rate = null_count / total_rows
-        if null_rate > threshold:
-            failures.append(
-                f"Column '{col}' has {null_rate:.1%} null rate "
-                f"({null_count}/{total_rows} rows), "
-                f"exceeds threshold {threshold:.1%}"
-            )
-
-    return ValidationResult(passed=len(failures) == 0, failures=failures)
-
-
 def validate_schema_match(
     df: pd.DataFrame, expected_columns: list[str]
 ) -> ValidationResult:

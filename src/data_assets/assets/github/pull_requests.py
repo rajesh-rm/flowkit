@@ -61,7 +61,6 @@ class GitHubPullRequests(GitHubRepoAsset):
     }
 
     primary_key = ["id"]
-    column_null_thresholds = {"closed_at": 1.0, "merged_at": 1.0}  # open/unmerged PRs
     indexes = [
         Index(columns=("repo_full_name",)),
         Index(columns=("updated_at",)),

@@ -57,7 +57,6 @@ class GitHubRepos(GitHubOrgAsset):
     }
 
     primary_key = ["full_name"]
-    column_null_thresholds = {"description": 0.5, "language": 0.5, "pushed_at": 0.5}
     indexes = [
         Index(columns=("owner_login",)),
         Index(columns=("language",)),

@@ -57,7 +57,6 @@ class SonarQubeMeasures(SonarQubeAsset):
     ]
 
     primary_key = ["project_key", "branch", "metric_key"]
-    column_null_thresholds = {"metric_value": 1.0}  # EAV: new-code metrics often null
     indexes = [
         Index(columns=("metric_key",)),
         Index(columns=("branch",)),

@@ -61,7 +61,6 @@ class SonarQubeMeasuresHistory(SonarQubeAsset):
     ]
 
     primary_key = ["project_key", "branch", "metric_key", "analysis_date"]
-    column_null_thresholds = {"value": 1.0}  # new_* metrics may lack values on some analyses
     indexes = [
         Index(columns=("analysis_date",)),
         Index(columns=("metric_key",)),
