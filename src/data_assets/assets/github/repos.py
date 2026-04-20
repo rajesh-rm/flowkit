@@ -73,6 +73,22 @@ class GitHubRepos(GitHubOrgAsset):
                 PaginationState(has_more=False),
             )
 
+        self._check_required_keys(response, {
+            "id": "id",
+            "full_name": "full_name",
+            "name": "name",
+            "owner.login": "owner_login",
+            "private": "private",
+            "description": "description",
+            "language": "language",
+            "default_branch": "default_branch",
+            "created_at": "created_at",
+            "updated_at": "updated_at",
+            "pushed_at": "pushed_at",
+            "archived": "archived",
+            "html_url": "html_url",
+        })
+
         records = []
         for repo in response:
             records.append({

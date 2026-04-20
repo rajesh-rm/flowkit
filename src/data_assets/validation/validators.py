@@ -102,6 +102,29 @@ def validate_column_null_rates(
     return ValidationResult(passed=len(failures) == 0, failures=failures)
 
 
+def warn_column_null_rates(
+    df: pd.DataFrame,
+    default_threshold: float = 0.02,
+    column_thresholds: dict[str, float] | None = None,
+    exclude_columns: list[str] | None = None,
+) -> list[str]:
+    """Return a single consolidated warning when columns exceed their null rate.
+
+    Non-blocking wrapper over validate_column_null_rates() intended for
+    validate_warnings(). Emits zero or one string — per-column offenders are
+    joined so a single asset run produces one null-rate warning, not many.
+    """
+    result = validate_column_null_rates(
+        df,
+        default_threshold=default_threshold,
+        column_thresholds=column_thresholds,
+        exclude_columns=exclude_columns,
+    )
+    if result.passed:
+        return []
+    return ["High null rate: " + "; ".join(result.failures)]
+
+
 def validate_schema_match(
     df: pd.DataFrame, expected_columns: list[str]
 ) -> ValidationResult:

@@ -262,3 +262,143 @@ class TestGitHubE2E:
         df = pd.read_sql("SELECT * FROM raw.github_pull_requests ORDER BY id", run_engine)
         assert 42 in df["number"].values
         assert "dev-alice" in df["user_login"].values
+
+
+# ---------------------------------------------------------------------------
+# Missing-key validation + null-rate warning
+# ---------------------------------------------------------------------------
+
+
+def _components_response(components: list[dict]) -> dict:
+    return {
+        "paging": {"pageIndex": 1, "pageSize": 100, "total": len(components)},
+        "components": components,
+    }
+
+
+@pytest.mark.integration
+class TestMissingKeyValidation:
+    """End-to-end coverage for the missing-key block and null-rate warning."""
+
+    @respx.mock
+    def test_missing_required_key_blocks_promotion(
+        self, run_engine, monkeypatch,
+    ):
+        """An API response missing a required key fails the run and drops the temp."""
+        monkeypatch.setenv("SONARQUBE_URL", SONARQUBE_URL)
+        monkeypatch.setenv("SONARQUBE_TOKEN", "fake-token")
+
+        # Second component missing 'name' — required because 'name' is a
+        # non-PK, non-index column of sonarqube_projects.
+        response = _components_response([
+            {"key": "ok", "name": "Ok", "qualifier": "TRK"},
+            {"key": "broken", "qualifier": "TRK"},
+        ])
+        respx.get(f"{SONARQUBE_URL}/api/components/search").mock(
+            return_value=httpx.Response(200, json=response)
+        )
+
+        from data_assets.runner import run_asset
+        with pytest.raises(ValueError, match="is absent from response"):
+            run_asset("sonarqube_projects", run_mode="full")
+
+        # Target table untouched: either doesn't exist or is empty.
+        rows = pd.read_sql(
+            "SELECT to_regclass('raw.sonarqube_projects') AS t", run_engine,
+        ).iloc[0]["t"]
+        if rows is not None:
+            df = pd.read_sql("SELECT * FROM raw.sonarqube_projects", run_engine)
+            assert len(df) == 0
+
+        # Run recorded as failed with the missing-key reason.
+        history = pd.read_sql(
+            "SELECT status, error_message FROM data_ops.run_history "
+            "WHERE asset_name = 'sonarqube_projects'",
+            run_engine,
+        )
+        assert history.iloc[0]["status"] == "failed"
+        assert "is absent from response" in history.iloc[0]["error_message"]
+
+    @respx.mock
+    def test_missing_optional_key_succeeds(
+        self, run_engine, monkeypatch,
+    ):
+        """An API response missing an OPTIONAL column key still succeeds."""
+        monkeypatch.setenv("SONARQUBE_URL", SONARQUBE_URL)
+        monkeypatch.setenv("SONARQUBE_TOKEN", "fake-token")
+
+        # sonarqube_issues declares 'line' as optional; file-level issues
+        # omit that key entirely.
+        seed_table(run_engine, "raw", "sonarqube_projects", [
+            {"key": "proj-a", "name": "A", "qualifier": "TRK"},
+        ])
+
+        issues_response = {
+            "paging": {"pageIndex": 1, "pageSize": 100, "total": 1},
+            "issues": [
+                {
+                    "key": "issue-1",
+                    "rule": "rule",
+                    "severity": "MAJOR",
+                    "component": "proj-a:file.py",
+                    "project": "proj-a",
+                    # 'line' key omitted — optional
+                    "message": "file-level issue",
+                    "status": "OPEN",
+                    "type": "BUG",
+                    "creationDate": "2025-01-01T00:00:00+0000",
+                    "updateDate": "2025-01-01T00:00:00+0000",
+                },
+            ],
+        }
+        respx.get(f"{SONARQUBE_URL}/api/issues/search").mock(
+            return_value=httpx.Response(200, json=issues_response)
+        )
+
+        from data_assets.runner import run_asset
+        result = run_asset("sonarqube_issues", run_mode="full")
+
+        assert result["status"] == "success"
+        assert result["rows_loaded"] == 1
+
+        df = pd.read_sql(
+            "SELECT line FROM raw.sonarqube_issues WHERE key = 'issue-1'",
+            run_engine,
+        )
+        # Absent key lands as NULL in the DB
+        assert pd.isna(df.iloc[0]["line"])
+
+    @respx.mock
+    def test_high_null_rate_emits_warning_but_succeeds(
+        self, run_engine, monkeypatch,
+    ):
+        """A column with lots of NULL values should trigger a warning, not a failure."""
+        monkeypatch.setenv("SONARQUBE_URL", SONARQUBE_URL)
+        monkeypatch.setenv("SONARQUBE_TOKEN", "fake-token")
+
+        # Every component has all keys present (no MissingKeyError), but
+        # 'name' is null for most rows — trips the 2% null-rate warning.
+        components = [{"key": f"p{i}", "name": None, "qualifier": "TRK"} for i in range(49)]
+        components.append({"key": "p-named", "name": "Named", "qualifier": "TRK"})
+        respx.get(f"{SONARQUBE_URL}/api/components/search").mock(
+            return_value=httpx.Response(200, json=_components_response(components))
+        )
+
+        from data_assets.runner import run_asset
+        result = run_asset("sonarqube_projects", run_mode="full")
+
+        assert result["status"] == "success"
+        assert result["rows_loaded"] == 50
+
+        # Warning captured in run_history metadata (column name 'metadata',
+        # mapped to Python attribute 'metadata_' to avoid the SQLA keyword clash)
+        import json
+
+        row = pd.read_sql(
+            "SELECT metadata FROM data_ops.run_history "
+            "WHERE asset_name = 'sonarqube_projects'",
+            run_engine,
+        ).iloc[0]["metadata"]
+        meta = row if isinstance(row, dict) else json.loads(row)
+        warnings = meta.get("warnings", [])
+        assert any("High null rate" in w for w in warnings)

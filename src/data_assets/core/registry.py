@@ -94,6 +94,7 @@ def _validate_dependencies() -> None:
                 )
 
         _validate_indexes(name, asset)
+        _validate_optional_columns(name, asset)
 
     _validate_no_cycles(instances)
 
@@ -137,6 +138,39 @@ def _validate_no_cycles(instances: dict[str, Asset]) -> None:
     for node in graph:
         if state[node] == UNVISITED:
             _visit(node, [])
+
+
+def _validate_optional_columns(name: str, asset) -> None:
+    """Check the optional_columns list is a safe, well-formed subset.
+
+    Rejects unknown columns, PK columns, and columns used in any index.
+    Missing-key checks must never be bypassed for identity/lookup columns.
+    """
+    optional = set(getattr(asset, "optional_columns", []) or [])
+    if not optional:
+        return
+
+    column_names = {c.name for c in asset.columns}
+    unknown = optional - column_names
+    if unknown:
+        raise ValueError(
+            f"Asset '{name}' lists unknown columns in optional_columns: "
+            f"{sorted(unknown)}. Known columns: {sorted(column_names)}"
+        )
+
+    pk_set = set(asset.primary_key)
+    idx_cols: set[str] = set()
+    for idx in asset.indexes:
+        idx_cols.update(idx.columns)
+        if idx.include:
+            idx_cols.update(idx.include)
+
+    bad = optional & (pk_set | idx_cols)
+    if bad:
+        raise ValueError(
+            f"Asset '{name}' marks {sorted(bad)} as optional, but they are "
+            f"used in primary_key or an index. Required columns cannot be optional."
+        )
 
 
 def _validate_indexes(name: str, asset) -> None:

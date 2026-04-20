@@ -68,6 +68,19 @@ class GitHubUserDetails(APIAsset):
         if not response or "login" not in response:
             return pd.DataFrame(columns=[c.name for c in self.columns]), PaginationState(has_more=False)
 
+        self._check_required_keys([response], {
+            "login": "login",
+            "name": "name",
+            "company": "company",
+            "location": "location",
+            "email": "email",
+            "bio": "bio",
+            "public_repos": "public_repos",
+            "followers": "followers",
+            "created_at": "created_at",
+            "updated_at": "updated_at",
+        })
+
         row = {
             "login": response["login"],
             "name": response.get("name"),

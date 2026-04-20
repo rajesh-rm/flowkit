@@ -57,6 +57,9 @@ class SonarQubeMeasures(SonarQubeAsset):
     ]
 
     primary_key = ["project_key", "branch", "metric_key"]
+    # New-code metrics return neither `value` nor `period.value` for some
+    # analyses; the key is genuinely absent from the measure dict.
+    optional_columns = ["metric_value"]
     column_null_thresholds = {"metric_value": 1.0}  # EAV: new-code metrics often null
     indexes = [
         Index(columns=("metric_key",)),
@@ -85,6 +88,9 @@ class SonarQubeMeasures(SonarQubeAsset):
 
         if not project_key:
             return pd.DataFrame(columns=[c.name for c in self.columns]), PaginationState(has_more=False)
+
+        self._check_required_keys([component], {"key": "project_key"})
+        self._check_required_keys(measures_list, {"metric": "metric_key"})
 
         valid_metrics = set(ALL_METRICS)
         rows: list[dict[str, Any]] = []

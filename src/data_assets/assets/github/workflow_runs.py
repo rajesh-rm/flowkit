@@ -68,6 +68,22 @@ class GitHubWorkflowRuns(GitHubRepoAsset):
         )
 
     def parse_response(self, response: dict[str, Any]) -> tuple[pd.DataFrame, PaginationState]:
+        self._check_required_keys(response.get("workflow_runs", []), {
+            "id": "id",
+            "name": "name",
+            "workflow_id": "workflow_id",
+            "status": "status",
+            "conclusion": "conclusion",
+            "head_branch": "head_branch",
+            "head_sha": "head_sha",
+            "event": "event",
+            "run_number": "run_number",
+            "run_attempt": "run_attempt",
+            "created_at": "created_at",
+            "updated_at": "updated_at",
+            "run_started_at": "run_started_at",
+            "html_url": "html_url",
+        })
         return self._parse_wrapped_response(response, "workflow_runs", lambda r: {
             "id": r["id"],
             "repo_full_name": "",

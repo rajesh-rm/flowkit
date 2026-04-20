@@ -13,7 +13,7 @@ from data_assets.core.run_context import RunContext
 from data_assets.core.types import ValidationResult
 from data_assets.validation.validators import (
     validate_column_lengths,
-    validate_column_null_rates,
+    warn_column_null_rates,
     warn_oversized_strings,
 )
 
@@ -37,6 +37,15 @@ class Asset(ABC):
     primary_key: list[str] = []
     indexes: list[Index] = []
 
+    # Columns that MAY be absent from individual API response dicts.
+    # Listed columns are exempted from the missing-key check (which fails
+    # the run when a required key is absent from the raw response).
+    # Distinct from Column(nullable=True): that controls DB nullability;
+    # this controls API-response shape.
+    # PK columns and columns used in any index cannot be listed here
+    # (enforced at registry validation time, so the error surfaces at import).
+    optional_columns: list[str] = []
+
     # --- Behavior ---
     default_run_mode: RunMode = RunMode.FULL
     load_strategy: LoadStrategy = LoadStrategy.FULL_REPLACE
@@ -57,10 +66,13 @@ class Asset(ABC):
     # these limits (blocking) and validate_warnings() warns on >10k chars.
     column_max_lengths: dict[str, int] = {}
 
-    # Maximum allowed null fraction per column (0.0–1.0). Default: 2%.
-    # Columns not listed use default_null_threshold. Set a column to 1.0
-    # to exempt it (e.g., EAV metric_value that is nullable by design).
-    # PK columns are excluded automatically (they have a zero-null check).
+    # Null-rate WARNING threshold per column (0.0–1.0). Default: 2%.
+    # Non-blocking: when exceeded, Asset.validate_warnings() emits a single
+    # consolidated warning listing all offending columns. Columns not listed
+    # use default_null_threshold. Set a column to 1.0 to silence warnings
+    # (e.g., EAV metric_value that is nullable by design). PK columns are
+    # excluded automatically. For hard-failing on absent API keys, use
+    # optional_columns instead — null rate and missing-key are different signals.
     default_null_threshold: float = 0.02
     column_null_thresholds: dict[str, float] = {}
 
@@ -84,9 +96,11 @@ class Asset(ABC):
     def validate(self, df: pd.DataFrame, context: RunContext) -> ValidationResult:
         """Blocking validation — must pass before promotion.
 
-        Default: row count > 0, primary key columns contain no nulls,
-        string columns respect column_max_lengths (if defined), and
-        non-PK columns respect null rate thresholds.
+        Default: row count > 0, primary key columns contain no nulls, and
+        string columns respect column_max_lengths (if defined).
+        Missing API-response keys are caught earlier, in parse_response, via
+        the fail-fast MissingKeyError path — they never reach this method.
+        Null rate is handled as a warning in validate_warnings(), not here.
         Override to add custom blocking checks. Call super() to keep defaults.
         """
         failures: list[str] = []
@@ -107,20 +121,22 @@ class Asset(ABC):
             length_result = validate_column_lengths(df, self.column_max_lengths)
             failures.extend(length_result.failures)
 
-        null_rate_result = validate_column_null_rates(
-            df,
-            default_threshold=self.default_null_threshold,
-            column_thresholds=self.column_null_thresholds,
-            exclude_columns=self.primary_key,
-        )
-        failures.extend(null_rate_result.failures)
-
         return ValidationResult(passed=len(failures) == 0, failures=failures)
 
     def validate_warnings(self, df: pd.DataFrame, context: RunContext) -> list[str]:
         """Non-blocking warnings — logged but don't prevent promotion.
 
-        Default: warns on any string column with values exceeding 10,000 chars.
-        Override to add custom warning checks (e.g., row count below expected).
+        Defaults: one warning for any string column exceeding 10,000 chars, and
+        one consolidated warning listing every column whose null rate exceeds
+        its threshold. Override to add custom warning checks.
         """
-        return warn_oversized_strings(df)
+        warnings = warn_oversized_strings(df)
+        warnings.extend(
+            warn_column_null_rates(
+                df,
+                default_threshold=self.default_null_threshold,
+                column_thresholds=self.column_null_thresholds,
+                exclude_columns=self.primary_key,
+            )
+        )
+        return warnings

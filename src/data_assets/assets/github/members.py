@@ -48,6 +48,13 @@ class GitHubMembers(GitHubOrgAsset):
                 PaginationState(has_more=False),
             )
 
+        self._check_required_keys(response, {
+            "login": "login",
+            "id": "id",
+            "avatar_url": "avatar_url",
+            "type": "type",
+        })
+
         records = []
         for member in response:
             records.append({

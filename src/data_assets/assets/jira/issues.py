@@ -142,6 +142,22 @@ class JiraIssues(JiraAsset):
     ) -> tuple[pd.DataFrame, PaginationState]:
         issues = response.get("issues", [])
 
+        self._check_required_keys(issues, {
+            "id": "id",
+            "key": "key",
+            "fields.summary": "summary",
+            "fields.status.name": "status",
+            "fields.priority.name": "priority",
+            "fields.issuetype.name": "issue_type",
+            "fields.project.key": "project_key",
+            "fields.assignee.displayName": "assignee",
+            "fields.reporter.displayName": "reporter",
+            "fields.created": "created",
+            "fields.updated": "updated",
+            "fields.resolutiondate": "resolution_date",
+            "fields.labels": "labels",
+        })
+
         records: list[dict[str, Any]] = []
         for issue in issues:
             fields = issue.get("fields", {})

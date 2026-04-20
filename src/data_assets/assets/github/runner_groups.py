@@ -51,6 +51,14 @@ class GitHubRunnerGroups(GitHubOrgAsset):
                 PaginationState(has_more=False),
             )
 
+        self._check_required_keys(groups, {
+            "id": "id",
+            "name": "name",
+            "visibility": "visibility",
+            "default": "default",
+            "allows_public_repositories": "allows_public_repositories",
+        })
+
         records = []
         for g in groups:
             records.append({

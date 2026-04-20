@@ -122,7 +122,8 @@ class TestSonarQubeIssues:
         data = {
             "paging": {"pageIndex": 1, "pageSize": 100, "total": 250},
             "issues": [{"key": f"issue-{i}", "rule": "r", "severity": "MAJOR",
-                        "component": "c", "project": "p", "status": "OPEN",
+                        "component": "c", "project": "p", "message": "m",
+                        "status": "OPEN",
                         "type": "BUG", "creationDate": "2025-01-01T00:00:00+0000",
                         "updateDate": "2025-01-01T00:00:00+0000"} for i in range(100)],
         }

@@ -81,6 +81,14 @@ class SonarQubeAnalyses(SonarQubeAsset):
         if not analyses:
             return pd.DataFrame(columns=[c.name for c in self.columns]), parse_paging(response)
 
+        self._check_required_keys(analyses, {
+            "key": "key",
+            "date": "date",
+            "projectVersion": "project_version",
+            "revision": "revision",
+            "detectedCI": "detected_ci",
+        })
+
         rename = {"projectVersion": "project_version", "detectedCI": "detected_ci"}
         df = pd.DataFrame(analyses)
         df = df.rename(columns=rename)
@@ -147,6 +155,16 @@ class SonarQubeAnalysisEvents(SonarQubeAsset):
 
     def parse_response(self, response: Any) -> tuple[pd.DataFrame, PaginationState]:
         analyses = response.get("analyses", [])
+
+        self._check_required_keys(analyses, {"key": "analysis_key"})
+        events = [e for a in analyses for e in a.get("events", [])]
+        self._check_required_keys(events, {
+            "key": "key",
+            "category": "category",
+            "name": "name",
+            "description": "description",
+        })
+
         rows: list[dict] = []
 
         for analysis in analyses:

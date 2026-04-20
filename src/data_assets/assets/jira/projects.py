@@ -66,6 +66,15 @@ class JiraProjects(JiraAsset):
     ) -> tuple[pd.DataFrame, PaginationState]:
         values = response.get("values", [])
 
+        self._check_required_keys(values, {
+            "id": "id",
+            "key": "key",
+            "name": "name",
+            "projectTypeKey": "project_type_key",
+            "style": "style",
+            "isPrivate": "is_private",
+        })
+
         records = [
             {
                 "id": proj.get("id"),

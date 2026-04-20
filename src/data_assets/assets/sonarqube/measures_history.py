@@ -64,6 +64,9 @@ class SonarQubeMeasuresHistory(SonarQubeAsset):
     ]
 
     primary_key = ["project_key", "branch", "metric_key", "analysis_date"]
+    # new_* metrics return history entries without a "value" key on analyses
+    # where the measure wasn't computed.
+    optional_columns = ["value"]
     column_null_thresholds = {"value": 1.0}  # new_* metrics may lack values on some analyses
     indexes = [
         Index(columns=("analysis_date",)),
@@ -101,9 +104,17 @@ class SonarQubeMeasuresHistory(SonarQubeAsset):
         return RequestSpec(method="GET", url=f"{self.api_url}/api/measures/search_history", params=params)
 
     def parse_response(self, response: Any) -> tuple[pd.DataFrame, PaginationState]:
+        measures = response.get("measures", [])
+        self._check_required_keys(measures, {"metric": "metric_key"})
+        history_entries = [h for m in measures for h in m.get("history", [])]
+        self._check_required_keys(history_entries, {
+            "date": "analysis_date",
+            "value": "value",
+        })
+
         rows: list[dict] = []
         now = pd.Timestamp.now(tz="UTC")
-        for measure in response.get("measures", []):
+        for measure in measures:
             metric = measure.get("metric", "")
             for entry in measure.get("history", []):
                 rows.append({

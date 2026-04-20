@@ -67,6 +67,15 @@ class SonarQubeBranches(SonarQubeAsset):
         if not branches:
             return pd.DataFrame(columns=[c.name for c in self.columns]), PaginationState(has_more=False)
 
+        self._check_required_keys(branches, {
+            "name": "name",
+            "isMain": "is_main",
+            "type": "type",
+            "status.qualityGateStatus": "quality_gate_status",
+            "analysisDate": "analysis_date",
+            "excludedFromPurge": "excluded_from_purge",
+        })
+
         rows = []
         for b in branches:
             rows.append({

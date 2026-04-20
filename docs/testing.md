@@ -369,11 +369,14 @@ def test_example(load_fixture):
 - [ ] `parse_response()` — happy path with fixture data
 - [ ] `parse_response()` — empty response returns correct columns
 - [ ] `parse_response()` — pagination state (`has_more`, `next_page`/`next_offset`/`cursor`)
+- [ ] `parse_response()` — required API key absent → raises `MissingKeyError`
+- [ ] `parse_response()` — optional column key absent → run proceeds (requires `optional_columns` set on the asset)
 - [ ] `primary_key` — verify it's set and matches expected columns
 - [ ] `indexes` — verify at least one index is defined
 - [ ] `filter_entity_keys()` — if entity-parallel, verify filtering logic
 - [ ] `should_stop()` — if overridden, test watermark-based early stop
-- [ ] `column_max_lengths` — if defined, test that oversized strings are caught by `validate()`
+- [ ] `column_max_lengths` — if defined, test that oversized strings are caught by `validate()` (blocking)
+- [ ] `column_null_thresholds` — if defined, test that high null rate triggers a warning via `validate_warnings()` (non-blocking)
 - [ ] Boolean columns — verify native `True`/`False` values (not string `"true"/"false"`)
 
 ### For framework changes

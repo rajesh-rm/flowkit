@@ -69,6 +69,17 @@ class SonarQubeProjectDetails(SonarQubeAsset):
         if not key:
             return pd.DataFrame(columns=[c.name for c in self.columns]), PaginationState(has_more=False)
 
+        self._check_required_keys([component], {
+            "key": "key",
+            "name": "name",
+            "description": "description",
+            "visibility": "visibility",
+            "version": "version",
+            "analysisDate": "analysis_date",
+            "leakPeriodDate": "leak_period_date",
+            "tags": "tags",
+        })
+
         tags = component.get("tags")
         row = {
             "key": key,

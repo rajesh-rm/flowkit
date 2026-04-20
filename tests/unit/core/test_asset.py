@@ -60,40 +60,49 @@ def test_default_validate_fails_missing_pk_column():
 
 
 # ---------------------------------------------------------------------------
-# Null-rate threshold validation
+# Null-rate: warning-only (never blocking)
 # ---------------------------------------------------------------------------
 
 
-def test_null_rate_catches_high_null_rate():
-    """A column with >2% nulls should fail validation by default."""
+def test_high_null_rate_does_not_block_validate():
+    """High null rate must never fail validate() — it is a warning now."""
     asset = StubAsset()
     df = pd.DataFrame({"id": range(100), "value": [None] * 10 + ["x"] * 90})
     result = asset.validate(df, make_ctx())
-    assert not result.passed
-    assert any("null rate" in f for f in result.failures)
+    assert result.passed
+    assert result.failures == []
 
 
-def test_null_rate_passes_low_null_rate():
-    """A column with <=2% nulls should pass validation."""
+def test_high_null_rate_emits_single_warning():
+    """validate_warnings() surfaces a single consolidated null-rate warning."""
+    asset = StubAsset()
+    df = pd.DataFrame({"id": range(100), "value": [None] * 10 + ["x"] * 90})
+    warnings = asset.validate_warnings(df, make_ctx())
+    null_warnings = [w for w in warnings if "null rate" in w.lower()]
+    assert len(null_warnings) == 1
+    assert "value" in null_warnings[0]
+
+
+def test_low_null_rate_emits_no_warning():
+    """Null rate below threshold produces no warning."""
     asset = StubAsset()
     df = pd.DataFrame({"id": range(100), "value": [None] * 2 + ["x"] * 98})
-    result = asset.validate(df, make_ctx())
-    assert result.passed
+    warnings = asset.validate_warnings(df, make_ctx())
+    assert not any("null rate" in w.lower() for w in warnings)
 
 
-def test_null_rate_pk_excluded():
-    """PK columns should not trigger null-rate failures (they have their own check)."""
+def test_null_rate_pk_still_blocks():
+    """Null PK values still block — that check is separate from null rate."""
     asset = StubAsset()
     df = pd.DataFrame({"id": [1, None, 3], "value": ["a", "b", "c"]})
     result = asset.validate(df, make_ctx())
     assert not result.passed
-    # Only PK null failure, not a redundant null-rate failure for 'id'
     assert len(result.failures) == 1
     assert "primary key" in result.failures[0].lower()
 
 
-def test_null_rate_per_column_override():
-    """Subclass can raise threshold for specific columns."""
+def test_null_rate_per_column_override_silences_warning():
+    """Per-column threshold raises the warning bar for that column."""
 
     class LooseAsset(Asset):
         name = "loose"
@@ -104,12 +113,12 @@ def test_null_rate_per_column_override():
 
     asset = LooseAsset()
     df = pd.DataFrame({"id": range(100), "notes": [None] * 30 + ["x"] * 70})
-    result = asset.validate(df, make_ctx())
-    assert result.passed
+    warnings = asset.validate_warnings(df, make_ctx())
+    assert not any("null rate" in w.lower() for w in warnings)
 
 
-def test_null_rate_exempt_column():
-    """A column set to threshold 1.0 should pass even at 100% null."""
+def test_null_rate_exempt_column_silences_warning():
+    """A column with threshold 1.0 never triggers a warning, even 100% null."""
 
     class EAVAsset(Asset):
         name = "eav"
@@ -120,12 +129,12 @@ def test_null_rate_exempt_column():
 
     asset = EAVAsset()
     df = pd.DataFrame({"id": range(10), "metric_value": [None] * 10})
-    result = asset.validate(df, make_ctx())
-    assert result.passed
+    warnings = asset.validate_warnings(df, make_ctx())
+    assert not any("null rate" in w.lower() for w in warnings)
 
 
-def test_null_rate_global_threshold_override():
-    """Subclass can change the global default threshold."""
+def test_null_rate_global_threshold_override_controls_warning():
+    """Subclass-level default_null_threshold still drives the warning."""
 
     class StrictAsset(Asset):
         name = "strict"
@@ -136,8 +145,95 @@ def test_null_rate_global_threshold_override():
 
     asset = StrictAsset()
     df = pd.DataFrame({"id": range(100), "value": [None] + ["x"] * 99})
-    result = asset.validate(df, make_ctx())
-    assert not result.passed
+    # Under the stricter threshold, validate() still passes but a warning fires.
+    assert asset.validate(df, make_ctx()).passed
+    warnings = asset.validate_warnings(df, make_ctx())
+    assert any("null rate" in w.lower() for w in warnings)
+
+
+# ---------------------------------------------------------------------------
+# Missing-key detection (APIAsset)
+# ---------------------------------------------------------------------------
+
+
+def test_api_asset_missing_required_key_raises():
+    """parse_response raises when a required column's key is absent."""
+    import pytest as _pytest
+
+    from data_assets.core.api_asset import APIAsset
+    from data_assets.core.types import PaginationState
+    from data_assets.validation.missing_keys import MissingKeyError
+
+    class SimpleAPIAsset(APIAsset):
+        name = "simple_api"
+        target_table = "simple_api"
+        columns = [
+            Column("id", Integer(), nullable=False),
+            Column("title", Text()),
+        ]
+        primary_key = ["id"]
+
+        def parse_response(self, response):
+            self._check_required_keys(response, {"id": "id", "title": "title"})
+            return pd.DataFrame(response), PaginationState(has_more=False)
+
+    asset = SimpleAPIAsset()
+    with _pytest.raises(MissingKeyError) as exc_info:
+        asset.parse_response([{"id": 1}])  # 'title' key absent
+    assert exc_info.value.column == "title"
+    assert exc_info.value.record_index == 0
+
+
+def test_api_asset_optional_key_can_be_absent():
+    """Columns in optional_columns may be absent from responses without error."""
+    from data_assets.core.api_asset import APIAsset
+    from data_assets.core.types import PaginationState
+
+    class WithOptional(APIAsset):
+        name = "with_optional"
+        target_table = "with_optional"
+        columns = [
+            Column("id", Integer(), nullable=False),
+            Column("title", Text()),
+            Column("note", Text()),
+        ]
+        primary_key = ["id"]
+        optional_columns = ["note"]
+
+        def parse_response(self, response):
+            self._check_required_keys(
+                response,
+                {"id": "id", "title": "title", "note": "note"},
+            )
+            return pd.DataFrame(response), PaginationState(has_more=False)
+
+    asset = WithOptional()
+    # 'note' absent but optional — should pass without raising
+    df, _ = asset.parse_response([{"id": 1, "title": "t"}])
+    assert len(df) == 1
+
+
+def test_api_asset_present_null_is_not_missing():
+    """A key present with value None does not count as missing."""
+    from data_assets.core.api_asset import APIAsset
+    from data_assets.core.types import PaginationState
+
+    class NullOK(APIAsset):
+        name = "null_ok"
+        target_table = "null_ok"
+        columns = [
+            Column("id", Integer(), nullable=False),
+            Column("title", Text()),
+        ]
+        primary_key = ["id"]
+
+        def parse_response(self, response):
+            self._check_required_keys(response, {"id": "id", "title": "title"})
+            return pd.DataFrame(response), PaginationState(has_more=False)
+
+    asset = NullOK()
+    df, _ = asset.parse_response([{"id": 1, "title": None}])
+    assert len(df) == 1
 
 
 # ---------------------------------------------------------------------------

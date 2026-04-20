@@ -58,6 +58,8 @@ class SonarQubeIssues(SonarQubeAsset):
     ]
 
     primary_key = ["key"]
+    # File-level issues omit the `line` key entirely from the response.
+    optional_columns = ["line"]
     column_null_thresholds = {"line": 1.0}  # file-level issues have no line number
     indexes = [
         Index(columns=("project",)),
@@ -98,6 +100,20 @@ class SonarQubeIssues(SonarQubeAsset):
         page_size = paging["pageSize"]
 
         total_pages = math.ceil(total / page_size) if page_size else 1
+
+        self._check_required_keys(response["issues"], {
+            "key": "key",
+            "rule": "rule",
+            "severity": "severity",
+            "component": "component",
+            "project": "project",
+            "line": "line",
+            "message": "message",
+            "status": "status",
+            "type": "type",
+            "creationDate": "creation_date",
+            "updateDate": "update_date",
+        })
 
         valid_columns = {c.name for c in self.columns}
         rename_map = {
