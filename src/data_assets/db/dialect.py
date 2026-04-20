@@ -264,6 +264,13 @@ class MariaDBDialect(Dialect):
         cols_sql = ", ".join(f'`{c}`' for c in pk_cols)
         dedup_tbl = f"_dedup_{table}"
 
+        # Idempotency guard: TEMPORARY tables are session-scoped and survive
+        # transaction rollback. On a @db_retry re-entry over the same pooled
+        # connection, a stale _dedup_<t> from the failed attempt would cause
+        # step 1 CREATE to fail with "table already exists" (non-retryable
+        # ProgrammingError). Drop any leftover before re-creating.
+        conn.execute(text(f"DROP TEMPORARY TABLE IF EXISTS `{dedup_tbl}`"))
+
         # Count before dedup
         before = conn.execute(text(
             f"SELECT COUNT(*) FROM `{schema}`.`{table}`"

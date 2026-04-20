@@ -371,6 +371,11 @@ def promote(
     promoter = _PROMOTERS[load_strategy.value]
 
     with engine.begin() as conn:
+        # Bound the entire promote txn so a hung statement (lock contention on
+        # temp or main, stalled INSERT) fails fast instead of holding the
+        # Airflow slot for max_run_hours. Covers dedup and all three promoters.
+        d.set_query_timeout(conn, 300)
+
         # Dedup: remove duplicate PK rows within the temp table before promotion.
         # Resumed or inherited temp tables can contain duplicates from retries.
         if primary_key:
@@ -401,9 +406,6 @@ def promote(
 def _promote_full_replace(conn, d, temp_schema, temp_table, main_schema, main_table,
                           primary_key, column_names) -> int:
     """Empty main table, then INSERT...SELECT from temp — atomic per dialect."""
-    # Fail fast if another session holds a lock on main rather than hang
-    # the Airflow slot for innodb_lock_wait_timeout / statement_timeout.
-    d.set_query_timeout(conn, 300)
     d.delete_all_rows(conn, main_schema, main_table)
     cols = ", ".join(d.qi(c) for c in column_names)
     result = conn.execute(text(
