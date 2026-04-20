@@ -364,3 +364,183 @@ class TestUniqueIndexWithEmptyStrings:
                     LoadStrategy.FULL_REPLACE, indexes=unique_idx)
 
         assert any("duplicate values" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# FULL_REPLACE atomicity under failure — regression for MariaDB TRUNCATE bug
+# ---------------------------------------------------------------------------
+
+
+def _make_connection_dropper(predicate):
+    """Return a before_cursor_execute listener that closes the underlying
+    DBAPI connection once, when `predicate(statement_upper)` first matches."""
+    state = {"fired": False}
+
+    def _on_cursor_execute(conn, cursor, statement, params, context, executemany):
+        if state["fired"]:
+            return
+        if predicate(statement.upper()):
+            state["fired"] = True
+            try:
+                cursor.connection.close()
+            except Exception:
+                # connection may already be torn down mid-event
+                pass
+
+    return _on_cursor_execute
+
+
+@pytest.mark.integration
+class TestFullReplaceAtomicity:
+    """Main-table data must survive a failure between empty-main and INSERT."""
+
+    def _seed_main_and_temp(self, engine):
+        create_table(engine, "raw", "atomic_main", COLS, PK)
+        with engine.begin() as conn:
+            conn.execute(text(
+                "INSERT INTO raw.atomic_main (id, name, score) "
+                "VALUES (90, 'keep_a', 9.0), (91, 'keep_b', 9.1)"
+            ))
+        run_id = uuid.uuid4()
+        tname = create_temp_table(engine, "atomic_src", run_id, COLS)
+        df = pd.DataFrame({"id": [1, 2, 3], "name": ["a", "b", "c"], "score": [1.0, 2.0, 3.0]})
+        write_to_temp(engine, tname, df)
+        return tname, "atomic_main"
+
+    def test_full_replace_preserves_main_on_python_exception(
+        self, clean_db, monkeypatch,
+    ):
+        """Retryable exception after delete_all_rows must roll back main."""
+        from sqlalchemy.exc import OperationalError
+
+        from data_assets.db.retry import DatabaseRetryExhausted
+        from data_assets.load import loader
+
+        tname, main_table = self._seed_main_and_temp(clean_db)
+
+        def _boom(conn, d, temp_schema, temp_table, main_schema, main_tbl,
+                  primary_key, column_names):
+            d.delete_all_rows(conn, main_schema, main_tbl)
+            raise OperationalError("simulated drop", None, None)
+
+        monkeypatch.setitem(loader._PROMOTERS, "full_replace", _boom)
+        monkeypatch.setenv("DATA_ASSETS_DB_RETRY_ATTEMPTS", "1")
+
+        with pytest.raises((OperationalError, DatabaseRetryExhausted)):
+            promote(clean_db, tname, "raw", main_table, COLS, PK,
+                    LoadStrategy.FULL_REPLACE)
+
+        result = pd.read_sql(
+            f"SELECT id FROM raw.{main_table} ORDER BY id", clean_db,
+        )
+        assert len(result) == 2, (
+            f"Main table lost seeded rows after simulated failure on "
+            f"{clean_db.dialect.name} (expected 2 rows, got {len(result)})"
+        )
+        assert list(result["id"]) == [90, 91]
+
+    def test_full_replace_preserves_main_on_real_connection_drop(
+        self, clean_db, monkeypatch,
+    ):
+        """Real DBAPI connection teardown mid-INSERT must not leave main empty.
+
+        Simulates the prod-observed scenario: a network interruption or killed
+        DB process while INSERT INTO main ... SELECT FROM temp is executing.
+        The server sees the client disappear and rolls back the in-flight txn.
+        """
+        from sqlalchemy import event
+        from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
+
+        from data_assets.db.retry import DatabaseRetryExhausted
+
+        tname, main_table = self._seed_main_and_temp(clean_db)
+        listener = _make_connection_dropper(
+            lambda stmt: "INSERT INTO" in stmt and main_table.upper() in stmt and "SELECT" in stmt
+        )
+
+        event.listen(clean_db, "before_cursor_execute", listener)
+        monkeypatch.setenv("DATA_ASSETS_DB_RETRY_ATTEMPTS", "1")
+        try:
+            with pytest.raises((
+                OperationalError, InterfaceError, DBAPIError,
+                DatabaseRetryExhausted,
+            )):
+                promote(clean_db, tname, "raw", main_table, COLS, PK,
+                        LoadStrategy.FULL_REPLACE)
+        finally:
+            event.remove(clean_db, "before_cursor_execute", listener)
+
+        # Give the pool a chance to recycle the invalidated connection.
+        clean_db.dispose()
+
+        result = pd.read_sql(
+            f"SELECT id FROM raw.{main_table} ORDER BY id", clean_db,
+        )
+        assert len(result) == 2, (
+            f"Main table lost seeded rows after real connection drop on "
+            f"{clean_db.dialect.name} (expected 2 rows, got {len(result)})"
+        )
+        assert list(result["id"]) == [90, 91]
+
+    def test_full_replace_completes_normally(self, clean_db):
+        """Happy-path regression: un-failed promote still replaces main."""
+        tname, main_table = self._seed_main_and_temp(clean_db)
+        rows = promote(clean_db, tname, "raw", main_table, COLS, PK,
+                       LoadStrategy.FULL_REPLACE)
+        assert rows == 3
+        result = pd.read_sql(
+            f"SELECT id FROM raw.{main_table} ORDER BY id", clean_db,
+        )
+        assert list(result["id"]) == [1, 2, 3]
+
+    def test_dedup_temp_preserves_rows_on_step3_failure(
+        self, clean_db, monkeypatch,
+    ):
+        """MariaDB-only: step 3 INSERT-back failure must not empty temp table."""
+        if clean_db.dialect.name not in ("mysql", "mariadb"):
+            pytest.skip("MariaDBDialect.dedup_temp_table is MariaDB-specific")
+
+        from sqlalchemy import event
+        from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
+
+        from data_assets.db.retry import DatabaseRetryExhausted
+
+        run_id = uuid.uuid4()
+        tname = temp_table_name("dedup_atomic", run_id)
+        create_table(clean_db, "temp_store", tname, COLS, unlogged=True)
+        df = pd.DataFrame([
+            {"id": 1, "name": "first", "score": 1.0},
+            {"id": 1, "name": "second", "score": 2.0},
+            {"id": 2, "name": "unique", "score": 3.0},
+        ])
+        write_to_temp(clean_db, tname, df)
+
+        # Target dedup's INSERT-back step: INSERT INTO temp_store.<t> SELECT FROM _dedup_<t>
+        def is_dedup_insert(stmt):
+            stripped = stmt.replace("`", "")
+            return "INSERT INTO" in stripped and "TEMP_STORE" in stripped and "_DEDUP_" in stripped
+
+        listener = _make_connection_dropper(is_dedup_insert)
+        event.listen(clean_db, "before_cursor_execute", listener)
+        monkeypatch.setenv("DATA_ASSETS_DB_RETRY_ATTEMPTS", "1")
+        try:
+            with pytest.raises((
+                OperationalError, InterfaceError, DBAPIError,
+                DatabaseRetryExhausted,
+            )):
+                promote(clean_db, tname, "raw", "dedup_main", COLS, PK,
+                        LoadStrategy.UPSERT)
+        finally:
+            event.remove(clean_db, "before_cursor_execute", listener)
+
+        clean_db.dispose()
+
+        # Temp table must still carry the original (duplicate-containing) rows
+        # so that a retry of promote() has the data to dedup and promote.
+        result = pd.read_sql(
+            f"SELECT id FROM temp_store.`{tname}` ORDER BY id", clean_db,
+        )
+        assert len(result) == 3, (
+            f"Temp table lost rows after step-3 failure (expected 3, got "
+            f"{len(result)}); retry path would cascade main-table data loss"
+        )
