@@ -1054,3 +1054,28 @@ class TestSonarQubeMeasuresHistory:
         assert len(out) == 0
         assert list(out.columns) == list(df.columns)
         assert not caplog.records
+
+    def test_transform_logs_warning_on_unparseable_timestamp(self, sonarqube_env, caplog):
+        from data_assets.assets.sonarqube.measures_history import SonarQubeMeasuresHistory
+
+        now = pd.Timestamp.now(tz="UTC")
+        df = pd.DataFrame([
+            {"project_key": "proj-a", "branch": "main", "metric_key": "coverage",
+             "analysis_date": "not-a-date", "value": "80.0", "collected_at": now},
+            {"project_key": "proj-a", "branch": "main", "metric_key": "coverage",
+             "analysis_date": "2025-99-99T12:00:00+0000", "value": "81.0", "collected_at": now},
+            {"project_key": "proj-a", "branch": "main", "metric_key": "bugs",
+             "analysis_date": "2025-04-01T12:00:00+0000", "value": "3", "collected_at": now},
+        ])
+        with caplog.at_level(logging.WARNING, logger="data_assets.assets.sonarqube.measures_history"):
+            out = SonarQubeMeasuresHistory().transform(df)
+
+        parse_warns = [r for r in caplog.records if "failed to parse" in r.message]
+        assert len(parse_warns) == 1
+        assert "2" in parse_warns[0].message  # two NaTs
+        assert "not-a-date" in parse_warns[0].message  # sample included
+
+        # Valid-timestamp row still lands correctly
+        bugs = out[out["metric_key"] == "bugs"]
+        assert len(bugs) == 1
+        assert bugs.iloc[0]["analysis_date"] == pd.Timestamp("2025-04-01 00:00:00+00:00")
