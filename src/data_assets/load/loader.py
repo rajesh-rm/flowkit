@@ -400,8 +400,11 @@ def promote(
 
 def _promote_full_replace(conn, d, temp_schema, temp_table, main_schema, main_table,
                           primary_key, column_names) -> int:
-    """Truncate main table, then INSERT...SELECT from temp."""
-    conn.execute(text(f"TRUNCATE TABLE {d.fqn(main_schema, main_table)}"))
+    """Empty main table, then INSERT...SELECT from temp — atomic per dialect."""
+    # Fail fast if another session holds a lock on main rather than hang
+    # the Airflow slot for innodb_lock_wait_timeout / statement_timeout.
+    d.set_query_timeout(conn, 300)
+    d.delete_all_rows(conn, main_schema, main_table)
     cols = ", ".join(d.qi(c) for c in column_names)
     result = conn.execute(text(
         f"INSERT INTO {d.fqn(main_schema, main_table)} ({cols}) "

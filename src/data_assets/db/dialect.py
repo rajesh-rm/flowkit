@@ -85,6 +85,18 @@ class Dialect(ABC):
         """Return the CREATE keyword (e.g., 'CREATE UNLOGGED TABLE')."""
 
     @abstractmethod
+    def delete_all_rows(
+        self, conn: Connection, schema: str, table: str,
+    ) -> None:
+        """Remove all rows from a table atomically with the surrounding txn.
+
+        PostgreSQL uses TRUNCATE (MVCC-safe, transactional). MariaDB cannot
+        use TRUNCATE here: it is DDL and triggers an implicit commit, which
+        defeats the transaction wrapper — so MariaDB uses DELETE instead
+        (transactional on InnoDB).
+        """
+
+    @abstractmethod
     def dedup_temp_table(
         self, conn: Connection, schema: str, table: str, pk_cols: list[str],
     ) -> int:
@@ -126,6 +138,11 @@ class PostgresDialect(Dialect):
 
     def create_table_kw(self, unlogged: bool) -> str:
         return "CREATE UNLOGGED TABLE" if unlogged else "CREATE TABLE"
+
+    def delete_all_rows(
+        self, conn: Connection, schema: str, table: str,
+    ) -> None:
+        conn.execute(text(f"TRUNCATE TABLE {self.fqn(schema, table)}"))
 
     def dedup_temp_table(
         self, conn: Connection, schema: str, table: str, pk_cols: list[str],
@@ -227,12 +244,23 @@ class MariaDBDialect(Dialect):
             logger.debug("MariaDB: UNLOGGED not supported, using regular table")
         return "CREATE TABLE"
 
+    def delete_all_rows(
+        self, conn: Connection, schema: str, table: str,
+    ) -> None:
+        # Not TRUNCATE: on MariaDB, TRUNCATE is DDL with an implicit commit,
+        # which breaks the atomicity of the surrounding transaction. DELETE
+        # on InnoDB is transactional and rolls back cleanly on failure.
+        conn.execute(text(f"DELETE FROM {self.fqn(schema, table)}"))
+
     def dedup_temp_table(
         self, conn: Connection, schema: str, table: str, pk_cols: list[str],
     ) -> int:
-        # MariaDB has no ctid (physical row ID). The safe approach is a
-        # three-step swap: copy distinct rows to a temp table, truncate
-        # the original, then insert back.
+        # MariaDB has no ctid (physical row ID). Copy distinct rows to a
+        # TEMPORARY table, empty the original, then insert them back.
+        # Step 2 uses DELETE (not TRUNCATE) to stay inside the enclosing txn;
+        # TRUNCATE would implicit-commit and, on a subsequent step-3 failure,
+        # leave the temp table permanently empty — cascading into main data
+        # loss when @db_retry re-runs promote().
         cols_sql = ", ".join(f'`{c}`' for c in pk_cols)
         dedup_tbl = f"_dedup_{table}"
 
@@ -241,21 +269,23 @@ class MariaDBDialect(Dialect):
             f"SELECT COUNT(*) FROM `{schema}`.`{table}`"
         )).scalar()
 
-        # Step 1: Copy distinct rows (keep one per PK group)
+        # Step 1: Copy distinct rows (keep one per PK group).
+        # CREATE TEMPORARY TABLE is the documented exception to MariaDB's
+        # DDL-implicit-commit rule, so it is safe inside the transaction.
         conn.execute(text(
             f"CREATE TEMPORARY TABLE `{dedup_tbl}` AS "
             f"SELECT * FROM `{schema}`.`{table}` GROUP BY {cols_sql}"
         ))
 
-        # Step 2: Truncate original
-        conn.execute(text(f"TRUNCATE TABLE `{schema}`.`{table}`"))
+        # Step 2: Empty the original (DELETE keeps the txn atomic).
+        conn.execute(text(f"DELETE FROM `{schema}`.`{table}`"))
 
         # Step 3: Insert deduped rows back
         conn.execute(text(
             f"INSERT INTO `{schema}`.`{table}` SELECT * FROM `{dedup_tbl}`"
         ))
 
-        # Step 4: Cleanup
+        # Step 4: Cleanup (DROP TEMPORARY is also exempt from implicit commit)
         conn.execute(text(f"DROP TEMPORARY TABLE `{dedup_tbl}`"))
 
         after = conn.execute(text(
