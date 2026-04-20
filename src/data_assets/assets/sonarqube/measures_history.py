@@ -14,6 +14,7 @@ values on some analyses; those are stored as NULL.
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import date, timedelta
 from typing import Any
@@ -27,6 +28,8 @@ from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
 from sqlalchemy import DateTime, Text
+
+logger = logging.getLogger(__name__)
 
 
 @register
@@ -114,3 +117,50 @@ class SonarQubeMeasuresHistory(SonarQubeAsset):
             return pd.DataFrame(columns=[c.name for c in self.columns]), parse_paging(response)
 
         return pd.DataFrame(rows), parse_paging(response)
+
+    def transform(self, df: pd.DataFrame) -> pd.DataFrame:
+        if df.empty:
+            return df
+
+        null_mask = df["branch"].isnull()
+        if null_mask.any():
+            n = int(null_mask.sum())
+            sample = (
+                df.loc[null_mask, ["project_key", "metric_key", "analysis_date"]]
+                .head(3)
+                .to_dict(orient="records")
+            )
+            logger.warning(
+                "sonarqube_measures_history: dropping %d rows with null branch (sample: %s)",
+                n, sample,
+            )
+            df = df.loc[~null_mask].copy()
+            if df.empty:
+                return df
+
+        raw = df["analysis_date"].astype("string")
+        sort_ts = pd.to_datetime(raw, utc=True, errors="coerce")
+        nat_count = int(sort_ts.isna().sum())
+        if nat_count > 0:
+            bad = raw[sort_ts.isna()].head(3).tolist()
+            logger.warning(
+                "sonarqube_measures_history: %d analysis_date values failed to parse (sample: %s)",
+                nat_count, bad,
+            )
+
+        df = df.assign(
+            _sort_ts=sort_ts,
+            analysis_date=pd.to_datetime(raw.str.slice(0, 10), utc=True, errors="coerce"),
+        )
+
+        df = (
+            df.sort_values(
+                by=["project_key", "branch", "metric_key", "analysis_date", "_sort_ts"],
+                ascending=[True, True, True, True, False],
+                na_position="last",
+            )
+            .drop_duplicates(subset=self.primary_key, keep="first")
+            .drop(columns=["_sort_ts"])
+            .reset_index(drop=True)
+        )
+        return df

@@ -939,8 +939,8 @@ class TestSonarQubeMeasuresHistory:
 
         data = json.loads((FIXTURES / "measures_history_proj_alpha.json").read_text())
         df, state = SonarQubeMeasuresHistory().parse_response(data)
-        # 5 metrics × 2 dates = 10 rows
-        assert len(df) == 10
+        # 4 metrics × 2 dates + 1 metric × 4 entries (coverage has duplicate-day entries) = 12 rows
+        assert len(df) == 12
         assert set(df["metric_key"]) == {"coverage", "bugs", "ncloc", "new_coverage", "security_hotspots"}
         assert df[df["metric_key"] == "coverage"].iloc[0]["value"] == "85.5"
         # new_coverage first entry has no value (tests nullable path)
@@ -989,3 +989,68 @@ class TestSonarQubeMeasuresHistory:
 
         monkeypatch.setenv("SONARQUBE_HISTORY_DAYS_BACK", "180")
         assert SonarQubeMeasuresHistory().history_days_back == 180
+
+    def test_transform_drops_null_branch_with_warning(self, sonarqube_env, caplog):
+        from data_assets.assets.sonarqube.measures_history import SonarQubeMeasuresHistory
+
+        now = pd.Timestamp.now(tz="UTC")
+        df = pd.DataFrame([
+            {"project_key": "proj-a", "branch": "main", "metric_key": "coverage",
+             "analysis_date": "2025-04-01T00:00:00+0000", "value": "85.5", "collected_at": now},
+            {"project_key": "proj-a", "branch": None, "metric_key": "coverage",
+             "analysis_date": "2025-04-01T00:00:00+0000", "value": "80.0", "collected_at": now},
+            {"project_key": "proj-b", "branch": "main", "metric_key": "bugs",
+             "analysis_date": "2025-04-02T00:00:00+0000", "value": "3", "collected_at": now},
+            {"project_key": "proj-b", "branch": None, "metric_key": "bugs",
+             "analysis_date": "2025-04-02T00:00:00+0000", "value": "5", "collected_at": now},
+        ])
+        with caplog.at_level(logging.WARNING, logger="data_assets.assets.sonarqube.measures_history"):
+            out = SonarQubeMeasuresHistory().transform(df)
+
+        assert len(out) == 2
+        assert out["branch"].notna().all()
+        warns = [r for r in caplog.records if "null branch" in r.message]
+        assert len(warns) == 1
+        assert "2" in warns[0].message  # count of dropped rows
+
+    def test_transform_normalizes_analysis_date_to_midnight(self, sonarqube_env):
+        from data_assets.assets.sonarqube.measures_history import SonarQubeMeasuresHistory
+
+        now = pd.Timestamp.now(tz="UTC")
+        df = pd.DataFrame([
+            {"project_key": "proj-a", "branch": "main", "metric_key": "coverage",
+             "analysis_date": "2025-04-01T17:00:53+0100", "value": "85.5", "collected_at": now},
+        ])
+        out = SonarQubeMeasuresHistory().transform(df)
+        assert len(out) == 1
+        # Server-local date "2025-04-01" stored as midnight UTC
+        assert out.iloc[0]["analysis_date"] == pd.Timestamp("2025-04-01 00:00:00+00:00")
+
+    def test_transform_dedups_same_day_keeps_latest(self, sonarqube_env):
+        from data_assets.assets.sonarqube.measures_history import SonarQubeMeasuresHistory
+
+        now = pd.Timestamp.now(tz="UTC")
+        df = pd.DataFrame([
+            {"project_key": "proj-a", "branch": "main", "metric_key": "coverage",
+             "analysis_date": "2025-04-01T09:00:00+0000", "value": "80.0", "collected_at": now},
+            {"project_key": "proj-a", "branch": "main", "metric_key": "coverage",
+             "analysis_date": "2025-04-01T17:00:00+0000", "value": "85.5", "collected_at": now},
+            {"project_key": "proj-a", "branch": "main", "metric_key": "coverage",
+             "analysis_date": "2025-04-01T00:00:00+0000", "value": "70.0", "collected_at": now},
+        ])
+        out = SonarQubeMeasuresHistory().transform(df)
+        assert len(out) == 1
+        # Latest intraday timestamp (17:00) wins
+        assert out.iloc[0]["value"] == "85.5"
+        assert out.iloc[0]["analysis_date"] == pd.Timestamp("2025-04-01 00:00:00+00:00")
+
+    def test_transform_empty_df_returns_empty(self, sonarqube_env, caplog):
+        from data_assets.assets.sonarqube.measures_history import SonarQubeMeasuresHistory
+
+        asset = SonarQubeMeasuresHistory()
+        df = pd.DataFrame(columns=[c.name for c in asset.columns])
+        with caplog.at_level(logging.WARNING, logger="data_assets.assets.sonarqube.measures_history"):
+            out = asset.transform(df)
+        assert len(out) == 0
+        assert list(out.columns) == list(df.columns)
+        assert not caplog.records
