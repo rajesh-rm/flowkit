@@ -371,18 +371,30 @@ class TestUniqueIndexWithEmptyStrings:
 # ---------------------------------------------------------------------------
 
 
+def _make_connection_dropper(predicate):
+    """Return a before_cursor_execute listener that closes the underlying
+    DBAPI connection once, when `predicate(statement_upper)` first matches."""
+    state = {"fired": False}
+
+    def _on_cursor_execute(conn, cursor, statement, params, context, executemany):
+        if state["fired"]:
+            return
+        if predicate(statement.upper()):
+            state["fired"] = True
+            try:
+                cursor.connection.close()
+            except Exception:
+                # connection may already be torn down mid-event
+                pass
+
+    return _on_cursor_execute
+
+
 @pytest.mark.integration
 class TestFullReplaceAtomicity:
-    """Main-table data must survive a failure between empty-main and INSERT.
-
-    Pre-fix, MariaDB used TRUNCATE which is DDL with implicit commit, so a
-    post-TRUNCATE failure left the main table permanently empty. Post-fix,
-    MariaDB uses transactional DELETE; PG keeps its already-safe TRUNCATE.
-    """
+    """Main-table data must survive a failure between empty-main and INSERT."""
 
     def _seed_main_and_temp(self, engine):
-        """Seed main with 2 rows (ids 90, 91) and temp with 3 rows (ids 1-3).
-        Returns (temp_table_name, main_table_name)."""
         create_table(engine, "raw", "atomic_main", COLS, PK)
         with engine.begin() as conn:
             conn.execute(text(
@@ -409,7 +421,7 @@ class TestFullReplaceAtomicity:
         def _boom(conn, d, temp_schema, temp_table, main_schema, main_tbl,
                   primary_key, column_names):
             d.delete_all_rows(conn, main_schema, main_tbl)
-            raise OperationalError("simulated drop", None, Exception("sim"))
+            raise OperationalError("simulated drop", None, None)
 
         monkeypatch.setitem(loader._PROMOTERS, "full_replace", _boom)
         monkeypatch.setenv("DATA_ASSETS_DB_RETRY_ATTEMPTS", "1")
@@ -442,23 +454,11 @@ class TestFullReplaceAtomicity:
         from data_assets.db.retry import DatabaseRetryExhausted
 
         tname, main_table = self._seed_main_and_temp(clean_db)
-        state = {"fired": False}
+        listener = _make_connection_dropper(
+            lambda stmt: "INSERT INTO" in stmt and main_table.upper() in stmt and "SELECT" in stmt
+        )
 
-        def drop_on_insert(conn, cursor, statement, params, context, executemany):
-            if state["fired"]:
-                return
-            upper = statement.upper()
-            if "INSERT INTO" in upper and main_table.upper() in upper and "SELECT" in upper:
-                state["fired"] = True
-                # Tear down the underlying DBAPI connection to mimic a real
-                # network drop. The server sees a dropped client and rolls
-                # back the in-flight transaction.
-                try:
-                    cursor.connection.close()
-                except Exception:
-                    pass
-
-        event.listen(clean_db, "before_cursor_execute", drop_on_insert)
+        event.listen(clean_db, "before_cursor_execute", listener)
         monkeypatch.setenv("DATA_ASSETS_DB_RETRY_ATTEMPTS", "1")
         try:
             with pytest.raises((
@@ -468,7 +468,7 @@ class TestFullReplaceAtomicity:
                 promote(clean_db, tname, "raw", main_table, COLS, PK,
                         LoadStrategy.FULL_REPLACE)
         finally:
-            event.remove(clean_db, "before_cursor_execute", drop_on_insert)
+            event.remove(clean_db, "before_cursor_execute", listener)
 
         # Give the pool a chance to recycle the invalidated connection.
         clean_db.dispose()
@@ -496,13 +496,7 @@ class TestFullReplaceAtomicity:
     def test_dedup_temp_preserves_rows_on_step3_failure(
         self, clean_db, monkeypatch,
     ):
-        """MariaDB-only: step 3 INSERT-back failure must not empty temp table.
-
-        Pre-fix, step 2 was TRUNCATE (implicit commit), so a step-3 failure
-        left the temp table empty. Post-fix, step 2 is DELETE (transactional),
-        so a step-3 failure rolls everything back and the temp retains its
-        original (duplicate-included) rows for the @db_retry re-run.
-        """
+        """MariaDB-only: step 3 INSERT-back failure must not empty temp table."""
         if clean_db.dialect.name not in ("mysql", "mariadb"):
             pytest.skip("MariaDBDialect.dedup_temp_table is MariaDB-specific")
 
@@ -521,22 +515,13 @@ class TestFullReplaceAtomicity:
         ])
         write_to_temp(clean_db, tname, df)
 
-        state = {"fired": False}
+        # Target dedup's INSERT-back step: INSERT INTO temp_store.<t> SELECT FROM _dedup_<t>
+        def is_dedup_insert(stmt):
+            stripped = stmt.replace("`", "")
+            return "INSERT INTO" in stripped and "TEMP_STORE" in stripped and "_DEDUP_" in stripped
 
-        def drop_on_dedup_insert(conn, cursor, statement, params, context, executemany):
-            if state["fired"]:
-                return
-            upper = statement.upper().replace("`", "")
-            # Target step 3 of dedup_temp_table: INSERT INTO temp_store.<t> SELECT FROM _dedup_<t>
-            if ("INSERT INTO" in upper and "TEMP_STORE" in upper
-                    and "_DEDUP_" in upper):
-                state["fired"] = True
-                try:
-                    cursor.connection.close()
-                except Exception:
-                    pass
-
-        event.listen(clean_db, "before_cursor_execute", drop_on_dedup_insert)
+        listener = _make_connection_dropper(is_dedup_insert)
+        event.listen(clean_db, "before_cursor_execute", listener)
         monkeypatch.setenv("DATA_ASSETS_DB_RETRY_ATTEMPTS", "1")
         try:
             with pytest.raises((
@@ -546,7 +531,7 @@ class TestFullReplaceAtomicity:
                 promote(clean_db, tname, "raw", "dedup_main", COLS, PK,
                         LoadStrategy.UPSERT)
         finally:
-            event.remove(clean_db, "before_cursor_execute", drop_on_dedup_insert)
+            event.remove(clean_db, "before_cursor_execute", listener)
 
         clean_db.dispose()
 

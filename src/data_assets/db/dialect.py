@@ -247,52 +247,37 @@ class MariaDBDialect(Dialect):
     def delete_all_rows(
         self, conn: Connection, schema: str, table: str,
     ) -> None:
-        # Not TRUNCATE: on MariaDB, TRUNCATE is DDL with an implicit commit,
-        # which breaks the atomicity of the surrounding transaction. DELETE
-        # on InnoDB is transactional and rolls back cleanly on failure.
         conn.execute(text(f"DELETE FROM {self.fqn(schema, table)}"))
 
     def dedup_temp_table(
         self, conn: Connection, schema: str, table: str, pk_cols: list[str],
     ) -> int:
-        # MariaDB has no ctid (physical row ID). Copy distinct rows to a
-        # TEMPORARY table, empty the original, then insert them back.
-        # Step 2 uses DELETE (not TRUNCATE) to stay inside the enclosing txn;
-        # TRUNCATE would implicit-commit and, on a subsequent step-3 failure,
-        # leave the temp table permanently empty — cascading into main data
-        # loss when @db_retry re-runs promote().
+        # MariaDB has no ctid — dedup via a TEMPORARY table shuffle. CREATE
+        # and DROP TEMPORARY are the documented exceptions to MariaDB's
+        # DDL-implicit-commit rule, so the whole flow stays inside the txn.
         cols_sql = ", ".join(f'`{c}`' for c in pk_cols)
         dedup_tbl = f"_dedup_{table}"
 
-        # Idempotency guard: TEMPORARY tables are session-scoped and survive
-        # transaction rollback. On a @db_retry re-entry over the same pooled
-        # connection, a stale _dedup_<t> from the failed attempt would cause
-        # step 1 CREATE to fail with "table already exists" (non-retryable
-        # ProgrammingError). Drop any leftover before re-creating.
+        # Idempotency guard: TEMPORARY tables survive txn rollback, so a
+        # stale _dedup_<t> from a prior @db_retry attempt on the same
+        # pooled connection must be dropped before CREATE.
         conn.execute(text(f"DROP TEMPORARY TABLE IF EXISTS `{dedup_tbl}`"))
 
-        # Count before dedup
         before = conn.execute(text(
             f"SELECT COUNT(*) FROM `{schema}`.`{table}`"
         )).scalar()
 
-        # Step 1: Copy distinct rows (keep one per PK group).
-        # CREATE TEMPORARY TABLE is the documented exception to MariaDB's
-        # DDL-implicit-commit rule, so it is safe inside the transaction.
         conn.execute(text(
             f"CREATE TEMPORARY TABLE `{dedup_tbl}` AS "
             f"SELECT * FROM `{schema}`.`{table}` GROUP BY {cols_sql}"
         ))
 
-        # Step 2: Empty the original (DELETE keeps the txn atomic).
-        conn.execute(text(f"DELETE FROM `{schema}`.`{table}`"))
+        self.delete_all_rows(conn, schema, table)
 
-        # Step 3: Insert deduped rows back
         conn.execute(text(
             f"INSERT INTO `{schema}`.`{table}` SELECT * FROM `{dedup_tbl}`"
         ))
 
-        # Step 4: Cleanup (DROP TEMPORARY is also exempt from implicit commit)
         conn.execute(text(f"DROP TEMPORARY TABLE `{dedup_tbl}`"))
 
         after = conn.execute(text(
