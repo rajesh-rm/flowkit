@@ -147,11 +147,14 @@ class TestBuildEntityRequest:
         body = spec.body
         assert body is not None
         assert "query" in body and "deployments" in body["query"]
+        # direction: DESC is inlined in the query constant (should_stop depends
+        # on it) — so the body only carries owner/repo/pageSize/cursor.
+        assert "direction: DESC" in body["query"]
+        assert "orderDirection" not in body["variables"]
         assert body["variables"]["owner"] == "org-one"
         assert body["variables"]["repo"] == "devops-tooling"
-        assert body["variables"]["pageSize"] == 50
+        assert body["variables"]["pageSize"] == 100
         assert body["variables"]["cursor"] is None
-        assert body["variables"]["orderDirection"] == "DESC"
 
     def test_body_threads_cursor_from_checkpoint(self, github_env):
         from data_assets.assets.github.deployments import GitHubDeployments
@@ -304,8 +307,10 @@ class TestParseResponseNonDictGuard:
 
 
 class TestTransform:
-    def _df(self, desc: str | None, deployment_id: int = 1):
-        return pd.DataFrame([{
+    @staticmethod
+    def _row(desc: str | None, deployment_id: int = 1) -> dict:
+        """One populated row matching the asset's column list, for DataFrame tests."""
+        return {
             "deployment_id": deployment_id,
             "organization": "org-one",
             "repo_name": "svc",
@@ -319,7 +324,10 @@ class TestTransform:
             "created_at": "2025-04-15T18:16:10Z",
             "updated_at": "2025-04-15T19:53:30Z",
             "source_url": None,
-        }])
+        }
+
+    def _df(self, desc: str | None, deployment_id: int = 1):
+        return pd.DataFrame([self._row(desc, deployment_id)])
 
     def test_source_url_computed_from_key_and_id(self, github_env):
         from data_assets.assets.github.deployments import GitHubDeployments
@@ -377,26 +385,10 @@ class TestTransform:
         from data_assets.assets.github.deployments import GitHubDeployments
 
         # Three rows: two oversized (should truncate+count), one short (unchanged).
-        def _row(desc, dep_id):
-            return {
-                "deployment_id": dep_id,
-                "organization": "org-one",
-                "repo_name": "svc",
-                "org_repo_key": "org-one/svc",
-                "environment": "prod",
-                "description": desc,
-                "state": "ACTIVE",
-                "latest_status": "SUCCESS",
-                "creator_login": "u",
-                "sha": "abc",
-                "created_at": "2025-04-15T18:16:10Z",
-                "updated_at": "2025-04-15T19:53:30Z",
-                "source_url": None,
-            }
         df = pd.DataFrame([
-            _row("x" * 5000, 1),   # truncated
-            _row("short", 2),       # untouched
-            _row("y" * 4500, 3),   # truncated
+            self._row("x" * 5000, 1),   # truncated
+            self._row("short", 2),       # untouched
+            self._row("y" * 4500, 3),   # truncated
         ])
 
         with caplog.at_level(

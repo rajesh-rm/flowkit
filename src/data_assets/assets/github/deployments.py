@@ -19,30 +19,29 @@ the GraphQL variables and the entity-key injection both expect.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pandas as pd
 from sqlalchemy import BigInteger, DateTime, Text
 
-from data_assets.assets.github.helpers import (
-    filter_to_current_org,
-    get_github_base_url,
-)
-from data_assets.core.api_asset import APIAsset
+from data_assets.assets.github.helpers import GitHubRepoAsset, get_github_base_url
 from data_assets.core.column import Column, Index
-from data_assets.core.enums import LoadStrategy, ParallelMode, RunMode
+from data_assets.core.enums import LoadStrategy, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
-from data_assets.extract.token_manager import GitHubAppTokenManager
 
 logger = logging.getLogger(__name__)
 
+# Sort by CREATED_AT DESC so `should_stop` can halt paging once the page's
+# oldest deployment predates the watermark / pull_upto_days cap. GitHub's
+# `DeploymentOrder` enum only supports CREATED_AT; direction is inlined
+# because ASC would invert should_stop's stop-when-older-than-threshold rule.
 _DEPLOYMENTS_QUERY = """
-query($owner: String!, $repo: String!, $pageSize: Int!, $cursor: String, $orderDirection: OrderDirection!) {
+query($owner: String!, $repo: String!, $pageSize: Int!, $cursor: String) {
   repository(owner: $owner, name: $repo) {
-    deployments(first: $pageSize, after: $cursor, orderBy: {field: CREATED_AT, direction: $orderDirection}) {
+    deployments(first: $pageSize, after: $cursor, orderBy: {field: CREATED_AT, direction: DESC}) {
       pageInfo { endCursor hasNextPage }
       nodes {
         databaseId environment description state createdAt updatedAt
@@ -61,24 +60,20 @@ _DESC_TAIL = 2000
 
 
 @register
-class GitHubDeployments(APIAsset):
+class GitHubDeployments(GitHubRepoAsset):
     """Deployment history per repository via GitHub GraphQL, UPSERT on (databaseId, owner)."""
 
     name = "github_deployments"
-    source_name = "github"
-    target_schema = "raw"
     target_table = "github_deployments"
 
-    token_manager_class = GitHubAppTokenManager
+    # GraphQL point budget (5000/hr/token) dominates REST's 5000 calls/hr.
     rate_limit_per_second = 1.0
-
-    pagination_config = PaginationConfig(strategy="cursor", page_size=50)
-    parallel_mode = ParallelMode.ENTITY_PARALLEL
     max_workers = 3
 
-    parent_asset_name = "github_repos"
-    # Dict-shaped entity keys: owner/name are GraphQL variables, full_name is
-    # the injected org_repo_key column. Populated by filter_entity_keys below.
+    pagination_config = PaginationConfig(strategy="cursor", page_size=100)
+
+    # Dict-shaped entity keys: owner/name feed GraphQL variables; full_name is
+    # injected as org_repo_key by the framework. Populated by filter_entity_keys.
     entity_key_column = None
     entity_key_map = {
         "owner": "organization",
@@ -90,7 +85,7 @@ class GitHubDeployments(APIAsset):
     default_run_mode = RunMode.FORWARD
     date_column = "created_at"
 
-    # Max history depth. FULL mode backfills to today - pull_upto_days.
+    # Max history depth (~2 years). FULL mode backfills to today - pull_upto_days.
     # FORWARD mode uses max(watermark, today - pull_upto_days) as its stop point.
     pull_upto_days: int = 720
 
@@ -134,15 +129,14 @@ class GitHubDeployments(APIAsset):
     ]
 
     def filter_entity_keys(self, keys: list) -> list:
-        """Scope to current org and reshape strings into {owner, name, full_name} dicts.
+        """Scope to current org (via base) and reshape strings into dicts.
 
         Drops any parent entry that isn't a ``"owner/repo"`` string. The drop is
         logged (not silent) so operators can diagnose a repo going missing from
         downstream deployment data rather than discovering the gap weeks later.
         """
-        scoped = filter_to_current_org(keys)
         result: list[dict[str, str]] = []
-        for full_name in scoped:
+        for full_name in super().filter_entity_keys(keys):
             if isinstance(full_name, str) and "/" in full_name:
                 owner, name = full_name.split("/", 1)
                 result.append({"owner": owner, "name": name, "full_name": full_name})
@@ -166,7 +160,6 @@ class GitHubDeployments(APIAsset):
             "repo": entity_key["name"],
             "pageSize": self.pagination_config.page_size,
             "cursor": cursor,
-            "orderDirection": "DESC",
         }
         return RequestSpec(
             method="POST",
@@ -224,12 +217,14 @@ class GitHubDeployments(APIAsset):
             },
         )
 
+        # organization / repo_name / org_repo_key are filled by entity_key_map
+        # injection after this method returns; source_url is filled by transform().
         records = [
             {
                 "deployment_id": n["databaseId"],
-                "organization": None,   # filled by entity_key_map injection
-                "repo_name": None,      # filled by entity_key_map injection
-                "org_repo_key": None,   # filled by entity_key_map injection
+                "organization": None,
+                "repo_name": None,
+                "org_repo_key": None,
                 "environment": n.get("environment"),
                 "description": n.get("description"),
                 "state": n.get("state"),
@@ -238,7 +233,7 @@ class GitHubDeployments(APIAsset):
                 "sha": (n.get("commit") or {}).get("oid"),
                 "created_at": n.get("createdAt"),
                 "updated_at": n.get("updatedAt"),
-                "source_url": None,     # filled by transform()
+                "source_url": None,
             }
             for n in nodes
         ]
@@ -263,12 +258,12 @@ class GitHubDeployments(APIAsset):
         return oldest < self._history_threshold(context)
 
     def _history_threshold(self, context: RunContext) -> datetime:
-        cap = datetime.now(timezone.utc) - timedelta(days=self.pull_upto_days)
+        cap = datetime.now(UTC) - timedelta(days=self.pull_upto_days)
         watermark = context.start_date
         if watermark is None:
             return cap
         if watermark.tzinfo is None:
-            watermark = watermark.replace(tzinfo=timezone.utc)
+            watermark = watermark.replace(tzinfo=UTC)
         return max(cap, watermark)
 
     def transform(self, df: pd.DataFrame) -> pd.DataFrame:
