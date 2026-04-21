@@ -1,0 +1,36 @@
+{
+  "data": {
+    "repository": {
+      "deployments": {
+        "pageInfo": {
+          "endCursor": "Y3Vyc29yOnYyOpK0MjAyNS0wMy0zMFQxMjowMDowMFrOjlNLZw==",
+          "hasNextPage": false
+        },
+        "nodes": [
+          {
+            "databaseId": 2370000001,
+            "environment": "production",
+            "description": "manual rollback from user222",
+            "state": "SUCCESS",
+            "createdAt": "2025-04-02T12:00:00Z",
+            "updatedAt": "2025-04-02T12:05:00Z",
+            "creator": {"login": "user222"},
+            "commit": {"oid": "aaaabbbbccccddddeeeeffff00001111aaaabbbb"},
+            "latestStatus": {"state": "SUCCESS"}
+          },
+          {
+            "databaseId": 2369999999,
+            "environment": "staging",
+            "description": null,
+            "state": "ERROR",
+            "createdAt": "2025-04-01T09:30:00Z",
+            "updatedAt": "2025-04-01T09:31:12Z",
+            "creator": {"login": "user222"},
+            "commit": {"oid": "1111222233334444555566667777888899990000"},
+            "latestStatus": {"state": "ERROR"}
+          }
+        ]
+      }
+    }
+  }
+}

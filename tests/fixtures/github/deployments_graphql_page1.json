@@ -1,0 +1,124 @@
+{
+  "data": {
+    "repository": {
+      "deployments": {
+        "pageInfo": {
+          "endCursor": "Y3Vyc29yOnYyOpK0MjAyNS0wNC0wOVQxNzo1NTowNFrOjlNLZw==",
+          "hasNextPage": true
+        },
+        "nodes": [
+          {
+            "databaseId": 2408327264,
+            "environment": "nginx-update",
+            "description": null,
+            "state": "INACTIVE",
+            "createdAt": "2025-04-15T18:16:10Z",
+            "updatedAt": "2025-04-15T19:53:30Z",
+            "creator": {"login": "user111"},
+            "commit": {"oid": "be6d78d6729938f67adfdd29b8fb729e32346937"},
+            "latestStatus": {"state": "INACTIVE"}
+          },
+          {
+            "databaseId": 2408324751,
+            "environment": "nginx-update",
+            "description": null,
+            "state": "FAILURE",
+            "createdAt": "2025-04-15T18:15:27Z",
+            "updatedAt": "2025-04-15T18:15:49Z",
+            "creator": {"login": "user111"},
+            "commit": {"oid": "be6d78d6729938f67adfdd29b8fb729e32346937"},
+            "latestStatus": {"state": "FAILURE"}
+          },
+          {
+            "databaseId": 2404808029,
+            "environment": "nginx-update",
+            "description": "deploy from PR #42",
+            "state": "ACTIVE",
+            "createdAt": "2025-04-14T23:47:33Z",
+            "updatedAt": "2025-04-14T23:48:12Z",
+            "creator": {"login": "user111"},
+            "commit": {"oid": "b3487bf11d6b3b5445af388b379a5ec094f5fe11"},
+            "latestStatus": {"state": "SUCCESS"}
+          },
+          {
+            "databaseId": 2404802687,
+            "environment": "nginx-update",
+            "description": null,
+            "state": "INACTIVE",
+            "createdAt": "2025-04-14T23:44:32Z",
+            "updatedAt": "2025-04-14T23:48:13Z",
+            "creator": null,
+            "commit": {"oid": "398896c6533e5276ba021a9c0f6f9882420b3d6a"},
+            "latestStatus": null
+          },
+          {
+            "databaseId": 2404793932,
+            "environment": "nginx-update",
+            "description": null,
+            "state": "INACTIVE",
+            "createdAt": "2025-04-14T23:39:42Z",
+            "updatedAt": "2025-04-14T23:45:00Z",
+            "creator": {"login": "user111"},
+            "commit": {"oid": "03c47d5a1b2eae7568e3989854f17428b446b1f2"},
+            "latestStatus": {"state": "INACTIVE"}
+          },
+          {
+            "databaseId": 2404155565,
+            "environment": "nginx-update",
+            "description": null,
+            "state": "ACTIVE",
+            "createdAt": "2025-04-14T19:44:28Z",
+            "updatedAt": "2025-04-15T19:53:30Z",
+            "creator": {"login": "user111"},
+            "commit": {"oid": "2ee3855b6f6250db0e5bf766c71e6368bfe5f6f5"},
+            "latestStatus": {"state": "SUCCESS"}
+          },
+          {
+            "databaseId": 2388177305,
+            "environment": "nginx-update",
+            "description": null,
+            "state": "INACTIVE",
+            "createdAt": "2025-04-09T19:40:52Z",
+            "updatedAt": "2025-04-15T18:16:40Z",
+            "creator": {"login": "user111"},
+            "commit": {"oid": "bedbea97b56999a44012395e3511d311bcb0d3aa"},
+            "latestStatus": {"state": "INACTIVE"}
+          },
+          {
+            "databaseId": 2388174525,
+            "environment": "nginx-update",
+            "description": null,
+            "state": "INACTIVE",
+            "createdAt": "2025-04-09T19:40:00Z",
+            "updatedAt": "2025-04-09T19:41:18Z",
+            "creator": {"login": "user111"},
+            "commit": {"oid": "bedbea97b56999a44012395e3511d311bcb0d3aa"},
+            "latestStatus": {"state": "INACTIVE"}
+          },
+          {
+            "databaseId": 2388167169,
+            "environment": "nginx-update",
+            "description": null,
+            "state": "FAILURE",
+            "createdAt": "2025-04-09T19:37:31Z",
+            "updatedAt": "2025-04-09T19:37:53Z",
+            "creator": {"login": "user111"},
+            "commit": {"oid": "a54c74be620b99662e577a2fdc6d05a96f5c5089"},
+            "latestStatus": {"state": "FAILURE"}
+          },
+          {
+            "databaseId": 2387823463,
+            "environment": "nginx-update",
+            "description": null,
+            "state": "INACTIVE",
+            "createdAt": "2025-04-09T17:55:04Z",
+            "updatedAt": "2025-04-14T23:40:10Z",
+            "creator": {"login": "user111"},
+            "commit": {"oid": "87515f03a2dbbd3654531367ad3aac44f7ec94ae"},
+            "latestStatus": {"state": "INACTIVE"}
+          }
+        ]
+      }
+    }
+  }
+}
