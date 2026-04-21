@@ -336,13 +336,7 @@ You only need to define:
 
 For org-level endpoints (repos, members, runner groups), inherit from `GitHubOrgAsset` (in `assets/github/helpers.py`). It provides shared `build_request()` logic for org-scoped pagination. Subclasses set `org_endpoint` (e.g., `"/repos"`, `"/members"`) and optionally `org_request_params`, then implement `parse_response()`.
 
-For **GraphQL endpoints** (POST `/graphql` with a JSON body instead of REST), still inherit from `GitHubRepoAsset` — the base is transport-agnostic. Override the REST defaults:
-- `pagination_config = PaginationConfig(strategy="cursor", page_size=100)` — the framework threads `pageInfo.endCursor` opaquely into the next call's checkpoint
-- `entity_key_column = None` + `entity_key_map = {"owner": "organization", "name": "repo_name", "full_name": "org_repo_key"}` so the GraphQL variables (owner/name) and the injection columns come from one dict entity key. Override `filter_entity_keys()` to reshape the parent's `"owner/repo"` strings into those dicts.
-- `build_entity_request()` returns a `RequestSpec(method="POST", url=".../graphql", body={"query": ..., "variables": {...}})` — do not use `_paginated_entity_request` (REST-only).
-- `parse_response()` must check `isinstance(response, dict)` and `response.get("errors")` **before** extracting, because GraphQL returns HTTP 200 for query errors.
-
-Reference: `github_deployments` (`src/data_assets/assets/github/deployments.py`, ~140 lines). GraphQL API docs: https://docs.github.com/en/graphql.
+For **GraphQL endpoints** (POST `/graphql`), still inherit from `GitHubRepoAsset` (it's transport-agnostic). Full recipe and code example: [GraphQL transport note](extending-reference.md#graphql-transport-note). Working reference asset: `github_deployments`. GraphQL API docs: https://docs.github.com/en/graphql.
 
 - **`since` param**: works on `/repos/{o}/{r}/commits` but NOT on `/pulls`
 - GitHub REST API docs: https://docs.github.com/en/rest
@@ -357,12 +351,4 @@ Inherit from `JiraAsset` (in `assets/jira/helpers.py`), which provides shared `s
 
 ### When to use RestAsset vs APIAsset
 
-| Use RestAsset when... | Use APIAsset when... |
-|----------------------|---------------------|
-| Standard REST: GET endpoint returns JSON with records array | API needs custom request logic (multi-org iteration, JQL construction) |
-| Pagination is page_number, offset, or cursor (GET params) | Pagination needs keyset, custom sort params, or a cursor embedded in a POST body |
-| Field mapping is just renames | Response parsing needs nested extraction or type conversion (e.g., GraphQL's `data.<connection>.nodes`) |
-| No incremental date filter needed (FULL_REPLACE) | Incremental needs sort-by-update or should_stop() |
-| Transport is GET only | Transport is POST (e.g., GraphQL) |
-
-**Example:** `sonarqube_projects` uses RestAsset with a custom `extract()` override (handles the 10k ES limit via query sharding). `sonarqube_issues` uses APIAsset (needs UPDATE_DATE sort). `github_deployments` uses APIAsset with a POST body (GraphQL).
+The full decision table and worked examples live in [Extending Reference](extending-reference.md#restasset-attributes-reference). In short: use `RestAsset` for GET-only REST endpoints with standard pagination and simple field mapping; reach for `APIAsset` for everything else — keyset pagination, JQL-style constructed queries, GraphQL POST bodies, or an official SDK that replaces the HTTP layer via an `extract()` override.

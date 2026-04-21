@@ -905,10 +905,10 @@ Rules:
 
 ### GraphQL transport note
 
-GraphQL endpoints (like GitHub's `/graphql`) are a POST against a single URL with a JSON body carrying the query and variables. The existing infrastructure already supports this — `RequestSpec.body` is passed to `httpx.request(json=...)` by the API client — so a GraphQL asset is just an `APIAsset` subclass that:
+GraphQL endpoints (like GitHub's `/graphql`) are a POST against a single URL with a JSON body carrying the query and variables. The existing infrastructure already supports this — `RequestSpec.body` is passed to `httpx.request(json=...)` by the API client — so a GraphQL asset is just an `APIAsset` subclass. Two terms used below: `pageInfo` is a GraphQL connection's pagination envelope, and `endCursor` is the opaque "resume here" token it hands back.
 
-1. Sets `pagination_config = PaginationConfig(strategy="cursor", page_size=N)`. The framework threads the cursor through `PaginationState.cursor → checkpoint["cursor"] → next build_entity_request()` opaquely; your code reads `checkpoint["cursor"]` and puts it in a variable (any name — e.g., `"cursor"`) that the GraphQL query text binds to the connection's `after:` argument (`deployments(..., after: $cursor)`).
-2. Returns a POST `RequestSpec` from `build_request()` / `build_entity_request()`:
+1. Set `pagination_config = PaginationConfig(strategy="cursor", page_size=N)`. The framework threads the cursor through `PaginationState.cursor → checkpoint["cursor"] → next build_entity_request()` opaquely; your code reads `checkpoint["cursor"]` and puts it in a body variable (any name — e.g., `"cursor"`) that the GraphQL query text binds to the connection's `after:` argument (`deployments(..., after: $cursor)`).
+2. Return a POST `RequestSpec` from `build_request()` / `build_entity_request()`:
 
    ```python
    return RequestSpec(
@@ -918,7 +918,7 @@ GraphQL endpoints (like GitHub's `/graphql`) are a POST against a single URL wit
        headers={"Accept": "application/vnd.github+json"},
    )
    ```
-3. Starts `parse_response()` with two guards **before** extracting records — because GraphQL returns HTTP 200 for query/permission errors and can return non-dict bodies from intermediate proxies:
+3. Start `parse_response()` with two guards **before** extracting records — because GraphQL returns HTTP 200 for query/permission errors and non-dict bodies surface on proxy rewrites or maintenance HTML:
 
    ```python
    if not isinstance(response, dict):
@@ -926,9 +926,9 @@ GraphQL endpoints (like GitHub's `/graphql`) are a POST against a single URL wit
    if errors := response.get("errors"):
        raise ValueError(f"GraphQL error from {self.name}: {errors[0].get('message', errors)}")
    ```
-4. Extracts the connection and calls `self._check_required_keys(nodes, field_to_column)` with an explicit dotted-path map (e.g., `"creator.login": "creator_login"`), then returns `PaginationState(has_more=pageInfo["hasNextPage"], cursor=pageInfo["endCursor"])`.
+4. Extract the connection and call `self._check_required_keys(nodes, field_to_column)` with an explicit dotted-path map (e.g., `"creator.login": "creator_login"`), then return `PaginationState(has_more=pageInfo["hasNextPage"], cursor=pageInfo["endCursor"])`.
 
-Working reference: `src/data_assets/assets/github/deployments.py` (~140 lines). It inherits `GitHubRepoAsset`, uses dict-shaped entity keys via `entity_key_map` (so `organization` / `repo_name` / `org_repo_key` are injected post-parse from the `{owner, name, full_name}` entity key), and overrides `should_stop()` to halt pagination when the page's oldest `createdAt` falls below `max(forward_watermark, today − pull_upto_days)`.
+Working reference: `src/data_assets/assets/github/deployments.py`. It inherits `GitHubRepoAsset`, uses dict-shaped entity keys via `entity_key_map` (so `organization` / `repo_name` / `org_repo_key` are injected post-parse from the `{owner, name, full_name}` entity key), and overrides `should_stop()` to halt pagination when the page's oldest `createdAt` falls below the stop threshold described in [assets-catalog.md](assets-catalog.md#key-design-choices).
 
 ---
 
