@@ -272,7 +272,13 @@ class GitHubDeployments(APIAsset):
         return max(cap, watermark)
 
     def transform(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Compute source_url from the injected repo key and truncate long descriptions."""
+        """Compute source_url from the injected repo key and truncate long descriptions.
+
+        Truncation emits a single INFO log per run listing the count of rewritten
+        descriptions — without it, silent destructive rewrite of a user-visible
+        field is impossible to audit post-hoc. Counting happens inline inside the
+        map callable so there is no separate pre-computation pass over the column.
+        """
         if df.empty:
             return df
         df["source_url"] = (
@@ -281,13 +287,20 @@ class GitHubDeployments(APIAsset):
             + "/deployments/"
             + df["deployment_id"].astype(str)
         )
-        df["description"] = df["description"].map(self._truncate_description)
-        return df
+        truncated = [0]
 
-    @staticmethod
-    def _truncate_description(text: Any) -> str | None:
-        if pd.isna(text):
-            return None
-        if len(text) <= _DESC_LIMIT:
-            return text
-        return text[:_DESC_HEAD] + "[truncated]" + text[-_DESC_TAIL:]
+        def _truncate_and_count(text: Any) -> str | None:
+            if pd.isna(text):
+                return None
+            if len(text) <= _DESC_LIMIT:
+                return text
+            truncated[0] += 1
+            return text[:_DESC_HEAD] + "[truncated]" + text[-_DESC_TAIL:]
+
+        df["description"] = df["description"].map(_truncate_and_count)
+        if truncated[0]:
+            logger.info(
+                "github_deployments: truncated %d description(s) over %d chars",
+                truncated[0], _DESC_LIMIT,
+            )
+        return df

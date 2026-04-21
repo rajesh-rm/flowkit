@@ -370,6 +370,70 @@ class TestTransform:
         out = GitHubDeployments().transform(empty)
         assert len(out) == 0
 
+    def test_truncation_count_logged_when_fires(self, github_env, caplog):
+        """Truncation must emit a single INFO log per run with the exact count."""
+        import logging
+
+        from data_assets.assets.github.deployments import GitHubDeployments
+
+        # Three rows: two oversized (should truncate+count), one short (unchanged).
+        def _row(desc, dep_id):
+            return {
+                "deployment_id": dep_id,
+                "organization": "org-one",
+                "repo_name": "svc",
+                "org_repo_key": "org-one/svc",
+                "environment": "prod",
+                "description": desc,
+                "state": "ACTIVE",
+                "latest_status": "SUCCESS",
+                "creator_login": "u",
+                "sha": "abc",
+                "created_at": "2025-04-15T18:16:10Z",
+                "updated_at": "2025-04-15T19:53:30Z",
+                "source_url": None,
+            }
+        df = pd.DataFrame([
+            _row("x" * 5000, 1),   # truncated
+            _row("short", 2),       # untouched
+            _row("y" * 4500, 3),   # truncated
+        ])
+
+        with caplog.at_level(
+            logging.INFO, logger="data_assets.assets.github.deployments",
+        ):
+            GitHubDeployments().transform(df)
+
+        info_msgs = [
+            rec.getMessage()
+            for rec in caplog.records
+            if rec.levelno == logging.INFO
+            and rec.name == "data_assets.assets.github.deployments"
+        ]
+        trunc_msgs = [m for m in info_msgs if "truncated" in m]
+        assert len(trunc_msgs) == 1, trunc_msgs
+        assert "truncated 2 description" in trunc_msgs[0]
+        assert "4000 chars" in trunc_msgs[0]
+
+    def test_no_truncation_log_when_none_over_limit(self, github_env, caplog):
+        """Runs with no oversized descriptions emit no truncation log (no noise)."""
+        import logging
+
+        from data_assets.assets.github.deployments import GitHubDeployments
+
+        with caplog.at_level(
+            logging.INFO, logger="data_assets.assets.github.deployments",
+        ):
+            GitHubDeployments().transform(self._df(desc="short"))
+
+        info_msgs = [
+            rec.getMessage()
+            for rec in caplog.records
+            if rec.levelno == logging.INFO
+            and rec.name == "data_assets.assets.github.deployments"
+        ]
+        assert not any("truncated" in m for m in info_msgs), info_msgs
+
 
 # ---------------------------------------------------------------------------
 # should_stop — pull_upto_days cap + watermark
