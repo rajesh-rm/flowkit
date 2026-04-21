@@ -335,6 +335,15 @@ You only need to define:
 - `parse_response()` — use `self._parse_array_response(response, record_fn)` or `self._parse_wrapped_response(response, items_key, record_fn)`
 
 For org-level endpoints (repos, members, runner groups), inherit from `GitHubOrgAsset` (in `assets/github/helpers.py`). It provides shared `build_request()` logic for org-scoped pagination. Subclasses set `org_endpoint` (e.g., `"/repos"`, `"/members"`) and optionally `org_request_params`, then implement `parse_response()`.
+
+For **GraphQL endpoints** (POST `/graphql` with a JSON body instead of REST), still inherit from `GitHubRepoAsset` — the base is transport-agnostic. Override the REST defaults:
+- `pagination_config = PaginationConfig(strategy="cursor", page_size=100)` — the framework threads `pageInfo.endCursor` opaquely into the next call's checkpoint
+- `entity_key_column = None` + `entity_key_map = {"owner": "organization", "name": "repo_name", "full_name": "org_repo_key"}` so the GraphQL variables (owner/name) and the injection columns come from one dict entity key. Override `filter_entity_keys()` to reshape the parent's `"owner/repo"` strings into those dicts.
+- `build_entity_request()` returns a `RequestSpec(method="POST", url=".../graphql", body={"query": ..., "variables": {...}})` — do not use `_paginated_entity_request` (REST-only).
+- `parse_response()` must check `isinstance(response, dict)` and `response.get("errors")` **before** extracting, because GraphQL returns HTTP 200 for query errors.
+
+Reference: `github_deployments` (`src/data_assets/assets/github/deployments.py`, ~140 lines). GraphQL API docs: https://docs.github.com/en/graphql.
+
 - **`since` param**: works on `/repos/{o}/{r}/commits` but NOT on `/pulls`
 - GitHub REST API docs: https://docs.github.com/en/rest
 
@@ -351,8 +360,9 @@ Inherit from `JiraAsset` (in `assets/jira/helpers.py`), which provides shared `s
 | Use RestAsset when... | Use APIAsset when... |
 |----------------------|---------------------|
 | Standard REST: GET endpoint returns JSON with records array | API needs custom request logic (multi-org iteration, JQL construction) |
-| Pagination is page_number, offset, or cursor | Pagination needs keyset or custom sort params |
-| Field mapping is just renames | Response parsing needs nested extraction or type conversion |
+| Pagination is page_number, offset, or cursor (GET params) | Pagination needs keyset, custom sort params, or a cursor embedded in a POST body |
+| Field mapping is just renames | Response parsing needs nested extraction or type conversion (e.g., GraphQL's `data.<connection>.nodes`) |
 | No incremental date filter needed (FULL_REPLACE) | Incremental needs sort-by-update or should_stop() |
+| Transport is GET only | Transport is POST (e.g., GraphQL) |
 
-**Example:** `sonarqube_projects` uses RestAsset with a custom `extract()` override (handles the 10k ES limit via query sharding). `sonarqube_issues` uses APIAsset (needs UPDATE_DATE sort).
+**Example:** `sonarqube_projects` uses RestAsset with a custom `extract()` override (handles the 10k ES limit via query sharding). `sonarqube_issues` uses APIAsset (needs UPDATE_DATE sort). `github_deployments` uses APIAsset with a POST body (GraphQL).

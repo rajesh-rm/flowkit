@@ -150,7 +150,7 @@ The loader also applies a universal safety net (`_coerce_datetime_strings()` in 
 ## GitHub
 
 **Authentication:** GitHub App installation token (JWT → exchange) — `GitHubAppTokenManager`
-**API docs:** https://docs.github.com/en/rest
+**API docs:** https://docs.github.com/en/rest (most assets) · https://docs.github.com/en/graphql (`github_deployments`)
 
 ### Org-level assets (sequential)
 
@@ -170,6 +170,7 @@ The loader also applies a universal safety net (`_coerce_datetime_strings()` in 
 | `github_workflows` | `raw.github_workflows` | FULL_REPLACE | `/repos/{repo}/actions/workflows` | Yes (`repo_full_name`) |
 | `github_workflow_runs` | `raw.github_workflow_runs` | UPSERT | `/repos/{repo}/actions/runs` | Yes (`repo_full_name`) |
 | `github_repo_properties` | `raw.github_repo_properties` | FULL_REPLACE | `/repos/{repo}/properties/values` | Yes (`repo_full_name`) |
+| `github_deployments` | `raw.github_deployments` | UPSERT | `POST /graphql` (deployments connection) | Yes (`organization`, `repo_name`, `org_repo_key` via `entity_key_map`) |
 
 ### Deeper nested assets
 
@@ -191,6 +192,7 @@ When an API response doesn't include the parent identifier (e.g., branches endpo
 - **Incremental commits:** Uses GitHub's `since` query parameter for efficient forward sync.
 - **Incremental PRs/runs:** Sort by `updated desc` with `should_stop()` watermark detection (no `since` param available).
 - **Workflow jobs:** Composite entity key `(repo_full_name, id)` loaded from `github_workflow_runs` table. The repo and run_id are used to build the URL; join to `github_workflow_runs` via `run_id` for repo context.
+- **Deployments (GraphQL):** The first GraphQL-backed asset. `github_deployments` POSTs to `/graphql` instead of calling a REST path. It inherits `GitHubRepoAsset` like every other repo-scoped GitHub asset — the base class is transport-agnostic. Uses cursor pagination: `pageInfo.endCursor` surfaces in `PaginationState.cursor`, the framework's `_next_checkpoint` threads it back as `checkpoint["cursor"]`, and the next `build_entity_request()` reads it into the `cursor` GraphQL variable (which the query binds to the `deployments(..., after: $cursor)` argument). Ordered `CREATED_AT DESC` so `should_stop()` can halt paging once a page's oldest deployment predates the `max(forward_watermark, today − pull_upto_days)` threshold. `pull_upto_days` (default 720 ≈ 2 years) bounds FULL backfills and caps FORWARD watermark drift. Descriptions longer than 4000 chars are truncated to `head(2000) + "[truncated]" + tail(2000)` inside `transform()`, with a per-run INFO log noting the count. A GraphQL `errors` envelope or a non-dict top-level body surfaces as a typed `ValueError` naming the asset.
 - **Shared helpers:** `get_github_org()`, `get_github_base_url()`, `filter_to_current_org()` in `assets/github/helpers.py`.
 - **BigInteger IDs:** All GitHub `id` columns use `BigInteger()` (64-bit). GitHub's global ID counter has exceeded the 32-bit signed integer limit (2,147,483,647). Use `BigInteger()` for any new ID column from GitHub's API.
 - **Notable column types:** `private` and `archived` (repos), `protected` (branches), `draft` (PRs), `default` and `allows_public_repositories` (runner_groups) are stored as native `Boolean` columns (not Text strings).
