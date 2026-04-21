@@ -1,0 +1,10 @@
+{
+  "data": null,
+  "errors": [
+    {
+      "type": "INSUFFICIENT_SCOPES",
+      "message": "Your token has not been granted the required scopes to execute this query.",
+      "path": ["repository", "deployments"]
+    }
+  ]
+}

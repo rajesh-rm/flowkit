@@ -40,16 +40,17 @@ For the 80% of assets that follow a standard REST API pattern, **RestAsset elimi
 
 **Use RestAsset when:** the API returns JSON, uses standard pagination (page number, offset, or cursor), and you just need to extract fields from the response.
 
-**Use APIAsset instead when:** you need custom request logic (multi-endpoint iteration, computed query parameters like JQL, keyset pagination with composite keys).
+**Use APIAsset instead when:** you need custom request logic (multi-endpoint iteration, computed query parameters like JQL, keyset pagination with composite keys, GraphQL POST + body-embedded cursor).
 
 | Use RestAsset when... | Use APIAsset when... |
 |----------------------|---------------------|
 | Standard REST: GET endpoint returns JSON with records array | API needs custom request logic (multi-org iteration, JQL construction) |
-| Pagination is page_number, offset, or cursor | Pagination needs keyset or custom sort params |
-| Field mapping is just renames | Response parsing needs nested extraction or type conversion |
+| Pagination is page_number, offset, or cursor | Pagination needs keyset, custom sort params, or a cursor embedded in a POST body |
+| Field mapping is just renames | Response parsing needs nested extraction or type conversion (e.g., GraphQL's `data.<connection>.nodes`) |
 | No incremental date filter needed (FULL_REPLACE) | Incremental needs sort-by-update or should_stop() |
+| Transport is GET only | Transport is POST (e.g., GraphQL queries with a JSON body) |
 
-**Example:** `sonarqube_projects` uses RestAsset with a custom `extract()` override (handles the 10k ES limit via query sharding). `sonarqube_issues` uses APIAsset (needs UPDATE_DATE sort).
+**Example:** `sonarqube_projects` uses RestAsset with a custom `extract()` override (handles the 10k ES limit via query sharding). `sonarqube_issues` uses APIAsset (needs UPDATE_DATE sort). `github_deployments` uses APIAsset with `RequestSpec.body` for GraphQL POST (see the [GraphQL transport note](#graphql-transport-note) under `parse_response()` Contract).
 
 | Attribute | Required | Description |
 |-----------|----------|-------------|
@@ -82,7 +83,7 @@ class ServiceNowIncidents(ServiceNowTableAsset):
     columns = [...]
 ```
 
-**GitHub** — `GitHubRepoAsset` (in `assets/github/helpers.py`) provides shared config for all entity-parallel assets that fan out by repository. It sets `token_manager_class`, `rate_limit_per_second`, `pagination_config`, `parent_asset_name = "github_repos"`, `entity_key_column = "repo_full_name"`, and provides helper methods for building requests and parsing responses:
+**GitHub** — `GitHubRepoAsset` (in `assets/github/helpers.py`) provides shared config for all entity-parallel assets that fan out by repository. It sets `token_manager_class`, `rate_limit_per_second`, `pagination_config`, `parent_asset_name = "github_repos"`, `entity_key_column = "repo_full_name"`, and provides helper methods for building requests and parsing responses. The base class is **transport-agnostic** — both REST assets (branches, commits, PRs, workflows, …) and GraphQL assets (`github_deployments`) inherit from it. GraphQL subclasses override the pagination config to `cursor`, set `entity_key_column = None` plus an `entity_key_map` dict, and build a POST `RequestSpec` with `body={...}` instead of using the `_paginated_entity_request` helper:
 
 ```python
 # assets/github/helpers.py
@@ -901,6 +902,33 @@ Rules:
 - **Skip entity-injected columns.** If the framework fills a column via `entity_key_column` or `entity_key_map` after `parse_response()` returns (e.g., `repo_full_name` injected by `_inject_entity_key`), leave that column out of the map — the API never sent it.
 - **Null parents are tolerated.** `{"fields": {"assignee": null}}` with path `fields.assignee.displayName` does **not** trip the check — the API explicitly said "no sub-entity here." Only a genuinely absent key fires.
 - **Opt out per column via `optional_columns`.** If the API legitimately omits a key for some records (e.g., SonarQube issues at file level have no `line`), list the column name in the asset's `optional_columns` attribute.
+
+### GraphQL transport note
+
+GraphQL endpoints (like GitHub's `/graphql`) are a POST against a single URL with a JSON body carrying the query and variables. The existing infrastructure already supports this — `RequestSpec.body` is passed to `httpx.request(json=...)` by the API client — so a GraphQL asset is just an `APIAsset` subclass. Two terms used below: `pageInfo` is a GraphQL connection's pagination envelope, and `endCursor` is the opaque "resume here" token it hands back.
+
+1. Set `pagination_config = PaginationConfig(strategy="cursor", page_size=N)`. The framework threads the cursor through `PaginationState.cursor → checkpoint["cursor"] → next build_entity_request()` opaquely; your code reads `checkpoint["cursor"]` and puts it in a body variable (any name — e.g., `"cursor"`) that the GraphQL query text binds to the connection's `after:` argument (`deployments(..., after: $cursor)`).
+2. Return a POST `RequestSpec` from `build_request()` / `build_entity_request()`:
+
+   ```python
+   return RequestSpec(
+       method="POST",
+       url=f"{get_github_base_url()}/graphql",
+       body={"query": _QUERY, "variables": {"owner": ..., "repo": ..., "cursor": checkpoint.get("cursor") if checkpoint else None}},
+       headers={"Accept": "application/vnd.github+json"},
+   )
+   ```
+3. Start `parse_response()` with two guards **before** extracting records — because GraphQL returns HTTP 200 for query/permission errors and non-dict bodies surface on proxy rewrites or maintenance HTML:
+
+   ```python
+   if not isinstance(response, dict):
+       raise ValueError(f"GraphQL response for {self.name} is not a JSON object: got {type(response).__name__}")
+   if errors := response.get("errors"):
+       raise ValueError(f"GraphQL error from {self.name}: {errors[0].get('message', errors)}")
+   ```
+4. Extract the connection and call `self._check_required_keys(nodes, field_to_column)` with an explicit dotted-path map (e.g., `"creator.login": "creator_login"`), then return `PaginationState(has_more=pageInfo["hasNextPage"], cursor=pageInfo["endCursor"])`.
+
+Working reference: `src/data_assets/assets/github/deployments.py`. It inherits `GitHubRepoAsset`, uses dict-shaped entity keys via `entity_key_map` (so `organization` / `repo_name` / `org_repo_key` are injected post-parse from the `{owner, name, full_name}` entity key), and overrides `should_stop()` to halt pagination when the page's oldest `createdAt` falls below the stop threshold described in [assets-catalog.md](assets-catalog.md#key-design-choices).
 
 ---
 

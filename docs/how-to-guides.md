@@ -335,6 +335,9 @@ You only need to define:
 - `parse_response()` — use `self._parse_array_response(response, record_fn)` or `self._parse_wrapped_response(response, items_key, record_fn)`
 
 For org-level endpoints (repos, members, runner groups), inherit from `GitHubOrgAsset` (in `assets/github/helpers.py`). It provides shared `build_request()` logic for org-scoped pagination. Subclasses set `org_endpoint` (e.g., `"/repos"`, `"/members"`) and optionally `org_request_params`, then implement `parse_response()`.
+
+For **GraphQL endpoints** (POST `/graphql`), still inherit from `GitHubRepoAsset` (it's transport-agnostic). Full recipe and code example: [GraphQL transport note](extending-reference.md#graphql-transport-note). Working reference asset: `github_deployments`. GraphQL API docs: https://docs.github.com/en/graphql.
+
 - **`since` param**: works on `/repos/{o}/{r}/commits` but NOT on `/pulls`
 - GitHub REST API docs: https://docs.github.com/en/rest
 
@@ -348,11 +351,4 @@ Inherit from `JiraAsset` (in `assets/jira/helpers.py`), which provides shared `s
 
 ### When to use RestAsset vs APIAsset
 
-| Use RestAsset when... | Use APIAsset when... |
-|----------------------|---------------------|
-| Standard REST: GET endpoint returns JSON with records array | API needs custom request logic (multi-org iteration, JQL construction) |
-| Pagination is page_number, offset, or cursor | Pagination needs keyset or custom sort params |
-| Field mapping is just renames | Response parsing needs nested extraction or type conversion |
-| No incremental date filter needed (FULL_REPLACE) | Incremental needs sort-by-update or should_stop() |
-
-**Example:** `sonarqube_projects` uses RestAsset with a custom `extract()` override (handles the 10k ES limit via query sharding). `sonarqube_issues` uses APIAsset (needs UPDATE_DATE sort).
+The full decision table and worked examples live in [Extending Reference](extending-reference.md#restasset-attributes-reference). In short: use `RestAsset` for GET-only REST endpoints with standard pagination and simple field mapping; reach for `APIAsset` for everything else — keyset pagination, JQL-style constructed queries, GraphQL POST bodies, or an official SDK that replaces the HTTP layer via an `extract()` override.

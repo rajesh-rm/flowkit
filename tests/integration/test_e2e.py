@@ -263,6 +263,73 @@ class TestGitHubE2E:
         assert 42 in df["number"].values
         assert "dev-alice" in df["user_login"].values
 
+    @respx.mock
+    def test_deployments_entity_parallel_graphql(
+        self, run_engine, monkeypatch, load_fixture,
+    ):
+        """End-to-end the GraphQL deployments asset: POST /graphql, two pages, UPSERT."""
+        monkeypatch.setenv("GITHUB_ORGS", "orgName")
+        monkeypatch.setenv("GITHUB_APP_ID", "12345")
+        monkeypatch.setenv("GITHUB_PRIVATE_KEY", "fake-key")
+        monkeypatch.setenv("GITHUB_INSTALLATION_ID", "67890")
+
+        seed_table(run_engine, "raw", "github_repos", [
+            {"id": 100001, "full_name": "orgName/devops-tooling",
+             "name": "devops-tooling", "owner_login": "orgName",
+             "private": False, "description": "tooling",
+             "language": "Go", "default_branch": "main",
+             "created_at": "2024-01-15", "updated_at": "2025-12-01",
+             "pushed_at": "2025-12-01", "archived": False,
+             "html_url": "https://github.com/orgName/devops-tooling"},
+        ])
+
+        respx.post(f"{GH_API}/graphql").mock(side_effect=[
+            httpx.Response(200, json=load_fixture("github/deployments_graphql_page1.json")),
+            httpx.Response(200, json=load_fixture("github/deployments_graphql_page2.json")),
+        ])
+
+        with stub_token_manager(GitHubAppTokenManager):
+            from data_assets.runner import run_asset
+            result = run_asset("github_deployments", run_mode="full")
+
+        assert result["status"] == "success"
+        assert result["rows_loaded"] == 12  # 10 from page1 + 2 from page2
+
+        df = pd.read_sql(
+            'SELECT * FROM raw.github_deployments ORDER BY deployment_id DESC',
+            run_engine,
+        )
+        # Injected columns populated for every row
+        assert (df["organization"] == "orgName").all()
+        assert (df["repo_name"] == "devops-tooling").all()
+        assert (df["org_repo_key"] == "orgName/devops-tooling").all()
+        # Composite PK present
+        assert len(df) == 12
+        assert len(df.drop_duplicates(["deployment_id", "organization"])) == 12
+        # source_url computed by transform()
+        first = df.iloc[0]
+        assert first["source_url"] == (
+            f"https://github.com/orgName/devops-tooling/deployments/{first['deployment_id']}"
+        )
+        # Null-parent rows survived (fixture row 2404802687 has creator/latestStatus null)
+        null_creator = df[df["deployment_id"] == 2404802687].iloc[0]
+        assert pd.isna(null_creator["creator_login"])
+        assert pd.isna(null_creator["latest_status"])
+
+        # Run history + lock release
+        history = pd.read_sql(
+            "SELECT status FROM data_ops.run_history "
+            "WHERE asset_name = 'github_deployments'",
+            run_engine,
+        )
+        assert history.iloc[0]["status"] == "success"
+        locks = pd.read_sql(
+            "SELECT * FROM data_ops.run_locks "
+            "WHERE asset_name = 'github_deployments'",
+            run_engine,
+        )
+        assert len(locks) == 0
+
 
 # ---------------------------------------------------------------------------
 # Missing-key validation + null-rate warning

@@ -112,6 +112,14 @@ QUESTION 1b: Is this a standard REST API? (JSON response, pagination, field mapp
   |     --> Override extract() on your asset class.
   |         See the extract() hook in the Extending Reference.
   |
+  +-- It's a GraphQL API (POST to /graphql with a JSON body)
+  |     --> Use APIAsset with a POST RequestSpec whose .body carries
+  |         the query and variables; the cursor goes in a body
+  |         variable (bound to the connection's after: argument in
+  |         the query), not a query param. See the GraphQL transport
+  |         note in Extending Reference and the github_deployments
+  |         asset as a reference.
+  |
   +-- NO, needs custom request/response logic
         --> Use APIAsset (custom, full control).
             Continue to Question 2.

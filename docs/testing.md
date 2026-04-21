@@ -371,6 +371,7 @@ def test_example(load_fixture):
 - [ ] `parse_response()` — pagination state (`has_more`, `next_page`/`next_offset`/`cursor`)
 - [ ] `parse_response()` — required API key absent → raises `MissingKeyError`
 - [ ] `parse_response()` — optional column key absent → run proceeds (requires `optional_columns` set on the asset)
+- [ ] `parse_response()` for GraphQL assets — non-dict body raises typed `ValueError`; `errors` envelope raises typed `ValueError` before records are extracted; cursor (`pageInfo.endCursor`) surfaces in `PaginationState.cursor` and threads into `checkpoint["cursor"]` on the next `build_request()`
 - [ ] `primary_key` — verify it's set and matches expected columns
 - [ ] `indexes` — verify at least one index is defined
 - [ ] `filter_entity_keys()` — if entity-parallel, verify filtering logic
