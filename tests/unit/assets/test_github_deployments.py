@@ -86,6 +86,35 @@ class TestFilterEntityKeys:
         )
         assert [r["full_name"] for r in filtered] == ["org-one/valid"]
 
+    def test_malformed_keys_emit_warning(self, github_env, caplog, monkeypatch):
+        """Dropped parent entries must be observable in logs, not silent.
+
+        Sets GITHUB_ORGS to empty so `filter_to_current_org` is a passthrough —
+        malformed entries (non-strings, strings without '/') then reach our own
+        filter_entity_keys skip branch where the WARNING is emitted. This is
+        exactly the forensic path operators need if parent data ever drifts.
+        """
+        import logging
+
+        monkeypatch.setenv("GITHUB_ORGS", "")
+        from data_assets.assets.github.deployments import GitHubDeployments
+
+        with caplog.at_level(
+            logging.WARNING,
+            logger="data_assets.assets.github.deployments",
+        ):
+            GitHubDeployments().filter_entity_keys(
+                ["org-one/valid", "no-slash", 42]
+            )
+        messages = [
+            rec.getMessage()
+            for rec in caplog.records
+            if rec.levelno == logging.WARNING
+            and rec.name == "data_assets.assets.github.deployments"
+        ]
+        assert any("no-slash" in m for m in messages), messages
+        assert any("42" in m for m in messages), messages
+
 
 # ---------------------------------------------------------------------------
 # build_entity_request — POST shape, cursor threading, DESC order
@@ -245,6 +274,28 @@ class TestParseResponseMissingKey:
         df, state = GitHubDeployments().parse_response({"data": {"repository": None}})
         assert len(df) == 0
         assert state.has_more is False
+
+
+class TestParseResponseNonDictGuard:
+    """A non-dict top-level body must raise a typed, asset-named ValueError."""
+
+    def test_list_body_raises_with_asset_name(self, github_env):
+        from data_assets.assets.github.deployments import GitHubDeployments
+
+        with pytest.raises(ValueError, match="github_deployments.*not a JSON object"):
+            GitHubDeployments().parse_response([{"some": "list"}])
+
+    def test_string_body_raises(self, github_env):
+        from data_assets.assets.github.deployments import GitHubDeployments
+
+        with pytest.raises(ValueError, match="not a JSON object.*str"):
+            GitHubDeployments().parse_response("Service Unavailable")
+
+    def test_none_body_raises(self, github_env):
+        from data_assets.assets.github.deployments import GitHubDeployments
+
+        with pytest.raises(ValueError, match="not a JSON object.*NoneType"):
+            GitHubDeployments().parse_response(None)
 
 
 # ---------------------------------------------------------------------------

@@ -18,6 +18,7 @@ the GraphQL variables and the entity-key injection both expect.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -35,6 +36,8 @@ from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.types import PaginationConfig, PaginationState, RequestSpec
 from data_assets.extract.token_manager import GitHubAppTokenManager
+
+logger = logging.getLogger(__name__)
 
 _DEPLOYMENTS_QUERY = """
 query($owner: String!, $repo: String!, $pageSize: Int!, $cursor: String, $orderDirection: OrderDirection!) {
@@ -131,13 +134,24 @@ class GitHubDeployments(APIAsset):
     ]
 
     def filter_entity_keys(self, keys: list) -> list:
-        """Scope to current org and reshape strings into {owner, name, full_name} dicts."""
+        """Scope to current org and reshape strings into {owner, name, full_name} dicts.
+
+        Drops any parent entry that isn't a ``"owner/repo"`` string. The drop is
+        logged (not silent) so operators can diagnose a repo going missing from
+        downstream deployment data rather than discovering the gap weeks later.
+        """
         scoped = filter_to_current_org(keys)
         result: list[dict[str, str]] = []
         for full_name in scoped:
             if isinstance(full_name, str) and "/" in full_name:
                 owner, name = full_name.split("/", 1)
                 result.append({"owner": owner, "name": name, "full_name": full_name})
+            else:
+                logger.warning(
+                    "github_deployments: dropping malformed parent repo "
+                    "full_name=%r (expected 'owner/repo' string)",
+                    full_name,
+                )
         return result
 
     def build_entity_request(
@@ -164,6 +178,16 @@ class GitHubDeployments(APIAsset):
     def parse_response(
         self, response: dict[str, Any],
     ) -> tuple[pd.DataFrame, PaginationState]:
+        # Guard against non-dict top-level responses (proxy rewrites, maintenance
+        # HTML pages deserialized as strings, schema regressions). The alternative
+        # is a cryptic `AttributeError: 'list' object has no attribute 'get'`
+        # surfacing at the runner boundary with no asset context.
+        if not isinstance(response, dict):
+            raise ValueError(
+                f"GraphQL response for {self.name} is not a JSON object: "
+                f"got {type(response).__name__}"
+            )
+
         # GraphQL returns HTTP 200 even for query/permission errors — inspect the
         # body. These are not transient; fail fast and let the runner drop the temp.
         if errors := response.get("errors"):
