@@ -63,13 +63,14 @@ class TestTransformSchema:
     @pytest.mark.parametrize("name,cls", _transforms, ids=[t[0] for t in _transforms])
     def test_query_executes_against_empty_tables(self, name, cls):
         """Transform query() must be valid SQL against source table schemas."""
-        asset = cls()
-        sql = asset.query(_DUMMY_CONTEXT)
-
         from data_assets.db.dialect import get_dialect
 
+        asset = cls()
+        dialect = get_dialect(self.engine)
+        sql = asset.query(_DUMMY_CONTEXT, dialect)
+
         with self.engine.begin() as conn:
-            get_dialect(self.engine).set_query_timeout(conn, asset.query_timeout_seconds)
+            dialect.set_query_timeout(conn, asset.query_timeout_seconds)
             result = conn.execute(text(sql))
             columns = list(result.keys())
 
@@ -82,8 +83,10 @@ class TestTransformSchema:
     @pytest.mark.parametrize("name,cls", _transforms, ids=[t[0] for t in _transforms])
     def test_query_returns_zero_rows_on_empty_tables(self, name, cls):
         """With no source data, transform should return 0 rows (not error)."""
+        from data_assets.db.dialect import get_dialect
+
         asset = cls()
-        sql = asset.query(_DUMMY_CONTEXT)
+        sql = asset.query(_DUMMY_CONTEXT, get_dialect(self.engine))
 
         with self.engine.begin() as conn:
             result = conn.execute(text(sql))

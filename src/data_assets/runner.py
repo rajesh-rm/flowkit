@@ -31,6 +31,7 @@ from data_assets.core.identifiers import uuid7
 from data_assets.core.registry import all_assets, discover, get
 from data_assets.core.run_context import RunContext
 from data_assets.core.transform_asset import TransformAsset
+from data_assets.db.dialect import get_dialect
 from data_assets.db.engine import get_engine
 from data_assets.db.models import CoverageTracker, RunHistory, create_all_tables
 from data_assets.extract.api_client import APIClient
@@ -381,7 +382,7 @@ def _run_extraction(
 
     if isinstance(asset, TransformAsset):
         _check_source_freshness(engine, asset)
-        query = asset.query(context)
+        query = asset.query(context, get_dialect(engine))
         rows = execute_transform(
             engine, query, temp_tbl, context,
             timeout_seconds=asset.query_timeout_seconds,
@@ -540,8 +541,6 @@ def _load_entity_keys(engine: Engine, asset: APIAsset) -> list:
         list of dicts when parent has a composite PK. All current assets use
         single-column PKs, so callers receive list[str] in practice.
     """
-    from data_assets.db.dialect import get_dialect
-
     parent_cls = get(asset.parent_asset_name)
     parent = parent_cls()
     d = get_dialect(engine)

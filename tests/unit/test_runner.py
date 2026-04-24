@@ -486,7 +486,7 @@ class _FakeTransformAsset(TransformAsset):
     columns = []
     primary_key = ["id"]
 
-    def query(self, context):
+    def query(self, context, dialect):
         return "SELECT 1"
 
 
@@ -502,9 +502,10 @@ class _FakeAPIAsset(APIAsset):
 
 
 class TestRunExtractionRouting:
+    @patch("data_assets.runner.get_dialect")
     @patch("data_assets.runner._check_source_freshness")
     @patch("data_assets.runner.execute_transform", return_value=42)
-    def test_transform_asset_route(self, mock_exec, mock_freshness):
+    def test_transform_asset_route(self, mock_exec, mock_freshness, mock_get_dialect):
         """TransformAsset should route to execute_transform."""
         asset = _FakeTransformAsset()
 
@@ -517,6 +518,7 @@ class TestRunExtractionRouting:
         assert stats == {}
         mock_freshness.assert_called_once()
         mock_exec.assert_called_once()
+        mock_get_dialect.assert_called_once_with(engine)
 
     def test_unknown_asset_type_raises(self):
         """An asset that is neither APIAsset nor TransformAsset should raise TypeError."""

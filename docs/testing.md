@@ -103,7 +103,7 @@ Available in **all** tests (unit and integration):
 |----------------|------|-------------|
 | `StubTokenManager` | Class | Minimal token manager — `get_token()` returns `"test-token"` |
 | `_clean_registry` | Autouse fixture | Isolates the asset registry between tests (prevents `@register` leakage) |
-| `db_engine` / `pg_engine` | Session fixture | Real database via testcontainers. Set `TEST_DATABASE=mariadb` for MariaDB (default: postgres) |
+| `db_engine` / `pg_engine` | Session fixture | Real database via testcontainers. **Parametrised** — runs every integration test on both Postgres and MariaDB by default. Set `TEST_DATABASE=postgres` (or `mariadb`) to restrict to one backend during iteration. |
 | `clean_db` | Function fixture | Truncates all tables before each test, returns engine |
 | `load_fixture` | Function fixture | Callable: `load_fixture("github/repos_org1.json")` loads JSON from `tests/fixtures/` |
 
@@ -128,6 +128,20 @@ Available in integration tests only:
 | `stub_token_manager(cls)` | Context manager | Patches a TokenManager subclass to skip real credential resolution |
 | `run_engine` | Fixture | Patches `get_engine()` everywhere to use test database |
 | `seed_table(engine, schema, table, rows)` | Function | Inserts setup data into a table before test |
+| `read_rows(engine, schema, table, where=None, order_by=None)` | Function (`_db_utils.py`) | Dialect-portable replacement for `pd.read_sql("SELECT …")`. Use this in assertions. |
+| `table_exists(engine, schema, table)` | Function (`_db_utils.py`) | Returns `True` if the table exists. Works on both backends (no Postgres-specific `to_regclass`). |
+| `_dialect_gate` | Autouse fixture | Auto-skips tests marked `@pytest.mark.postgres_only` or `@pytest.mark.mariadb_only` when the wrong backend is active. |
+
+### Session time zone
+
+Every new DB connection — production (`get_engine`) and testcontainer (`_create_db_engine` in `tests/conftest.py`) — has its session time zone forced to UTC by `attach_utc_session_hook(engine)` in `src/data_assets/db/engine.py`. The hook registers a SQLAlchemy `"connect"` event listener that runs:
+
+- Postgres: `SET TIME ZONE 'UTC'`
+- MariaDB: `SET time_zone = '+00:00'`
+
+The exact SQL is defined as `PostgresDialect.UTC_SESSION_SQL` / `MariaDBDialect.UTC_SESSION_SQL` in `src/data_assets/db/dialect.py`.
+
+**Why it matters in tests.** Transforms like `sonarqube_adoption_trend` use `DATE_TRUNC('week', … AT TIME ZONE 'UTC')::date` and `WHERE analysis_date <= NOW()`. Without the UTC session pin, those expressions would drift with the OS time zone of the DB server or testcontainer. Pinning means `NOW()`, `CURRENT_DATE`, and week-truncation all behave the same in CI, on macOS, on RHEL, and in production — no defensive TZ conversion in your asset SQL.
 
 ---
 
@@ -302,24 +316,58 @@ def test_full_run(run_engine, monkeypatch):
 - Use `respx` to mock HTTP — never make real API calls in tests
 - Seed parent tables with `seed_table()` if the asset depends on a parent (entity-parallel)
 
-**Running against MariaDB:**
+**Running against both backends (default):**
 
-All integration tests achieve full parity on both backends:
+The `db_engine` fixture is parametrised. A plain `pytest` run executes every integration test twice — once against Postgres, once against MariaDB — in a single invocation. Test IDs reflect the backend:
 
 ```bash
-# Default — PostgreSQL
+# Default — both backends
 .venv/bin/python -m pytest tests/integration/ -v
+# → test_foo[postgres] PASSED
+# → test_foo[mariadb] PASSED
 
-# MariaDB
-TEST_DATABASE=mariadb .venv/bin/python -m pytest tests/integration/ -v
+# Iteration — restrict to one backend while debugging
+TEST_DATABASE=postgres .venv/bin/python -m pytest tests/integration/ -v
+TEST_DATABASE=mariadb  .venv/bin/python -m pytest tests/integration/ -v
 ```
 
-Both backends produce 50/50 passing tests. The `db_engine` fixture handles all dialect differences (identifier quoting, datetime conversion, TEXT→VARCHAR for PKs, index prefix lengths) transparently.
+The `db_engine` fixture handles all dialect differences (identifier quoting, datetime conversion, TEXT→VARCHAR for PKs, index prefix lengths) transparently.
 
-**Writing dialect-portable test SQL:**
-- Avoid SQL reserved words as unquoted column names (e.g., `ORDER BY key` fails on MariaDB — use `sorted()` comparison instead)
-- Use `inspect(engine).get_indexes()` instead of `pg_indexes` for index verification
-- Use `dialect.set_query_timeout()` instead of raw `SET LOCAL statement_timeout`
+### Writing dialect-portable integration tests
+
+> **Golden rule: never write raw SQL in integration test assertions. Use `read_rows` and `table_exists` from `tests/integration/_db_utils.py` — they quote identifiers correctly for both Postgres and MariaDB, so the same assertion runs unchanged on both backends.**
+
+Raw SQL in test assertions drifts silently:
+- `ORDER BY "key"` works on Postgres but on MariaDB (default `sql_mode`) becomes a sort on the literal string `'key'` — a silent no-op.
+- `WHERE key = 'x'` works on Postgres but fails on MariaDB because `KEY` is a reserved word.
+- `SELECT to_regclass(…)` is Postgres-only and errors on MariaDB.
+
+The helpers use SQLAlchemy Core, which auto-quotes identifiers per-dialect.
+
+| ❌ DON'T | ✅ DO |
+|---------|------|
+| `pd.read_sql("SELECT * FROM raw.t ORDER BY key", engine)` | `read_rows(engine, "raw", "t", order_by=["key"])` |
+| `pd.read_sql("SELECT * FROM raw.t WHERE key = 'x'", engine)` | `read_rows(engine, "raw", "t", where={"key": "x"})` |
+| `pd.read_sql("SELECT to_regclass('raw.t') AS t", engine)` | `table_exists(engine, "raw", "t")` |
+| `pd.read_sql("SELECT * FROM data_ops.run_history WHERE asset_name = 'x'", engine)` | `read_rows(engine, "data_ops", "run_history", where={"asset_name": "x"})` |
+
+### Marker escape hatch
+
+If a test is genuinely single-backend (e.g., exercises Postgres-only `CREATE UNLOGGED TABLE` or MariaDB-only `ON DUPLICATE KEY UPDATE` semantics), opt out with a marker:
+
+```python
+import pytest
+
+@pytest.mark.postgres_only
+def test_unlogged_temp_table(clean_db):
+    """Tests Postgres-specific UNLOGGED behavior."""
+
+@pytest.mark.mariadb_only
+def test_duplicate_key_update(clean_db):
+    """Tests MariaDB-specific UPSERT syntax."""
+```
+
+The `_dialect_gate` autouse fixture in `tests/integration/conftest.py` skips these when the wrong backend is active. Use markers sparingly — the helpers cover almost every assertion shape.
 
 ---
 

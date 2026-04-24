@@ -40,7 +40,7 @@ make test-cov           # Unit tests with coverage report
 TEST_DATABASE=mariadb make test-integration
 ```
 
-Both backends achieve full test parity (50/50 integration tests).
+All integration tests run against both backends automatically. The parametrised `db_engine` fixture in `tests/conftest.py` boots a Postgres testcontainer and a MariaDB testcontainer in the same `pytest` invocation; each test shows up twice in the results (`test_foo[postgres]`, `test_foo[mariadb]`). Set `TEST_DATABASE=postgres` (or `mariadb`) to restrict to one backend during dialect-specific iteration.
 
 See [docs/testing.md](docs/testing.md) for the full guide — directory structure, fixtures, patterns, and debugging.
 

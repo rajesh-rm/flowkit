@@ -228,5 +228,16 @@ When an API response doesn't include the parent identifier (e.g., branches endpo
 | Asset | Table | Load | Source Tables | Description |
 |-------|-------|------|---------------|-------------|
 | `incident_summary` | `mart.incident_summary` | FULL_REPLACE | `servicenow_incidents` | Daily incident count grouped by priority and state |
+| `sonarqube_adoption_trend` | `mart.sonarqube_adoption_trend` | FULL_REPLACE | `sonarqube_measures_history` | Weekly new-project onboardings with running cumulative, gap-free through the last completed ISO week (PowerBI-ready) |
 
 **Why FULL_REPLACE?** The summary is always recomputed from the full incidents table. There's no incremental benefit since the aggregation covers all dates.
+
+### Dialect-agnostic SQL
+
+Transforms target both PostgreSQL 16+ and MariaDB 10.11+. The base `TransformAsset.query(context, dialect)` signature passes a `Dialect` instance so an asset can emit dialect-correct fragments via helpers instead of baking in Postgres-only syntax:
+
+- `dialect.week_start_from_ts(expr)` — Monday-of-week DATE from a timestamp.
+- `dialect.date_add_days(expr, n)` — date arithmetic.
+- `dialect.cast_bigint(expr)` — 64-bit signed integer cast (`BIGINT` on Postgres, `SIGNED` on MariaDB).
+
+`sonarqube_adoption_trend` uses these helpers plus a `WITH RECURSIVE` CTE (supported on both backends since Postgres 8.4 and MariaDB 10.2) to generate a gap-free week spine without Postgres-only `generate_series`.

@@ -18,13 +18,13 @@ Production-ready assets across 5 sources, with no custom code required:
 
 | Source | Assets | Description |
 |--------|--------|-------------|
-| GitHub | 12 | Repositories, pull requests, branches, commits, CI/CD workflows and runs, org members, runner groups (multi-org support) |
+| GitHub | 13 | Repositories, pull requests, branches, commits, deployments, CI/CD workflows and runs, org members, runner groups (multi-org support) |
 | ServiceNow | 13 | ITSM tables: incidents, changes, change tasks, and related operational data via pysnc |
 | SonarQube | 8 | Code quality: projects, issues, branches, analyses, measures, and historical trends |
 | Jira | 2 | Project tracking: projects and issues (Cloud and Data Center) |
-| Transforms | 1 | SQL-based derived tables (database-to-database) |
+| Transforms | 2 | SQL-based derived tables (incident_summary, sonarqube_adoption_trend) |
 
-See the [Assets Catalog](docs/assets-catalog.md) for the full reference.
+See the [Assets Catalog](docs/assets-catalog.md) for the full reference, or the [docs index](docs/README.md) for the complete documentation map.
 
 ## Key Features
 

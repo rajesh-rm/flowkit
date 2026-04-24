@@ -66,6 +66,8 @@ strict = true
 testpaths = ["tests"]
 markers = [
     "integration: marks tests requiring a live Postgres or MariaDB instance (Docker)",
+    "postgres_only: test exercises Postgres-specific behavior (e.g., UNLOGGED tables, ctid dedup)",
+    "mariadb_only: test exercises MariaDB-specific behavior",
 ]
 
 [tool.uv]

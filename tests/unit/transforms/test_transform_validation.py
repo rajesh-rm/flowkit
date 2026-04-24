@@ -21,6 +21,7 @@ from data_assets.core.enums import RunMode
 from data_assets.core.registry import all_assets, discover
 from data_assets.core.run_context import RunContext
 from data_assets.core.transform_asset import TransformAsset
+from data_assets.db.dialect import PostgresDialect
 from sqlalchemy import Text
 
 
@@ -66,15 +67,19 @@ def _extract_table_refs(sql: str) -> list[str]:
 def _extract_select_aliases(sql: str) -> list[str]:
     """Extract output column names from SELECT ... FROM.
 
-    Splits on top-level commas (ignoring commas inside parentheses),
-    then takes the AS alias or the trailing identifier from each expression.
+    Uses the LAST SELECT-FROM pair so multi-CTE queries (including
+    RECURSIVE CTEs) resolve to the final output SELECT, not the first
+    CTE body. Splits on top-level commas (ignoring commas inside
+    parentheses), then takes the AS alias or trailing identifier.
     """
-    select_match = re.search(r'SELECT\s+(.*?)\s+FROM', sql, re.IGNORECASE | re.DOTALL)
-    if not select_match:
+    matches = list(re.finditer(
+        r'SELECT\s+(.*?)\s+FROM', sql, re.IGNORECASE | re.DOTALL,
+    ))
+    if not matches:
         return []
 
     # Split on commas that are NOT inside parentheses
-    select_body = select_match.group(1)
+    select_body = matches[-1].group(1)
     parts: list[str] = []
     depth = 0
     current: list[str] = []
@@ -112,6 +117,8 @@ _DUMMY_CONTEXT = RunContext(
     asset_name="test",
 )
 
+_DUMMY_DIALECT = PostgresDialect()
+
 
 # ---------------------------------------------------------------------------
 # Tests — parametrized over all transform assets
@@ -139,7 +146,7 @@ class TestTransformValidation:
     def test_sql_references_valid_tables(self, name, asset):
         """SQL FROM/JOIN clauses must reference schema.table of source assets."""
         catalog = _build_source_catalog()
-        sql = asset.query(_DUMMY_CONTEXT)
+        sql = asset.query(_DUMMY_CONTEXT, _DUMMY_DIALECT)
         table_refs = _extract_table_refs(sql)
 
         assert table_refs, (
@@ -157,7 +164,7 @@ class TestTransformValidation:
     def test_source_columns_exist(self, name, asset):
         """Columns referenced in SQL should exist in source asset definitions."""
         catalog = _build_source_catalog()
-        sql = asset.query(_DUMMY_CONTEXT)
+        sql = asset.query(_DUMMY_CONTEXT, _DUMMY_DIALECT)
         table_refs = _extract_table_refs(sql)
 
         # For each referenced table, check column references
@@ -182,7 +189,7 @@ class TestTransformValidation:
 
     def test_output_columns_match_declared(self, name, asset):
         """SELECT aliases in query() must match the asset's declared columns."""
-        sql = asset.query(_DUMMY_CONTEXT)
+        sql = asset.query(_DUMMY_CONTEXT, _DUMMY_DIALECT)
         sql_aliases = _extract_select_aliases(sql)
         declared_cols = [c.name.lower() for c in asset.columns]
 
@@ -217,7 +224,7 @@ class TestRegistryTransformValidation:
             primary_key = ["id"]
             indexes = [Index(columns=("id",))]
 
-            def query(self, context):
+            def query(self, context, dialect):
                 return "SELECT 1 AS id"
 
         _registry["bad_transform"] = _BadTransform
@@ -239,7 +246,7 @@ class TestRegistryTransformValidation:
             primary_key = ["id"]
             indexes = [Index(columns=("id",))]
 
-            def query(self, context):
+            def query(self, context, dialect):
                 return "SELECT 1 AS id"
 
         class _TransformB(TransformAsset):
@@ -250,7 +257,7 @@ class TestRegistryTransformValidation:
             primary_key = ["id"]
             indexes = [Index(columns=("id",))]
 
-            def query(self, context):
+            def query(self, context, dialect):
                 return "SELECT 1 AS id"
 
         _registry["cycle_a"] = _TransformA

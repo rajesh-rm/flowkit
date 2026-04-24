@@ -417,8 +417,14 @@ class TransformAsset(Asset):
     query_timeout_seconds: int = 300  # safety limit — per-query timeout
 
     @abstractmethod
-    def query(self, context: RunContext) -> str:
-        """Return a SQL SELECT producing the output rows."""
+    def query(self, context: RunContext, dialect: Dialect) -> str:
+        """Return a SQL SELECT producing the output rows.
+
+        Use `dialect` for any SQL that differs between Postgres and MariaDB
+        (week truncation, date arithmetic, integer casts, etc.). Helpers
+        include `dialect.week_start_from_ts(expr)`,
+        `dialect.date_add_days(expr, days)`, `dialect.cast_bigint(expr)`.
+        """
         ...
 ```
 
@@ -441,6 +447,7 @@ from data_assets.core.enums import LoadStrategy, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.transform_asset import TransformAsset
+from data_assets.db.dialect import Dialect
 
 
 @register
@@ -477,10 +484,17 @@ class PagerDutyIncidentSummary(TransformAsset):
         Index(columns=("service_name",)),    # aggregate by service
     ]
 
-    def query(self, context: RunContext) -> str:
+    def query(self, context: RunContext, dialect: Dialect) -> str:
         """SQL SELECT that produces the summary rows.
 
         The column names in the SELECT must match the `columns` definition.
+        This example targets PostgreSQL — ``EXTRACT(EPOCH FROM …)`` is a
+        Postgres-specific construct (MariaDB has no ``EPOCH`` field and
+        uses ``TIMESTAMPDIFF(SECOND, a, b)`` instead). For dialect-portable
+        SQL that runs identically on both backends, see
+        ``sonarqube_adoption_trend`` — it uses ``dialect.week_start_from_ts``,
+        ``dialect.date_add_days``, and ``dialect.cast_bigint`` to emit
+        backend-correct fragments from a single ``query()`` method.
         """
         return """
             SELECT
