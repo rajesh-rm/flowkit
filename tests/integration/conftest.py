@@ -12,6 +12,28 @@ from data_assets.extract.token_manager import TokenManager
 
 
 # ---------------------------------------------------------------------------
+# Dialect gating — skip @postgres_only / @mariadb_only on the wrong backend
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _dialect_gate(request, db_engine):
+    """Skip tests marked @pytest.mark.postgres_only (or mariadb_only) when
+    running against the other backend.
+
+    Use sparingly — prefer dialect-portable assertions via the helpers in
+    :mod:`tests.integration._db_utils`. A marker is only correct when the
+    test genuinely depends on a feature that one backend does not support
+    (e.g., ``CREATE UNLOGGED TABLE`` or ``ctid``-based dedup).
+    """
+    name = db_engine.dialect.name
+    if request.node.get_closest_marker("postgres_only") and name != "postgresql":
+        pytest.skip("marked @pytest.mark.postgres_only")
+    if request.node.get_closest_marker("mariadb_only") and name not in ("mysql", "mariadb"):
+        pytest.skip("marked @pytest.mark.mariadb_only")
+
+
+# ---------------------------------------------------------------------------
 # Token manager patching
 # ---------------------------------------------------------------------------
 

@@ -116,9 +116,18 @@ def _setup_container_runtime() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _test_database() -> str:
-    """Return the test database backend: 'postgres' or 'mariadb'."""
-    return os.environ.get("TEST_DATABASE", "postgres").lower().strip()
+def _backends() -> list[str]:
+    """Backends to run integration tests against.
+
+    Default (``TEST_DATABASE`` unset): both ``postgres`` and ``mariadb``.
+    Each integration test is auto-parametrised to run on both so
+    dialect-specific bugs are caught on the first local ``pytest`` run.
+
+    Set ``TEST_DATABASE=postgres`` (or ``mariadb``) to restrict to one
+    backend for fast iteration during dialect-specific work.
+    """
+    v = os.environ.get("TEST_DATABASE", "").strip().lower()
+    return [v] if v else ["postgres", "mariadb"]
 
 
 _DB_CONFIGS = {
@@ -141,8 +150,13 @@ _DB_CONFIGS = {
 def _create_db_engine(backend: str) -> tuple[Engine, object | None]:
     """Create a database engine via testcontainers or DATABASE_URL.
 
-    Returns (engine, container_or_None).
+    Returns (engine, container_or_None). The engine has the same UTC
+    session-TZ hook that production :func:`data_assets.db.engine.get_engine`
+    attaches, so integration tests run on the same time-zone baseline as
+    production.
     """
+    from data_assets.db.engine import attach_utc_session_hook
+
     cfg = _DB_CONFIGS[backend]
     try:
         import importlib
@@ -153,11 +167,15 @@ def _create_db_engine(backend: str) -> tuple[Engine, object | None]:
         container = container_cls(cfg["image"], **cfg.get("kwargs", {}))
         container.start()
         url = container.get_connection_url()
-        return create_engine(url), container
+        engine = create_engine(url)
+        attach_utc_session_hook(engine)
+        return engine, container
     except Exception as exc:
         url = os.environ.get("DATABASE_URL")
         if url:
-            return create_engine(url), None
+            engine = create_engine(url)
+            attach_utc_session_hook(engine)
+            return engine, None
         pytest.skip(
             f"No {cfg['label']} available for integration tests.\n"
             f"  Container error: {exc}\n"
@@ -201,15 +219,22 @@ def _setup_schemas(engine: Engine, container=None) -> None:
     create_all_tables(engine)
 
 
-@pytest.fixture(scope="session")
-def db_engine():
+@pytest.fixture(scope="session", params=_backends(), ids=lambda b: b)
+def db_engine(request):
     """Create a test database engine via testcontainers.
 
-    Respects TEST_DATABASE env var:
-    - 'postgres' (default): PostgreSQL 16 via testcontainers
-    - 'mariadb': MariaDB 10.11 via testcontainers
+    By default, integration tests run against BOTH ``postgres`` and
+    ``mariadb`` in a single ``pytest`` invocation. This catches
+    dialect-specific bugs at write-time instead of in a post-merge
+    MariaDB run. Set ``TEST_DATABASE=postgres`` (or ``mariadb``) to
+    restrict to one backend for fast iteration — see :func:`_backends`.
+
+    Test IDs reflect the current backend, e.g.::
+
+        test_foo[postgres]
+        test_foo[mariadb]
     """
-    backend = _test_database()
+    backend = request.param
     engine, container = _create_db_engine(backend)
 
     _setup_schemas(engine, container)

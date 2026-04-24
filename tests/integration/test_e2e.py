@@ -14,6 +14,7 @@ import respx
 
 from data_assets.extract.token_manager import GitHubAppTokenManager
 from data_assets.load.loader import write_to_temp
+from tests.integration._db_utils import read_rows, table_exists
 from tests.integration.conftest import seed_table, stub_token_manager
 
 
@@ -42,7 +43,7 @@ class TestSonarQubeE2E:
         assert result["status"] == "success"
         assert result["rows_loaded"] == 3
 
-        df = pd.read_sql('SELECT * FROM raw.sonarqube_projects ORDER BY "key"', run_engine)
+        df = read_rows(run_engine, "raw", "sonarqube_projects", order_by=["key"])
         assert list(df["key"]) == ["proj-alpha", "proj-beta", "proj-gamma"]
 
         # Verify run history recorded and lock released
@@ -370,11 +371,8 @@ class TestMissingKeyValidation:
             run_asset("sonarqube_projects", run_mode="full")
 
         # Target table untouched: either doesn't exist or is empty.
-        rows = pd.read_sql(
-            "SELECT to_regclass('raw.sonarqube_projects') AS t", run_engine,
-        ).iloc[0]["t"]
-        if rows is not None:
-            df = pd.read_sql("SELECT * FROM raw.sonarqube_projects", run_engine)
+        if table_exists(run_engine, "raw", "sonarqube_projects"):
+            df = read_rows(run_engine, "raw", "sonarqube_projects")
             assert len(df) == 0
 
         # Run recorded as failed with the missing-key reason.
@@ -428,9 +426,8 @@ class TestMissingKeyValidation:
         assert result["status"] == "success"
         assert result["rows_loaded"] == 1
 
-        df = pd.read_sql(
-            "SELECT line FROM raw.sonarqube_issues WHERE key = 'issue-1'",
-            run_engine,
+        df = read_rows(
+            run_engine, "raw", "sonarqube_issues", where={"key": "issue-1"},
         )
         # Absent key lands as NULL in the DB
         assert pd.isna(df.iloc[0]["line"])
