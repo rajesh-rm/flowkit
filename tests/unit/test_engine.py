@@ -108,7 +108,10 @@ class TestGetEngine:
                 "data_assets.db.engine.create_engine",
                 return_value=mock_engine,
             ) as mock_create:
-                engine = get_engine()
+                with patch(
+                    "data_assets.db.engine.attach_utc_session_hook",
+                ):
+                    engine = get_engine()
 
         mock_create.assert_called_once_with(
             "postgresql://fake/db",
@@ -132,11 +135,35 @@ class TestGetEngine:
                 "data_assets.db.engine.create_engine",
                 return_value=mock_engine,
             ):
-                engine1 = get_engine()
-                engine2 = get_engine()
+                with patch(
+                    "data_assets.db.engine.attach_utc_session_hook",
+                ):
+                    engine1 = get_engine()
+                    engine2 = get_engine()
 
         assert engine1 is engine2
         mock_resolve.assert_called_once()
+        get_engine.cache_clear()
+
+    def test_attaches_utc_session_hook(self):
+        """get_engine must attach the UTC session hook to the created engine."""
+        get_engine.cache_clear()
+        mock_engine = MagicMock(spec=Engine)
+
+        with patch(
+            "data_assets.db.engine._resolve_database_url",
+            return_value="postgresql://fake/db",
+        ):
+            with patch(
+                "data_assets.db.engine.create_engine",
+                return_value=mock_engine,
+            ):
+                with patch(
+                    "data_assets.db.engine.attach_utc_session_hook",
+                ) as mock_hook:
+                    get_engine()
+
+        mock_hook.assert_called_once_with(mock_engine)
         get_engine.cache_clear()
 
 
@@ -163,3 +190,54 @@ class TestEnsureSchemas:
         assert "CREATE SCHEMA IF NOT EXISTS raw" in executed_sql
         assert "CREATE SCHEMA IF NOT EXISTS mart" in executed_sql
         assert "CREATE SCHEMA IF NOT EXISTS temp_store" in executed_sql
+
+
+# ---------------------------------------------------------------------------
+# attach_utc_session_hook
+# ---------------------------------------------------------------------------
+
+
+class TestUtcSessionHook:
+    """Every new DB connection must force session timezone to UTC."""
+
+    def _run_connect_hook(self, dialect_name: str) -> list[str]:
+        """Create a mock engine, attach the hook, fire a fake 'connect' event,
+        and return the SQL statements the hook asked the driver to execute.
+        """
+        from data_assets.db.engine import attach_utc_session_hook
+        from sqlalchemy import event
+
+        engine = MagicMock(spec=Engine)
+        engine.dialect = MagicMock()
+        engine.dialect.name = dialect_name
+
+        captured: list[str] = []
+
+        # Capture the listener instead of registering on a real engine.
+        def _fake_listens_for(target, identifier):
+            def decorator(fn):
+                dbapi_conn = MagicMock()
+                cursor = MagicMock()
+                cursor.execute.side_effect = lambda sql: captured.append(sql)
+                dbapi_conn.cursor.return_value = cursor
+                fn(dbapi_conn, MagicMock())
+                return fn
+            return decorator
+
+        with patch.object(event, "listens_for", side_effect=_fake_listens_for):
+            attach_utc_session_hook(engine)
+
+        return captured
+
+    def test_postgres_sets_utc(self):
+        assert self._run_connect_hook("postgresql") == ["SET TIME ZONE 'UTC'"]
+
+    def test_mariadb_sets_utc(self):
+        assert self._run_connect_hook("mariadb") == ["SET time_zone = '+00:00'"]
+
+    def test_mysql_sets_utc(self):
+        # SQLAlchemy uses 'mysql' as the dialect name even for MariaDB drivers.
+        assert self._run_connect_hook("mysql") == ["SET time_zone = '+00:00'"]
+
+    def test_unknown_dialect_is_noop(self):
+        assert self._run_connect_hook("sqlite") == []

@@ -7,6 +7,7 @@ from data_assets.core.enums import LoadStrategy, RunMode
 from data_assets.core.registry import register
 from data_assets.core.run_context import RunContext
 from data_assets.core.transform_asset import TransformAsset
+from data_assets.db.dialect import Dialect
 from sqlalchemy import Date, Integer, Text
 
 
@@ -32,7 +33,7 @@ class IncidentSummary(TransformAsset):
         Index(columns=("priority",)),
     ]
 
-    def query(self, context: RunContext) -> str:
+    def query(self, context: RunContext, dialect: Dialect) -> str:
         return """
             SELECT
                 DATE(opened_at) AS report_date,

@@ -18,7 +18,7 @@ import os
 from functools import lru_cache
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 
 logger = logging.getLogger(__name__)
@@ -107,16 +107,48 @@ def resolve_backend(url: str | None = None) -> str:
     return result
 
 
+def attach_utc_session_hook(engine: Engine) -> None:
+    """Force every new DB connection to use UTC session time zone.
+
+    Without this, ``NOW()`` / ``CURRENT_TIMESTAMP`` and session-TZ-sensitive
+    functions like Postgres ``DATE_TRUNC('week', tstz)::date`` produce
+    results that depend on the OS locale of the DB server, which is
+    outside our control in customer deployments. Pinning to UTC gives
+    every time-window transform a single deterministic baseline.
+
+    Public API: test harnesses call this on testcontainer engines to
+    match production session defaults.
+    """
+    from data_assets.db.dialect import get_dialect
+
+    try:
+        stmt = get_dialect(engine).UTC_SESSION_SQL
+    except ValueError:
+        # Unsupported dialect — other dialect-specific ops would already
+        # raise before any query reaches this connection.
+        return
+
+    @event.listens_for(engine, "connect")
+    def _set_utc(dbapi_connection, _connection_record):
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute(stmt)
+        finally:
+            cursor.close()
+
+
 @lru_cache(maxsize=1)
 def get_engine(connection_key: str = "data_assets_db") -> Engine:
     """Create or return a cached SQLAlchemy engine with connection pooling."""
     url = _resolve_database_url(connection_key)
-    return create_engine(
+    engine = create_engine(
         url,
         pool_pre_ping=True,
         pool_size=5,
         max_overflow=10,
     )
+    attach_utc_session_hook(engine)
+    return engine
 
 
 def ensure_schemas(engine: Engine) -> None:

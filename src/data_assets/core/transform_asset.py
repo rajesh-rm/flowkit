@@ -7,6 +7,7 @@ from abc import abstractmethod
 from data_assets.core.asset import Asset
 from data_assets.core.enums import AssetType, LoadStrategy, RunMode
 from data_assets.core.run_context import RunContext
+from data_assets.db.dialect import Dialect
 
 
 class TransformAsset(Asset):
@@ -26,9 +27,11 @@ class TransformAsset(Asset):
     query_timeout_seconds: int = 300
 
     @abstractmethod
-    def query(self, context: RunContext) -> str:
+    def query(self, context: RunContext, dialect: Dialect) -> str:
         """Return a SQL SELECT producing the output rows.
 
         The result set columns must match this asset's `columns` definition.
+        Use ``dialect`` for any SQL that differs between Postgres and
+        MariaDB (week truncation, date arithmetic, integer casts, etc.).
         """
         ...

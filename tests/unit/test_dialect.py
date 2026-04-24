@@ -139,3 +139,74 @@ class TestPostgresDialect:
         df = df.copy()
         result = self._pg.prepare_dataframe(df)
         assert result["ts"].dt.tz is not None
+
+
+# ---------------------------------------------------------------------------
+# SQL expression helpers (for TransformAsset queries)
+# ---------------------------------------------------------------------------
+
+
+class TestSqlExpressionHelpers:
+    _pg = PostgresDialect()
+    _maria = MariaDBDialect()
+
+    # -- week_start_from_ts --
+
+    def test_pg_week_start_from_ts(self):
+        assert self._pg.week_start_from_ts("analysis_date") == (
+            "DATE_TRUNC('week', (analysis_date) AT TIME ZONE 'UTC')::date"
+        )
+
+    def test_maria_week_start_from_ts(self):
+        assert self._maria.week_start_from_ts("analysis_date") == (
+            "DATE_SUB(DATE(analysis_date), INTERVAL WEEKDAY(analysis_date) DAY)"
+        )
+
+    def test_pg_week_start_from_ts_wraps_complex_expr(self):
+        """Parens around the expression must be emitted so compound exprs parse."""
+        fragment = self._pg.week_start_from_ts("MIN(analysis_date)")
+        assert "(MIN(analysis_date))" in fragment
+
+    def test_maria_week_start_from_ts_wraps_complex_expr(self):
+        fragment = self._maria.week_start_from_ts("MIN(analysis_date)")
+        assert "DATE(MIN(analysis_date))" in fragment
+        assert "WEEKDAY(MIN(analysis_date))" in fragment
+
+    # -- date_add_days --
+
+    def test_pg_date_add_days_negative(self):
+        assert self._pg.date_add_days("CURRENT_DATE", -7) == (
+            "((CURRENT_DATE) + INTERVAL '-7 days')::date"
+        )
+
+    def test_pg_date_add_days_positive(self):
+        assert self._pg.date_add_days("week_start_date", 7) == (
+            "((week_start_date) + INTERVAL '7 days')::date"
+        )
+
+    def test_maria_date_add_days_negative(self):
+        assert self._maria.date_add_days("CURRENT_DATE", -7) == (
+            "DATE_ADD(CURRENT_DATE, INTERVAL -7 DAY)"
+        )
+
+    def test_maria_date_add_days_positive(self):
+        assert self._maria.date_add_days("week_start_date", 7) == (
+            "DATE_ADD(week_start_date, INTERVAL 7 DAY)"
+        )
+
+    # -- cast_bigint --
+
+    def test_pg_cast_bigint(self):
+        assert self._pg.cast_bigint("x") == "CAST(x AS BIGINT)"
+
+    def test_maria_cast_bigint(self):
+        """MariaDB uses SIGNED (not BIGINT) for 64-bit signed integer casts."""
+        assert self._maria.cast_bigint("x") == "CAST(x AS SIGNED)"
+
+    def test_pg_cast_bigint_window_expr(self):
+        expr = "SUM(new_projects) OVER (ORDER BY week_start_date)"
+        assert self._pg.cast_bigint(expr) == f"CAST({expr} AS BIGINT)"
+
+    def test_maria_cast_bigint_window_expr(self):
+        expr = "SUM(new_projects) OVER (ORDER BY week_start_date)"
+        assert self._maria.cast_bigint(expr) == f"CAST({expr} AS SIGNED)"

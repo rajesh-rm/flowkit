@@ -35,6 +35,10 @@ _MARIADB_INDEX_METHODS = {IndexMethod.BTREE, IndexMethod.HASH}
 class Dialect(ABC):
     """Abstract interface for dialect-specific SQL operations."""
 
+    #: SQL statement that forces the current session time zone to UTC.
+    #: Read at connection time by :func:`data_assets.db.engine.attach_utc_session_hook`.
+    UTC_SESSION_SQL: str = ""
+
     @abstractmethod
     def qi(self, name: str) -> str:
         """Quote a SQL identifier (table, column, schema name)."""
@@ -121,9 +125,28 @@ class Dialect(ABC):
     def drop_table_ddl(self, schema: str, table_name: str) -> str:
         """Build DROP TABLE DDL for this dialect."""
 
+    # -- SQL expression helpers (for TransformAsset queries) -----------------
+
+    @abstractmethod
+    def week_start_from_ts(self, expr: str) -> str:
+        """Return SQL giving the ISO Monday-start DATE of the given timestamp.
+
+        Both dialects normalise to UTC-wall-clock week boundaries.
+        """
+
+    @abstractmethod
+    def date_add_days(self, date_expr: str, days: int) -> str:
+        """Return SQL adding ``days`` to ``date_expr``. May be negative."""
+
+    @abstractmethod
+    def cast_bigint(self, expr: str) -> str:
+        """Return SQL casting ``expr`` to a 64-bit signed integer."""
+
 
 class PostgresDialect(Dialect):
     """PostgreSQL 16+ dialect."""
+
+    UTC_SESSION_SQL = "SET TIME ZONE 'UTC'"
 
     @functools.cached_property
     def _sa_dialect(self):
@@ -199,9 +222,20 @@ class PostgresDialect(Dialect):
     def drop_table_ddl(self, schema: str, table_name: str) -> str:
         return f'DROP TABLE IF EXISTS "{schema}"."{table_name}" CASCADE'
 
+    def week_start_from_ts(self, expr: str) -> str:
+        return f"DATE_TRUNC('week', ({expr}) AT TIME ZONE 'UTC')::date"
+
+    def date_add_days(self, date_expr: str, days: int) -> str:
+        return f"(({date_expr}) + INTERVAL '{days} days')::date"
+
+    def cast_bigint(self, expr: str) -> str:
+        return f"CAST({expr} AS BIGINT)"
+
 
 class MariaDBDialect(Dialect):
     """MariaDB 10.11+ dialect."""
+
+    UTC_SESSION_SQL = "SET time_zone = '+00:00'"
 
     @functools.cached_property
     def _sa_dialect(self):
@@ -358,6 +392,19 @@ class MariaDBDialect(Dialect):
     def drop_table_ddl(self, schema: str, table_name: str) -> str:
         # MariaDB does not support CASCADE on DROP TABLE
         return f'DROP TABLE IF EXISTS `{schema}`.`{table_name}`'
+
+    def week_start_from_ts(self, expr: str) -> str:
+        # `analysis_date` is stored as naive-UTC on MariaDB (prepare_dataframe
+        # strips TZ before write). WEEKDAY: 0=Mon..6=Sun, so subtracting lands
+        # on Monday.
+        return f"DATE_SUB(DATE({expr}), INTERVAL WEEKDAY({expr}) DAY)"
+
+    def date_add_days(self, date_expr: str, days: int) -> str:
+        return f"DATE_ADD({date_expr}, INTERVAL {days} DAY)"
+
+    def cast_bigint(self, expr: str) -> str:
+        # MariaDB uses SIGNED for 64-bit signed integer casts.
+        return f"CAST({expr} AS SIGNED)"
 
 
 # ---------------------------------------------------------------------------
