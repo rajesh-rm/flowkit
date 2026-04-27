@@ -34,6 +34,7 @@ See the [Assets Catalog](docs/assets-catalog.md) for the full reference, or the 
 - **Self-managing schemas** -- auto-create tables with additive column migration
 - **In-process rate limiting** -- thread-safe sliding-window per source
 - **Pluggable token management** -- per-source auth (GitHub App JWT, ServiceNow OAuth2, SonarQube token, Jira Cloud/Data Center)
+- **Sensitive-data tokenization** -- declarative `contains_sensitive_data` flag and `Column(sensitive=True)` marker; PII values are tokenized via an external service before any DB write (including temp tables); registry-time validation prevents indexing PII
 - **RestAsset pattern** -- declarative asset definition for standard REST APIs (~25 lines, no custom code)
 - **Production gate** -- new assets require explicit activation via `dag_overrides.toml` before running on a schedule
 - **Dry run mode** -- extract and validate without writing to the target table

@@ -128,6 +128,21 @@ When all four credentials are set, `ServiceNowTokenManager.get_pysnc_auth()` ret
 
 **How to get Jira Data Center PAT:** Log in → **Profile** → **Personal Access Tokens** → **Create token**.
 
+## Tokenization Service
+
+These variables are required only when at least one registered asset declares `contains_sensitive_data=True`. Assets with `contains_sensitive_data=False` (the default for everything currently shipped) ignore them.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `TOKENIZATION_API_URL` | Yes (when used) | — | Full POST URL for the tokenization endpoint. |
+| `TOKENIZATION_API_KEY` | Yes (when used) | — | Bearer token. Resolved via the same `CredentialResolver` used by source token managers (Airflow Connection `tokenization_api` → env var → `.env` file). |
+| `TOKENIZATION_TIMEOUT_SECONDS` | No | `30` | Per-request timeout. |
+| `TOKENIZATION_MAX_ATTEMPTS` | No | `3` | Bounded retries on 5xx, timeout, or network errors. 4xx fails immediately. |
+
+The tokenization service is expected to be **deterministic** — the same plaintext input must always yield the same token. UPSERT on a sensitive primary key relies on this: without determinism, every run produces duplicate rows. Confirm this with the service owner before flipping the first asset to `contains_sensitive_data=True`.
+
+For the declarative API (asset and column flags), the validation rules, and the full data-flow behavior, see [extending-reference.md](extending-reference.md#sensitive-data-and-tokenization).
+
 ## Passing Secrets from Airflow
 
 Instead of pre-setting env vars on workers, pass secrets explicitly from Airflow Connections via the `secrets` parameter on `run_asset()`. The `secrets` dict maps env var names to values — they are injected into `os.environ` for the run duration and cleaned up after.

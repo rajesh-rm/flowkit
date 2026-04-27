@@ -2,6 +2,8 @@
 
 This catalog documents every built-in asset. Use it as a reference when building new assets — find one with a similar pattern and use it as a starting point.
 
+> **Sensitive data:** every registered asset currently declares `contains_sensitive_data=False`. The tokenization framework is in place but no asset is being tokenized in production yet. `github_user_details` (which carries `name`, `email`, `bio`, `location`, `company`) is the obvious first candidate when the tokenization endpoint is configured. See [extending-reference.md](extending-reference.md#sensitive-data-and-tokenization) for the declaration, validation rules, and behavior.
+
 ## SonarQube
 
 **Authentication:** Static API token (Bearer) — `SonarQubeTokenManager`
