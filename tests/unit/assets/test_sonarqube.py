@@ -348,7 +348,7 @@ class TestSonarQubeProjectsSharding:
         mock_client = MagicMock()
         written_frames: list[pd.DataFrame] = []
 
-        def capture_write(_engine, _table, df):
+        def capture_write(_engine, _table, df, **kwargs):
             written_frames.append(df.copy())
             return len(df)
 
@@ -391,7 +391,7 @@ class TestSonarQubeProjectsSharding:
         mock_client = MagicMock()
         mock_client.request.side_effect = mock_request
 
-        def capture_write(_engine, _table, df):
+        def capture_write(_engine, _table, df, **kwargs):
             written_frames.append(df.copy())
             return len(df)
 

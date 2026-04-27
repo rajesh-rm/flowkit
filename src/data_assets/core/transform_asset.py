@@ -21,6 +21,12 @@ class TransformAsset(Asset):
     load_strategy: LoadStrategy = LoadStrategy.FULL_REPLACE
     target_schema: str = "mart"
 
+    # Transforms read from already-tokenized source tables and write derived
+    # rows. Tokenization is intentionally not re-applied at the transform
+    # layer (see plan: Non-goals). Subclasses that introduce a NEW sensitive
+    # column derived from non-sensitive sources can override.
+    contains_sensitive_data = False
+
     # --- Source ---
     source_tables: list[str] = []
 

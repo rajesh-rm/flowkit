@@ -1,4 +1,4 @@
-"""Load layer: DDL, temp tables, and promotion — all in loader.py."""
+"""Load layer: DDL, temp tables, and promotion in loader.py; pre-write tokenization in tokenization.py."""
 
 from data_assets.load.loader import (  # noqa: F401
     create_table,

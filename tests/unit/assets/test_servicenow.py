@@ -338,7 +338,7 @@ class TestPysncExtract:
 
         write_calls = []
 
-        def capture_write(engine, table, df):
+        def capture_write(engine, table, df, **kwargs):
             write_calls.append(len(df))
             return len(df)
 

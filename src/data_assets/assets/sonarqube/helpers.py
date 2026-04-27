@@ -81,6 +81,9 @@ class SonarQubeAsset(APIAsset):
     token_manager_class = SonarQubeTokenManager
     rate_limit_per_second = 5.0
 
+    # SonarQube assets are about code quality metrics, not user data.
+    contains_sensitive_data = False
+
     column_max_lengths = {
         "key": 500,            # SonarQube project/issue key — API docs say 400
         "project_key": 500,

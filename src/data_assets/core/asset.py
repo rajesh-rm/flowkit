@@ -53,6 +53,15 @@ class Asset(ABC):
     # --- Schema contract ---
     schema_contract: SchemaContract = SchemaContract.EVOLVE
 
+    # --- Sensitive data tokenization ---
+    # Every concrete asset MUST set this explicitly (True or False). The
+    # sentinel `None` is rejected at registration time so the choice can
+    # never be made by accident. When True, at least one Column must have
+    # `sensitive=True`; the registry verifies this and ensures sensitive
+    # columns are not referenced by any explicit Index or Index.include
+    # (sensitive columns ARE permitted in primary_key).
+    contains_sensitive_data: bool | None = None
+
     # --- Run resilience ---
     # A run is considered abandoned when EITHER threshold is exceeded.
     stale_heartbeat_minutes: int = 20
@@ -92,6 +101,18 @@ class Asset(ABC):
     def transform(self, df: pd.DataFrame) -> pd.DataFrame:
         """Post-extraction pandas transform. Override for custom logic."""
         return df
+
+    def sensitive_column_names(self) -> list[str]:
+        """Return names of columns marked sensitive=True, or empty list.
+
+        Empty when the asset declares ``contains_sensitive_data=False``
+        (no auditing of column flags) or when ``contains_sensitive_data``
+        is True but no column carries ``sensitive=True`` (which the
+        registry rejects, but defensively still returns []).
+        """
+        if not self.contains_sensitive_data:
+            return []
+        return [c.name for c in self.columns if getattr(c, "sensitive", False)]
 
     def validate(self, df: pd.DataFrame, context: RunContext) -> ValidationResult:
         """Blocking validation — must pass before promotion.

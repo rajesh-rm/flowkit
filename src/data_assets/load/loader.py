@@ -303,8 +303,23 @@ def _coerce_datetime_strings(df: pd.DataFrame) -> pd.DataFrame:
 
 
 @db_retry()
-def write_to_temp(engine: Engine, table_name: str, df: pd.DataFrame) -> int:
-    """Append a DataFrame to the temp table. Returns rows written."""
+def write_to_temp(
+    engine: Engine,
+    table_name: str,
+    df: pd.DataFrame,
+    *,
+    sensitive_columns: list[str] | None = None,
+    tokenization_client=None,
+) -> int:
+    """Append a DataFrame to the temp table. Returns rows written.
+
+    When *sensitive_columns* is non-empty, each listed column is tokenized
+    via the external service before any DB write — plaintext values never
+    reach temp_store. Tokenization failures raise ``TokenizationError`` and
+    abort the run; ``@db_retry`` does not retry on it (only on DB-transient
+    errors). Pass *tokenization_client* to inject a custom client (mainly
+    for tests); otherwise the lazily-built default client is used.
+    """
     if df.empty:
         return 0
     rows = len(df)
@@ -315,6 +330,14 @@ def write_to_temp(engine: Engine, table_name: str, df: pd.DataFrame) -> int:
     # Dialect-specific adjustments (e.g., MariaDB strips timezone info).
     d = get_dialect(engine)
     df = d.prepare_dataframe(df)
+
+    if sensitive_columns:
+        # Local imports keep this dependency lazy: assets without sensitive
+        # data never need the tokenization stack to import.
+        from data_assets.extract.tokenization_client import get_default_client
+        from data_assets.load.tokenization import apply_tokenization
+        client = tokenization_client or get_default_client()
+        df = apply_tokenization(df, sensitive_columns, client)
 
     df.to_sql(
         table_name, engine, schema=TEMP_SCHEMA,

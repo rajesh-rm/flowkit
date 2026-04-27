@@ -17,6 +17,10 @@ class JiraAsset(APIAsset):
     base_url = ""
     rate_limit_per_second = 5.0
 
+    # Default — subclasses with PII columns (assignee, reporter, etc.) must
+    # set this to True and mark the relevant Column(sensitive=True).
+    contains_sensitive_data = False
+
     def get_jira_url(self) -> str:
         url = os.environ.get("JIRA_URL", self.base_url)
         if not url:

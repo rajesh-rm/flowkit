@@ -19,6 +19,7 @@ def _register_stub():
         columns = [Column("id", Text())]
         primary_key = ["id"]
         indexes = [Index(columns=["id"])]
+        contains_sensitive_data = False
 
     register(_CliStub)
     return _CliStub

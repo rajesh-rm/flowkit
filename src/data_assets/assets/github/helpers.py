@@ -59,6 +59,10 @@ class GitHubOrgAsset(APIAsset):
     load_strategy = LoadStrategy.UPSERT
     default_run_mode = RunMode.FULL
 
+    # No PII in current GitHub org-level endpoints — flip to True and mark
+    # specific Column(sensitive=True) when a subclass introduces one.
+    contains_sensitive_data = False
+
     # Subclass sets this to the org-relative API path (e.g., "/repos", "/members")
     org_endpoint: str = ""
     # Extra query params for build_request (e.g., {"type": "all"} for repos)
@@ -117,6 +121,10 @@ class GitHubRepoAsset(APIAsset):
 
     load_strategy = LoadStrategy.FULL_REPLACE
     default_run_mode = RunMode.FULL
+
+    # No PII in current GitHub repo-scoped endpoints — flip to True and mark
+    # specific Column(sensitive=True) when a subclass introduces one.
+    contains_sensitive_data = False
 
     def filter_entity_keys(self, keys: list) -> list:
         return filter_to_current_org(keys)
