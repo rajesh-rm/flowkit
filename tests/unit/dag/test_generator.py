@@ -21,6 +21,7 @@ def _make_stub(name: str, **kwargs):
         "columns": [Column("id", Text())],
         "primary_key": ["id"],
         "indexes": [Index(columns=["id"])],
+        "contains_sensitive_data": False,
         **kwargs,
     }
     cls = type(name, (Asset,), attrs)

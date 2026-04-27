@@ -10,7 +10,7 @@ For task-oriented quick guides on adding endpoints to existing sources, see [How
 
 Every change to this codebase must follow these five rules:
 
-1. **Simple and modular** — code must be understandable by junior developers and AI agents. Just modular enough for extension, not more.
+1. **Simple and modular** — code must be understandable to anyone reading it for the first time. Just modular enough for extension, not more.
 2. **Pure Python, self-sufficient** — the package handles all ETL logic itself. Only Airflow handles scheduling. No delegating core logic to external frameworks.
 3. **Simple patterns over complexity** — prefer 10 lines of clear code over importing a library. No unnecessary abstractions.
 4. **Battle-tested libraries only** — dependencies must be 5+ years old, popular in data engineering, and carry a liberal open-source license (MIT, Apache 2.0, BSD). Current deps: SQLAlchemy, pandas, httpx, python-dotenv, PyJWT, pysnc.
@@ -22,15 +22,16 @@ Every change to this codebase must follow these five rules:
 
 1. [RestAsset Attributes Reference](#restasset-attributes-reference)
 2. [Shared Base Classes](#shared-base-classes)
-3. [Token Manager Patterns](#token-manager-patterns)
-4. [Asset Class: Every Attribute Explained](#asset-class-every-attribute-explained)
-5. [build_request() Contract](#build_request-contract)
-6. [parse_response() Contract](#parse_response-contract)
-7. [build_entity_request() Contract](#build_entity_request-contract)
-8. [The extract() Hook (Custom Client Pattern)](#the-extract-hook-custom-client-pattern)
-9. [Key Design Decisions](#key-design-decisions)
-10. [Troubleshooting Checklist](#troubleshooting-checklist)
-11. [Advanced Features Reference](#advanced-features-reference)
+3. [Sensitive Data and Tokenization](#sensitive-data-and-tokenization)
+4. [Token Manager Patterns](#token-manager-patterns)
+5. [Asset Class: Every Attribute Explained](#asset-class-every-attribute-explained)
+6. [build_request() Contract](#build_request-contract)
+7. [parse_response() Contract](#parse_response-contract)
+8. [build_entity_request() Contract](#build_entity_request-contract)
+9. [The extract() Hook (Custom Client Pattern)](#the-extract-hook-custom-client-pattern)
+10. [Key Design Decisions](#key-design-decisions)
+11. [Troubleshooting Checklist](#troubleshooting-checklist)
+12. [Advanced Features Reference](#advanced-features-reference)
 
 ---
 
@@ -178,6 +179,73 @@ class JiraProjects(JiraAsset):
     name = "jira_projects"
     # ... only columns, pagination, build_request, and parse_response needed
 ```
+
+---
+
+## Sensitive Data and Tokenization
+
+PII columns (user IDs, emails, names, …) can be tokenized via an external HTTP service before any DB write — including the temp table. The framework enforces declarative semantics so misuse fails at registration time, before any data flows.
+
+### The two declarations
+
+```python
+from data_assets.core.column import Column
+from sqlalchemy import Text
+
+class MyAsset(APIAsset):
+    contains_sensitive_data = True   # mandatory on every asset; True or False
+
+    columns = [
+        Column("user_id", Text(), nullable=False, sensitive=True),
+        Column("display_name", Text()),  # not sensitive
+    ]
+```
+
+- **`contains_sensitive_data`** (`bool`, mandatory): Set on every concrete asset. The default sentinel `None` is rejected at registration — the choice is never made by accident. Source-base classes (`GitHubOrgAsset`, `JiraAsset`, `ServiceNowTableAsset`, `SonarQubeAsset`, `TransformAsset`, …) declare `False`; subclasses inherit unless they override.
+- **`Column(sensitive=True)`** (keyword-only): Marks a column whose values are tokenized before reaching the DB. Default is `False`.
+
+### Validation rules (enforced at registration)
+
+The registry rejects an asset import when any of the following hold:
+
+| Rule | Why |
+|---|---|
+| `contains_sensitive_data` is `None` | The choice must be explicit. |
+| `True` with no `sensitive=True` columns | A `True` flag without any sensitive column is incoherent. |
+| `False` with one or more `sensitive=True` columns | The flag and the columns disagree. |
+| Sensitive column appears in an explicit `Index.columns` | Indexing tokenized values via an `Index` object is forbidden. |
+| Sensitive column appears in an `Index.include` | Same reason. |
+
+**Sensitive columns ARE allowed in `primary_key`.** Some assets are keyed by an inherently sensitive identifier (e.g., a `userID` for which there is no surrogate). The implicit unique index that backs the PK covers tokenized values only — never plaintext — so it does not leak PII. UPSERT on a sensitive PK relies on the tokenization service being deterministic; see "Determinism" below.
+
+### Behavior
+
+- **Per-batch dedup.** Each `write_to_temp` call deduplicates the non-null values in each sensitive column with `dict.fromkeys`, sends the deduplicated list to the endpoint, and remaps every occurrence (including duplicates) before the SQL insert. NULLs pass through unchanged — they are never sent to the API.
+- **Extract-only.** Tokenization runs only on the API-extract path. `TransformAsset` reads from already-tokenized `raw.*` tables and never re-tokenizes — preventing double-tokenization that would break joins.
+- **Hard fail on API errors.** A `TokenizationError` from the client (after bounded retries on 5xx/timeout/network, or immediate on 4xx) propagates up through `write_to_temp` and aborts the run before any DB write. `@db_retry` does not retry tokenization failures (it only retries DB-transient errors).
+- **Determinism.** The tokenization service must return the same token for the same plaintext input across calls. Without this, UPSERT on a sensitive PK produces duplicate rows on every run because the PK never matches an existing row. Confirm this with the service owner before flipping the first asset to `True`. Integration tests pin the assumption with a `f"tok_{v}"` mock.
+
+### Configuration
+
+Four environment variables (resolved through the same `CredentialResolver` used by source token managers — Airflow Connection → env var → `.env`):
+
+| Variable | Required | Default |
+|---|---|---|
+| `TOKENIZATION_API_URL` | When any asset has `contains_sensitive_data=True` | — |
+| `TOKENIZATION_API_KEY` | Same | — |
+| `TOKENIZATION_TIMEOUT_SECONDS` | No | `30` |
+| `TOKENIZATION_MAX_ATTEMPTS` | No | `3` |
+
+For the operator-facing setup table see [configuration.md](configuration.md#tokenization-service); for the step-by-step recipe see [how-to-guides.md](how-to-guides.md#how-to-enable-tokenization-on-a-sensitive-column).
+
+### Code locations
+
+- `src/data_assets/core/asset.py` — `Asset.contains_sensitive_data`, `Asset.sensitive_column_names()`.
+- `src/data_assets/core/column.py` — `Column.sensitive`.
+- `src/data_assets/core/registry.py` — `_validate_sensitive_data`.
+- `src/data_assets/extract/tokenization_client.py` — HTTP client, `TokenizationError`, `get_default_client()` (thread-safe singleton).
+- `src/data_assets/load/tokenization.py` — `apply_tokenization(df, sensitive_columns, client)`.
+- `src/data_assets/load/loader.py` — `write_to_temp(..., *, sensitive_columns, tokenization_client)` integration point.
 
 ---
 
@@ -565,6 +633,24 @@ default_run_mode = RunMode.FORWARD
 # RunMode.TRANSFORM: Used by TransformAssets only.
 ```
 
+### Sensitive data
+
+```python
+contains_sensitive_data = False
+# Mandatory on every concrete asset (True or False). The default sentinel
+# None is rejected at registration time — the choice must be explicit.
+# Source-base classes (GitHubOrgAsset, JiraAsset, ServiceNowTableAsset,
+# SonarQubeAsset, TransformAsset, …) declare False; subclasses inherit
+# unless they override.
+#
+# When True: at least one Column must have sensitive=True, and no sensitive
+# column may appear in any explicit Index.columns or Index.include
+# (sensitive columns may stay in primary_key).
+#
+# See "Sensitive Data and Tokenization" earlier in this document for the
+# full validation rules, behavior, and configuration.
+```
+
 ### Columns
 
 ```python
@@ -599,6 +685,13 @@ columns = [
 #   Uuid()                   -- UUID values
 #
 # Import types: from sqlalchemy import Text, Integer, DateTime, JSON, ...
+#
+# Sensitive (PII) columns:
+#   Column("user_id", Text(), nullable=False, sensitive=True)
+#   Values are tokenized via the external service before any DB write.
+#   Requires the asset to declare contains_sensitive_data = True.
+#   Sensitive columns cannot appear in an explicit Index/Index.include
+#   (primary_key is allowed). See "Sensitive Data and Tokenization".
 #
 # MariaDB compatibility notes:
 #   - Text() PKs are auto-converted to String(255) / VARCHAR(255)
@@ -1131,6 +1224,8 @@ Read by `attach_utc_session_hook(engine)` in `src/data_assets/db/engine.py`, whi
 
 ## Troubleshooting Checklist
 
+This section covers errors you hit while *building* an asset (registration, request shaping, response parsing). For setup, environment, and runtime errors that show up while *running* an asset, see [how-to-guides.md → How to debug a failed run](how-to-guides.md#how-to-debug-a-failed-run) — it has tabular error-to-fix mappings and a step-by-step triage walkthrough.
+
 ### Asset not appearing in the registry?
 
 - **Check the `@register` decorator.** Every asset class must have `@register` directly above the class definition.
@@ -1198,6 +1293,49 @@ If this field is legitimately missing for some responses, add
 - **Check `source_tables`.** If you list the wrong tables, the dependency ordering may be incorrect.
 - **Check the SQL.** Run the query manually against your database.
 - **Check column name alignment.** The SQL `SELECT ... AS column_name` aliases must match the `columns` definition names exactly.
+
+### Sensitive-data declaration rejected at registration?
+
+The registry runs four checks against every asset. Each rejection has a precise message — match yours below.
+
+```
+ValueError: Asset 'X' must declare contains_sensitive_data (True or False) at the class level.
+```
+The class attribute is missing or `None`. Add `contains_sensitive_data = False` (or `True` if it has PII columns). Source-base classes like `GitHubOrgAsset` already declare `False`; if your asset inherits from one of those, you only need to override when flipping to `True`.
+
+```
+ValueError: Asset 'X' has contains_sensitive_data=True but no columns are marked sensitive=True. Mark at least one column.
+```
+You declared the asset has sensitive data but no column carries the `sensitive=True` flag. Either flip the flag back to `False`, or mark the column:
+```python
+columns = [
+    Column("user_id", Text(), nullable=False, sensitive=True),
+    Column("display_name", Text()),
+]
+```
+
+```
+ValueError: Asset 'X' marks columns ['user_id'] as sensitive but contains_sensitive_data=False. Set contains_sensitive_data=True.
+```
+The same disagreement, the other direction — a column says it's sensitive but the asset's flag says no. Set `contains_sensitive_data = True`.
+
+```
+ValueError: Asset 'X' has index referencing sensitive columns ['user_id']. Explicit indexes on sensitive columns are not allowed; use the primary_key if uniqueness is needed.
+```
+A `Column` marked `sensitive=True` cannot appear in any explicit `Index.columns` or `Index.include`. Remove the column from the index, drop that index, or restructure the query plan to use a non-sensitive column. Sensitive columns may stay in `primary_key` (the implicit PK index covers tokenized values, never plaintext).
+
+### Sensitive-data run failing at runtime?
+
+The asset registered cleanly but the run aborts with `TokenizationError`:
+
+- **`TOKENIZATION_API_URL is not set...`** — the endpoint URL env var is missing. Set it (or set up the Airflow Connection `tokenization_api`). The error fires on the first batch's call to `write_to_temp`, so you may see a temp table created and a partial run-history row before the failure — that's expected and gets cleaned up.
+- **`TOKENIZATION_API_KEY is not set...`** — same for the bearer token.
+- **`Tokenization endpoint returned HTTP 4XX: ...`** — non-retriable. Likely a malformed request body or a 401 (rotate the API key).
+- **`Tokenization endpoint returned HTTP 5XX after N attempts`** — the service was unavailable after `TOKENIZATION_MAX_ATTEMPTS` retries (default 3). Retrying the run once the service is back is safe; the previous attempt left no DB state because tokenization fires before any insert.
+- **`Tokenization response length mismatch: sent X, received Y`** — endpoint contract violation. Capture the request and response (the client logs WARNING on every retry; check your run logs) and report it to the service owner.
+- **Same plaintext, different tokens across runs?** UPSERT on a sensitive PK only converges when the tokenization service is deterministic. If you see duplicate rows accumulating after each run on a sensitive PK column, the service is non-deterministic — escalate to the service owner. The integration test `tests/integration/test_tokenization_end_to_end.py::test_upsert_with_sensitive_pk_is_idempotent` pins this assumption.
+
+For the configuration reference (env vars, defaults), see [configuration.md → Tokenization Service](configuration.md#tokenization-service). For the recipe to enable tokenization on a column, see [how-to-guides.md → How to enable tokenization on a sensitive column](how-to-guides.md#how-to-enable-tokenization-on-a-sensitive-column).
 
 ---
 

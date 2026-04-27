@@ -38,6 +38,21 @@ class StubTokenManager(TokenManager):
 
 
 @pytest.fixture(autouse=True)
+def _reset_tokenization_singleton():
+    """Reset the process-wide TokenizationClient singleton around each test.
+
+    The default TokenizationClient is a thread-safe lazily-built singleton;
+    test-suite isolation requires resetting it so one test's mocked endpoint
+    or env-var patch does not leak into another. Cheap when the singleton
+    is already None.
+    """
+    from data_assets.extract.tokenization_client import reset_default_client
+    reset_default_client()
+    yield
+    reset_default_client()
+
+
+@pytest.fixture(autouse=True)
 def _clean_registry():
     """Isolate the asset registry between tests.
 

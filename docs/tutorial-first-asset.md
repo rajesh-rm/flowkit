@@ -176,6 +176,8 @@ For the 80% of assets that follow a standard REST API pattern — fetch JSON, pa
 
 **Use APIAsset instead when:** you need custom request logic (multi-endpoint iteration, computed query parameters like JQL, keyset pagination with composite keys).
 
+> **Mandatory declaration: `contains_sensitive_data`.** Every concrete asset must set `contains_sensitive_data = True` or `False` at the class level — registration fails otherwise. If True, at least one column needs `sensitive=True` and that column cannot appear in any explicit `Index`. The examples in this tutorial set it to `False` because the data is not PII. For the validation rules, the tokenization workflow, and how to enable it on a real PII column, see [extending-reference.md](extending-reference.md#sensitive-data-and-tokenization) and the [how-to recipe](how-to-guides.md#how-to-enable-tokenization-on-a-sensitive-column).
+
 ### Real example: SonarQube Projects
 
 > **Note:** `SonarQubeProjects` extends `RestAsset` for its declarative config
@@ -221,6 +223,9 @@ class SonarQubeProjects(RestAsset):
     parallel_mode = ParallelMode.NONE
     load_strategy = LoadStrategy.FULL_REPLACE
     default_run_mode = RunMode.FULL
+
+    # Mandatory: every asset must declare this. SonarQube projects carry no PII.
+    contains_sensitive_data = False
 
     # Schema — matches /api/components/search response fields
     columns = [
@@ -322,6 +327,11 @@ class ItemsApiItems(APIAsset):
 
     load_strategy = LoadStrategy.UPSERT
     default_run_mode = RunMode.FORWARD
+
+    # Mandatory: declare whether this asset carries PII. None of the columns
+    # below do, so False. To tokenize a column later, flip this to True and
+    # mark the column with sensitive=True.
+    contains_sensitive_data = False
 
     columns = [
         Column("id", "INTEGER", nullable=False),
@@ -468,6 +478,10 @@ class PagerDutyIncidentSummary(TransformAsset):
     load_strategy = LoadStrategy.FULL_REPLACE
     # Transforms almost always use FULL_REPLACE because they re-derive
     # the entire output from the current state of the source tables.
+
+    # contains_sensitive_data is inherited as False from TransformAsset.
+    # Transforms read already-tokenized data from raw.* tables and don't
+    # re-tokenize. Override only if you derive a brand-new sensitive column.
 
     columns = [
         Column("report_date", "DATE", nullable=False),

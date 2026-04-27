@@ -5,7 +5,7 @@
 setup: ## Set up local dev environment with uv
 	uv venv .venv --python 3.11
 	uv pip install -e ".[dev]"
-	@echo "\n✓ Environment ready. Run: source .venv/bin/activate"
+	@echo "\nEnvironment ready. Run: source .venv/bin/activate"
 
 # --- Tests ---
 

@@ -203,7 +203,10 @@ def _fetch_pages(
         df, state = asset.parse_response(data)
         if entity_key is not None and not df.empty:
             _inject_entity_key(df, asset, entity_key)
-        rows += write_to_temp(engine, temp_table, df)
+        rows += write_to_temp(
+            engine, temp_table, df,
+            sensitive_columns=asset.sensitive_column_names(),
+        )
         page_count += 1
 
         if not state.has_more:
@@ -357,7 +360,10 @@ def _fetch_single_page(
     spec = asset.build_request(context, checkpoint={"next_page": page_num})
     data = client.request(spec)
     df, _ = asset.parse_response(data)
-    return write_to_temp(engine, temp_table, df)
+    return write_to_temp(
+        engine, temp_table, df,
+        sensitive_columns=asset.sensitive_column_names(),
+    )
 
 
 def _log_page_progress(
@@ -400,7 +406,10 @@ def _discover_total_pages(
     first_spec = asset.build_request(context, checkpoint=None)
     first_data = client.request(first_spec)
     first_df, first_state = asset.parse_response(first_data)
-    rows = write_to_temp(engine, temp_table, first_df)
+    rows = write_to_temp(
+        engine, temp_table, first_df,
+        sensitive_columns=asset.sensitive_column_names(),
+    )
 
     total_pages = first_state.total_pages
     if total_pages is None and first_state.total_records is not None:

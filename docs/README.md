@@ -21,6 +21,8 @@ Self-contained ETL engine for data assets, backed by PostgreSQL or MariaDB, orch
 | Follow contribution rules, commit style | [../CONTRIBUTING.md](../CONTRIBUTING.md) |
 | Add a new data source (whole vendor) | [tutorial-first-asset.md](tutorial-first-asset.md) §3 or §4 + [extending-reference.md](extending-reference.md) |
 | Add a new SQL transform | [tutorial-first-asset.md](tutorial-first-asset.md) §5 + [extending-reference.md](extending-reference.md) "Dialect Extensions" |
+| Tokenize sensitive (PII) columns | [extending-reference.md](extending-reference.md#sensitive-data-and-tokenization) + [how-to-guides.md](how-to-guides.md#how-to-enable-tokenization-on-a-sensitive-column) |
+| Diagnose a failed run or a strange error | [how-to-guides.md](how-to-guides.md#how-to-debug-a-failed-run) (setup + runtime) · [extending-reference.md](extending-reference.md#troubleshooting-checklist) (asset-development) |
 
 ## Diataxis map
 

@@ -111,3 +111,28 @@ class TestColumnTypes:
     def test_no_type_raises_valueerror(self):
         with pytest.raises(ValueError, match="requires either"):
             Column("bad", sa_type=None, pg_type=None)
+
+
+class TestColumnSensitive:
+    def test_default_is_false(self):
+        col = Column("user_id", Text())
+        assert col.sensitive is False
+
+    def test_explicit_true(self):
+        col = Column("user_id", Text(), sensitive=True)
+        assert col.sensitive is True
+
+    def test_explicit_false(self):
+        col = Column("ok", Text(), sensitive=False)
+        assert col.sensitive is False
+
+    def test_keyword_only(self):
+        # `sensitive` is keyword-only — passing it positionally would land
+        # in `pg_type`'s slot if we ever made it positional.
+        with pytest.raises(TypeError):
+            Column("a", Text(), True, None, True)  # type: ignore[call-arg]
+
+    def test_frozen(self):
+        col = Column("user_id", Text(), sensitive=True)
+        with pytest.raises(AttributeError):
+            col.sensitive = False  # type: ignore[misc]

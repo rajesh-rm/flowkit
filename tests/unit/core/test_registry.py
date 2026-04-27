@@ -7,7 +7,10 @@ from sqlalchemy import Integer, Text
 
 from data_assets.core.asset import Asset
 from data_assets.core.column import Column, Index
-from data_assets.core.registry import _validate_optional_columns
+from data_assets.core.registry import (
+    _validate_optional_columns,
+    _validate_sensitive_data,
+)
 
 
 def _make(cls_dict: dict) -> Asset:
@@ -87,3 +90,90 @@ def test_error_message_lists_offending_columns():
         _validate_optional_columns("tmp", asset)
     assert "'id'" in str(exc_info.value)
     assert "'note'" not in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# Sensitive-data validation
+# ---------------------------------------------------------------------------
+
+class TestSensitiveDataValidation:
+
+    def test_undeclared_flag_rejected(self):
+        # Asset with default contains_sensitive_data=None should fail.
+        asset = _make({})
+        with pytest.raises(ValueError, match="must declare contains_sensitive_data"):
+            _validate_sensitive_data("tmp", asset)
+
+    def test_false_with_no_sensitive_columns_passes(self):
+        asset = _make({"contains_sensitive_data": False})
+        _validate_sensitive_data("tmp", asset)  # no raise
+
+    def test_true_without_any_sensitive_column_rejected(self):
+        asset = _make({"contains_sensitive_data": True})
+        with pytest.raises(ValueError, match="no columns are marked sensitive"):
+            _validate_sensitive_data("tmp", asset)
+
+    def test_true_with_sensitive_column_passes(self):
+        asset = _make({
+            "contains_sensitive_data": True,
+            "columns": [
+                Column("id", Integer(), nullable=False),
+                Column("user_id", Text(), sensitive=True),
+            ],
+            "primary_key": ["id"],
+            "indexes": [Index(columns=("id",))],
+        })
+        _validate_sensitive_data("tmp", asset)
+
+    def test_false_with_sensitive_column_rejected(self):
+        asset = _make({
+            "contains_sensitive_data": False,
+            "columns": [
+                Column("id", Integer(), nullable=False),
+                Column("email", Text(), sensitive=True),
+            ],
+            "primary_key": ["id"],
+            "indexes": [Index(columns=("id",))],
+        })
+        with pytest.raises(ValueError, match="contains_sensitive_data=False"):
+            _validate_sensitive_data("tmp", asset)
+
+    def test_sensitive_column_in_primary_key_is_allowed(self):
+        # Per design: the implicit PK index is over tokenized values only.
+        asset = _make({
+            "contains_sensitive_data": True,
+            "columns": [
+                Column("user_id", Text(), nullable=False, sensitive=True),
+                Column("display", Text()),
+            ],
+            "primary_key": ["user_id"],
+            "indexes": [Index(columns=("display",))],
+        })
+        _validate_sensitive_data("tmp", asset)
+
+    def test_sensitive_column_in_explicit_index_rejected(self):
+        asset = _make({
+            "contains_sensitive_data": True,
+            "columns": [
+                Column("id", Integer(), nullable=False),
+                Column("email", Text(), sensitive=True),
+            ],
+            "primary_key": ["id"],
+            "indexes": [Index(columns=("email",))],
+        })
+        with pytest.raises(ValueError, match="index referencing sensitive columns"):
+            _validate_sensitive_data("tmp", asset)
+
+    def test_sensitive_column_in_index_include_rejected(self):
+        asset = _make({
+            "contains_sensitive_data": True,
+            "columns": [
+                Column("id", Integer(), nullable=False),
+                Column("name", Text()),
+                Column("email", Text(), sensitive=True),
+            ],
+            "primary_key": ["id"],
+            "indexes": [Index(columns=("name",), include=("email",))],
+        })
+        with pytest.raises(ValueError, match="INCLUDE referencing sensitive"):
+            _validate_sensitive_data("tmp", asset)

@@ -14,7 +14,8 @@ Task-oriented guides for common operations. Each section is self-contained — f
 6. [How to set up multi-org runs](#how-to-set-up-multi-org-runs)
 7. [How to pass secrets from Airflow](#how-to-pass-secrets-from-airflow)
 8. [How to monitor runs](#how-to-monitor-runs)
-9. [Adding endpoints to existing sources](#adding-endpoints-to-existing-sources)
+9. [How to enable tokenization on a sensitive column](#how-to-enable-tokenization-on-a-sensitive-column)
+10. [Adding endpoints to existing sources](#adding-endpoints-to-existing-sources)
 
 ---
 
@@ -130,6 +131,8 @@ The slice is applied **after** `filter_entity_keys()`, so the limited set only i
 | `pip install` downloads from wrong index | Internal mirror not configured — set `UV_INDEX_URL` or `PIP_INDEX_URL` (see [tutorial-dev-setup.md](tutorial-dev-setup.md#2b-internal-pypi-index-artifactory--nexus--devpi)) |
 | `podman: command not found` or Docker socket errors | Container runtime not set up — see [tutorial-dev-setup.md](tutorial-dev-setup.md#3-container-runtime-podman) |
 | Integration tests skip with `No Postgres available` | Podman socket not active. Run `systemctl --user start podman.socket` and export `DOCKER_HOST` |
+| `TokenizationError: TOKENIZATION_API_URL is not set...` | An asset declares `contains_sensitive_data=True` but the tokenization endpoint is not configured. Set `TOKENIZATION_API_URL` and `TOKENIZATION_API_KEY` (see [configuration.md](configuration.md#tokenization-service)). |
+| `TokenizationError: TOKENIZATION_API_KEY is not set...` | Same as above for the bearer token. Either env var or Airflow Connection `tokenization_api`. |
 
 ### Runtime errors
 
@@ -152,6 +155,95 @@ The slice is applied **after** `filter_entity_keys()`, so the limited set only i
 | Asset runs for hours locally | Use `max_pages=3, dry_run=True` to validate the flow against a small slice of real data. For entity-parallel assets with many entities (e.g., 52K repos), also use `max_entities=10` |
 | `HTTPStatusError: 409 Conflict` on GitHub assets | Empty repos (no commits) return 409. This is handled automatically — the repo is skipped. If you see this error, your asset may not inherit from `GitHubRepoAsset` |
 | `max_workers must be greater than 0` with 0 entities | `GITHUB_ORGS` case doesn't match repo names in the database (e.g., `td-universe` vs `TD-Universe`). Org filtering is case-insensitive, so check for typos or extra whitespace |
+| `ValueError: Asset 'X' must declare contains_sensitive_data...` | The asset class is missing the mandatory `contains_sensitive_data` attribute. Add `contains_sensitive_data = False` (or `True` if it has PII) to the class. See [extending-reference.md](extending-reference.md#sensitive-data-and-tokenization). |
+| `ValueError: Asset 'X' has contains_sensitive_data=True but no columns are marked sensitive=True` | The flag and the columns disagree. Either flip the flag back to `False`, or mark the relevant column with `Column("...", Text(), sensitive=True)`. |
+| `ValueError: Asset 'X' marks columns [...] as sensitive but contains_sensitive_data=False` | Same kind of disagreement, opposite direction. Set `contains_sensitive_data = True` on the asset. |
+| `ValueError: Asset 'X' has index referencing sensitive columns [...]` | A column marked `sensitive=True` appears in an explicit `Index`. Drop that index, or remove the column from it. Sensitive columns may stay in `primary_key`. |
+| `TokenizationError: ... after N attempts` | The tokenization endpoint failed for a sensitive-asset run. Check the endpoint is reachable; check the `TOKENIZATION_API_KEY` is current; check the service status. The run aborts before any DB write — temp tables stay clean and the next attempt starts fresh. |
+| `TokenizationError: response length mismatch: sent X, received Y` | The endpoint did not return one token per input value. This is an endpoint-side bug; capture a request/response sample and report it to the service owner. |
+
+### Step-by-step: triaging a failed run
+
+When you get an unhelpful traceback or a run that "just doesn't work", walk through these steps in order. Each step is a few seconds; together they cover the most common failure modes.
+
+**1. Re-read the very first error message.** Python prints the inner-most error first, but the line that actually broke the run is usually near the top. Look for the asset name and a `ValueError`/`RuntimeError`/`TokenizationError` rather than a SQLAlchemy `OperationalError` deeper down — the inner message is the symptom, the outer one is the cause.
+
+**2. Confirm the asset is registered.** A typo in `name=` or a missing `__init__.py` import means the asset never loads.
+
+```python
+.venv/bin/python -c "
+from data_assets.core.registry import discover, all_assets
+discover()
+names = sorted(all_assets())
+print(len(names), 'registered')
+print([n for n in names if 'my_asset' in n])  # filter for your asset
+"
+```
+
+**3. Run in dry-run with a small slice.** Validates extract → parse → write_to_temp end-to-end without touching the main table:
+
+```python
+from data_assets import run_asset
+result = run_asset(
+    "my_asset_name",
+    run_mode="full",
+    dry_run=True,            # validate but don't promote
+    max_pages=3,              # cap source-API calls
+    max_entities=5,           # for entity-parallel assets
+)
+print(result)
+```
+
+The result dict contains `rows_extracted`, `duration_seconds`, and a status. A `dry_run=True` failure is identical to a real failure but cheaper.
+
+**4. Inspect run history.** Every run records start, end, status, error message:
+
+```python
+from sqlalchemy import create_engine, text
+import os
+
+engine = create_engine(os.environ["DATABASE_URL"])
+with engine.connect() as conn:
+    rows = conn.execute(text(
+        "SELECT run_id, status, started_at, ended_at, error_message "
+        "FROM data_ops.run_history "
+        "WHERE asset_name = :a "
+        "ORDER BY started_at DESC LIMIT 5"
+    ), {"a": "my_asset_name"}).fetchall()
+    for r in rows:
+        print(r)
+```
+
+The `error_message` column carries the exact exception text, so you can copy-paste it into the error tables above.
+
+**5. Inspect the temp table.** If the run aborted between extract and promotion, the temp table may still hold the partial data — useful to see what got fetched:
+
+```python
+from sqlalchemy import inspect
+insp = inspect(engine)
+temp_tables = insp.get_table_names(schema="temp_store")
+print([t for t in temp_tables if t.startswith("my_asset_name_")])
+# Then read it:
+import pandas as pd
+df = pd.read_sql("SELECT * FROM temp_store.my_asset_name_xxx LIMIT 20", engine)
+print(df)
+```
+
+**6. Check stale locks.** If you keep seeing "asset is locked", a previous run crashed without releasing. Locks self-clear after `stale_heartbeat_minutes` (default 20) or `max_run_hours` (default 5h). To force-clear immediately:
+
+```python
+with engine.begin() as conn:
+    conn.execute(
+        text("DELETE FROM data_ops.run_locks WHERE asset_name = :a AND partition_key = :p"),
+        {"a": "my_asset_name", "p": ""},  # default partition (single-tenant)
+    )
+```
+
+If you use multi-org runs (`partition_key` set), match it explicitly — the composite PK on `data_ops.run_locks` is `(asset_name, partition_key)`, so omitting the partition predicate would clear locks for every tenant of this asset.
+
+**7. Reproduce in a unit test.** If the failure is in `parse_response()` or `build_request()`, save the failing API payload as a JSON fixture and write a unit test that calls the asset method directly. This isolates the asset logic from the runner, the database, and the network. See [testing.md](testing.md) for the standard fixture layout.
+
+**8. Still stuck?** Search for the exact error string in [extending-reference.md → Troubleshooting Checklist](extending-reference.md#troubleshooting-checklist). It covers asset-development errors (registration, build_request, validation) that are not in the tables above.
 
 ---
 
@@ -285,6 +377,29 @@ def _run_github(**context):
 - **Logs**: All output goes to stdout (captured by Airflow task logs)
 - **Database retries**: Transient DB errors are retried automatically (up to `DATA_ASSETS_DB_RETRY_ATTEMPTS`, default 3). Each retry is logged at WARNING level. If retries exhaust, the run fails with `DatabaseRetryExhausted` — check logs for the underlying error (connection timeout, deadlock, etc.)
 - **Data quality warnings**: The framework warns (non-blocking) if any string column contains values exceeding 10,000 characters. Assets with `column_max_lengths` defined will block promotion if limits are exceeded
+
+---
+
+## How to enable tokenization on a sensitive column
+
+Use this when you have an asset whose column carries PII (user IDs, emails, names) and you need values tokenized via the external service before they reach any DB table.
+
+1. **Mark the column** — add `sensitive=True` to the relevant `Column(...)`:
+   ```python
+   from sqlalchemy import Text
+   from data_assets.core.column import Column
+
+   columns = [
+       Column("user_id", Text(), nullable=False, sensitive=True),
+       Column("display_name", Text()),
+   ]
+   ```
+2. **Flip the asset flag** — set `contains_sensitive_data = True` on the asset class.
+3. **Check your indexes** — sensitive columns may stay in `primary_key`, but they cannot appear in any explicit `Index.columns` or `Index.include`. Registration will fail otherwise.
+4. **Configure the endpoint** — set `TOKENIZATION_API_URL` and `TOKENIZATION_API_KEY` (env vars or Airflow connection `tokenization_api`). See [configuration.md](configuration.md#tokenization-service).
+5. **Run and verify** — execute the asset; the temp table will already contain tokenized values. If the endpoint is misconfigured, the run fails with `TokenizationError` before any DB write — no partial data lands.
+
+The tokenization endpoint must return the same token for the same plaintext input across calls (deterministic). Without that, UPSERT on a sensitive primary key produces duplicate rows on every run. See [extending-reference.md](extending-reference.md#sensitive-data-and-tokenization) for the full validation rules and behavior.
 
 ---
 

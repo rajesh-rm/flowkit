@@ -47,6 +47,10 @@ class ServiceNowTableAsset(APIAsset):
     load_strategy = LoadStrategy.UPSERT
     default_run_mode = RunMode.FORWARD
 
+    # Default — subclasses with PII tables (Users, etc.) must override and
+    # mark the relevant Column(sensitive=True).
+    contains_sensitive_data = False
+
     primary_key = ["sys_id"]
     date_column = "sys_updated_on"
     indexes = [
@@ -109,7 +113,10 @@ class ServiceNowTableAsset(APIAsset):
 
             if len(batch) >= batch_size:
                 df = self._batch_to_df(batch)
-                total_rows += write_to_temp(engine, temp_table, df)
+                total_rows += write_to_temp(
+                    engine, temp_table, df,
+                    sensitive_columns=self.sensitive_column_names(),
+                )
                 batch = []
                 pages_fetched += 1
 
@@ -131,7 +138,10 @@ class ServiceNowTableAsset(APIAsset):
 
         if batch:
             df = self._batch_to_df(batch)
-            total_rows += write_to_temp(engine, temp_table, df)
+            total_rows += write_to_temp(
+                engine, temp_table, df,
+                sensitive_columns=self.sensitive_column_names(),
+            )
 
         logger.info(
             "Extraction complete [%s]: %d rows in %.1fs",

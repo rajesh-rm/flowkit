@@ -69,12 +69,20 @@ class Column:
             Also accepts legacy pg_type strings for backward compatibility.
         nullable: Whether the column allows NULLs.
         default: Optional SQL default expression (e.g. "now()").
+        sensitive: When True, values are tokenized via the external
+            tokenization service before reaching any DB table (including
+            temp_store). Sensitive columns may appear in ``primary_key``
+            (the implicit PK unique index covers tokenized values, never
+            plaintext) but cannot appear in any explicit ``Index`` or
+            ``Index.include`` (enforced at registration time). Requires the
+            owning asset to set ``contains_sensitive_data = True``.
     """
 
     name: str
     sa_type: TypeEngine | str = field(default_factory=sa_types.Text)
     nullable: bool = True
     default: str | None = None
+    sensitive: bool = False
 
     # --- Backward compatibility ---
     # Accept Column("name", "TEXT") or Column("name", Text())
@@ -86,10 +94,12 @@ class Column:
         default: str | None = None,
         *,
         pg_type: str | None = None,
+        sensitive: bool = False,
     ):
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "nullable", nullable)
         object.__setattr__(self, "default", default)
+        object.__setattr__(self, "sensitive", sensitive)
         resolved = _resolve_type(sa_type, pg_type)
         object.__setattr__(self, "sa_type", resolved)
 

@@ -38,6 +38,12 @@ class GitHubUserDetails(APIAsset):
     load_strategy = LoadStrategy.FULL_REPLACE
     default_run_mode = RunMode.FULL
 
+    # Carries clear PII (name, email, bio, location). Declared False for now
+    # to preserve current behavior; flip to True and mark the relevant
+    # Column(sensitive=True) once the tokenization endpoint is live and the
+    # rollout for this asset is planned.
+    contains_sensitive_data = False
+
     columns = [
         Column("login", Text(), nullable=False),
         Column("name", Text()),

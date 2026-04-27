@@ -80,3 +80,4 @@ Before requesting review:
 - [ ] New/changed functionality has tests
 - [ ] Documentation updated if API changed
 - [ ] No secrets or credentials in committed files
+- [ ] Asset declares `contains_sensitive_data` (True or False) at the class level. If True, at least one column has `sensitive=True` and no sensitive column is referenced by an explicit `Index` or `Index.include` (sensitive columns may stay in `primary_key`). See [docs/extending-reference.md](docs/extending-reference.md#sensitive-data-and-tokenization).

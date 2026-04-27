@@ -333,6 +333,16 @@ TEST_DATABASE=mariadb  .venv/bin/python -m pytest tests/integration/ -v
 
 The `db_engine` fixture handles all dialect differences (identifier quoting, datetime conversion, TEXT→VARCHAR for PKs, index prefix lengths) transparently.
 
+### Testing a tokenized asset
+
+When an asset declares `contains_sensitive_data=True`, three test files are the canonical references for what to mock and how:
+
+- `tests/unit/extract/test_tokenization_client.py` — `respx`-mocked HTTP roundtrips, retry/timeout/4xx behavior, response-shape validation, and a concurrency test for the singleton.
+- `tests/unit/load/test_tokenization.py` — pure-helper tests for `apply_tokenization` (dedup, NULL pass-through, multi-column).
+- `tests/integration/test_tokenization_end_to_end.py` — full pipeline against Postgres + MariaDB with a `respx`-mocked deterministic endpoint (`f"tok_{v}"`); covers temp-table-never-sees-plaintext, UPSERT idempotency on a sensitive PK, and abort-on-API-failure.
+
+Tokens must be deterministic for upsert-with-sensitive-PK to converge — the integration test pins this assumption with the `f"tok_{v}"` stub.
+
 ### Writing dialect-portable integration tests
 
 > **Golden rule: never write raw SQL in integration test assertions. Use `read_rows` and `table_exists` from `tests/integration/_db_utils.py` — they quote identifiers correctly for both Postgres and MariaDB, so the same assertion runs unchanged on both backends.**
@@ -344,7 +354,7 @@ Raw SQL in test assertions drifts silently:
 
 The helpers use SQLAlchemy Core, which auto-quotes identifiers per-dialect.
 
-| ❌ DON'T | ✅ DO |
+| Avoid | Use instead |
 |---------|------|
 | `pd.read_sql("SELECT * FROM raw.t ORDER BY key", engine)` | `read_rows(engine, "raw", "t", order_by=["key"])` |
 | `pd.read_sql("SELECT * FROM raw.t WHERE key = 'x'", engine)` | `read_rows(engine, "raw", "t", where={"key": "x"})` |

@@ -83,6 +83,9 @@ class SonarQubeProjects(RestAsset):
     load_strategy = LoadStrategy.FULL_REPLACE
     default_run_mode = RunMode.FULL
 
+    # Project metadata only — no PII.
+    contains_sensitive_data = False
+
     # --- Schema ---
     # /api/components/search returns: key, name, qualifier, project
     columns = [
@@ -208,7 +211,10 @@ class SonarQubeProjects(RestAsset):
                 new_mask = ~df["key"].isin(seen_keys)
                 new_df = df[new_mask]
                 if not new_df.empty:
-                    write_to_temp(engine, temp_table, new_df)
+                    write_to_temp(
+                        engine, temp_table, new_df,
+                        sensitive_columns=self.sensitive_column_names(),
+                    )
                     seen_keys.update(new_df["key"])
                 # Track ALL names (even dupes) for early-termination counting
                 names_found.update(df["name"])

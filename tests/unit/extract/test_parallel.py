@@ -486,7 +486,7 @@ def test_fetch_pages_injects_entity_key_column():
 
     written_dfs = []
 
-    def capture_write(engine, table, df):
+    def capture_write(engine, table, df, **kwargs):
         written_dfs.append(df.copy())
         return len(df)
 
@@ -522,7 +522,7 @@ def test_fetch_pages_injects_entity_key_map():
 
     written_dfs = []
 
-    def capture_write(engine, table, df):
+    def capture_write(engine, table, df, **kwargs):
         written_dfs.append(df.copy())
         return len(df)
 
@@ -559,7 +559,7 @@ def test_fetch_pages_no_injection_without_entity_key_column():
 
     written_dfs = []
 
-    def capture_write(engine, table, df):
+    def capture_write(engine, table, df, **kwargs):
         written_dfs.append(df.copy())
         return len(df)
 

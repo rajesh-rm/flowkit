@@ -95,6 +95,7 @@ def _validate_dependencies() -> None:
 
         _validate_indexes(name, asset)
         _validate_optional_columns(name, asset)
+        _validate_sensitive_data(name, asset)
 
     _validate_no_cycles(instances)
 
@@ -171,6 +172,61 @@ def _validate_optional_columns(name: str, asset) -> None:
             f"Asset '{name}' marks {sorted(bad)} as optional, but they are "
             f"used in primary_key or an index. Required columns cannot be optional."
         )
+
+
+def _validate_sensitive_data(name: str, asset) -> None:
+    """Check the asset's sensitive-data declaration is internally consistent.
+
+    Rules (per the tokenization design):
+    - ``contains_sensitive_data`` must be explicitly True or False; the
+      sentinel ``None`` (not declared) is rejected.
+    - If True, at least one Column must have ``sensitive=True``.
+    - If False, no Column may have ``sensitive=True``.
+    - Sensitive columns may appear in ``primary_key`` (the implicit PK
+      unique index is over tokenized values, never plaintext).
+    - Sensitive columns must NOT appear in any explicit ``Index.columns``
+      or ``Index.include``.
+    """
+    flag = getattr(asset, "contains_sensitive_data", None)
+    if flag is None:
+        raise ValueError(
+            f"Asset '{name}' must declare contains_sensitive_data "
+            f"(True or False) at the class level."
+        )
+
+    sensitive_cols = {
+        c.name for c in asset.columns if getattr(c, "sensitive", False)
+    }
+
+    if flag is True and not sensitive_cols:
+        raise ValueError(
+            f"Asset '{name}' has contains_sensitive_data=True but no "
+            f"columns are marked sensitive=True. Mark at least one column."
+        )
+
+    if flag is False and sensitive_cols:
+        raise ValueError(
+            f"Asset '{name}' marks columns {sorted(sensitive_cols)} as "
+            f"sensitive but contains_sensitive_data=False. Set "
+            f"contains_sensitive_data=True."
+        )
+
+    for idx in asset.indexes:
+        idx_violations = sensitive_cols & set(idx.columns)
+        if idx_violations:
+            raise ValueError(
+                f"Asset '{name}' has index referencing sensitive columns "
+                f"{sorted(idx_violations)}. Explicit indexes on sensitive "
+                f"columns are not allowed; use the primary_key if "
+                f"uniqueness is needed."
+            )
+        if idx.include:
+            inc_violations = sensitive_cols & set(idx.include)
+            if inc_violations:
+                raise ValueError(
+                    f"Asset '{name}' has index INCLUDE referencing "
+                    f"sensitive columns {sorted(inc_violations)}."
+                )
 
 
 def _validate_indexes(name: str, asset) -> None:

@@ -4,8 +4,8 @@ Retries only on transient connection errors (OperationalError,
 DisconnectionError). Data errors (IntegrityError, ProgrammingError)
 fail immediately — retrying won't help.
 
-Designed for Airflow admins and junior devs: each retry logs a clear
-WARNING, and exhaustion logs an ERROR with an actionable message.
+Each retry logs a clear WARNING, and exhaustion logs an ERROR with an
+actionable message so failures are easy to diagnose from Airflow logs.
 """
 
 from __future__ import annotations

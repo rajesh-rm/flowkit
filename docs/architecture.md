@@ -32,7 +32,7 @@
 When Airflow calls `run_asset("my_asset", mode="forward")`:
 
 1. **Initialize** — Discover assets, acquire lock, read coverage watermarks, check for retry checkpoints
-2. **Extract** — Fetch data via API client or custom `extract()` hook (e.g., pysnc for ServiceNow) into a temp table
+2. **Extract** — Fetch data via API client or custom `extract()` hook (e.g., pysnc for ServiceNow) into a temp table. If the asset declares `contains_sensitive_data=True`, sensitive column values are tokenized via the external service inside `write_to_temp` immediately before the SQL insert, so plaintext PII never reaches even the temp table. Tokenization API failures abort the run before any DB write. See [extending-reference.md](extending-reference.md#sensitive-data-and-tokenization).
 3. **Transform & Validate** — Apply `asset.transform(df)`, run `asset.validate(df, context)`
 4. **Promote** — Move from temp table to main table via FULL_REPLACE, UPSERT, or APPEND (single transaction)
 5. **Finalize** — Update coverage tracker, record metrics, clear checkpoints, drop temp table, release lock
