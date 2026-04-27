@@ -249,8 +249,16 @@ def _build_default_client() -> TokenizationClient:
 
 
 def reset_default_client() -> None:
-    """Tear down the cached singleton — primarily for tests."""
+    """Tear down the cached singleton — primarily for tests.
+
+    Early-returns when the client is already None so the autouse test
+    fixture (which fires twice per test) doesn't pay an avoidable lock
+    acquisition on the dominant path. The post-acquire re-check still
+    guards correctness if two callers race on the close.
+    """
     global _default_client
+    if _default_client is None:
+        return
     with _default_client_lock:
         if _default_client is not None:
             _default_client.close()
