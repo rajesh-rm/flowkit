@@ -35,6 +35,13 @@ DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_BASE_DELAY = 1.0
 DEFAULT_MAX_DELAY = 30.0
 
+# Tokenizer behavior knobs sent in the request body. The service uses
+# these to shape the response (token format and length). Defaults match
+# the live service's standard configuration; override per-instance via
+# the ``options=`` constructor argument when a different token shape is
+# needed.
+DEFAULT_OPTIONS: dict = {"mode": "opaque", "format": "hex", "token_len": 18}
+
 
 class TokenizationError(RuntimeError):
     """Raised when the tokenization endpoint cannot fulfil a request.
@@ -50,38 +57,42 @@ class TokenizationClient:
 
     Request/response contract:
         POST {base_url}
-        body:    {"values": ["v1", "v2", ...]}
-        success: 200 with {"tokens": ["t1", "t2", ...]}
-                 (same length, same order as input)
+        body:    {"values": ["v1", ...], "options": {"mode": ..., "format": ..., "token_len": N}}
+        success: 200 with {"tokens": ["t1", ...], ...} — same length and
+                 order as the request values. Extra response metadata
+                 fields (``algo``, ``namespace``, ``version``,
+                 ``pii_type_counts``, ``collisions``) are tolerated and
+                 ignored.
 
     The client does NOT deduplicate — callers send already-deduplicated
     values to keep payloads minimal. The client only verifies the response
     is well-formed and the same length as the input.
+
+    Authentication is optional. When ``api_key`` is provided, an
+    ``Authorization: Bearer ...`` header is added; when omitted, the
+    client makes unauthenticated calls (the live service accepts these).
     """
 
     def __init__(
         self,
         base_url: str,
-        api_key: str,
+        api_key: str | None = None,
         timeout: float = DEFAULT_TIMEOUT,
         max_attempts: int = DEFAULT_MAX_ATTEMPTS,
         base_delay: float = DEFAULT_BASE_DELAY,
         max_delay: float = DEFAULT_MAX_DELAY,
+        options: dict | None = None,
     ) -> None:
         if not base_url:
             raise TokenizationError("TokenizationClient requires base_url")
-        if not api_key:
-            raise TokenizationError("TokenizationClient requires api_key")
         if max_attempts < 1:
             raise TokenizationError("max_attempts must be >= 1")
         self._url = base_url
-        self._http = httpx.Client(
-            timeout=timeout,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-        )
+        self._options = dict(options) if options is not None else dict(DEFAULT_OPTIONS)
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        self._http = httpx.Client(timeout=timeout, headers=headers)
         self._max_attempts = max_attempts
         self._base_delay = base_delay
         self._max_delay = max_delay
@@ -97,10 +108,11 @@ class TokenizationClient:
         if not values:
             return []
 
+        body = {"values": values, "options": self._options}
         last_exc: Exception | None = None
         for attempt in range(1, self._max_attempts + 1):
             try:
-                response = self._http.post(self._url, json={"values": values})
+                response = self._http.post(self._url, json=body)
             except (httpx.TimeoutException, httpx.NetworkError) as exc:
                 last_exc = exc
                 if attempt >= self._max_attempts:
@@ -192,11 +204,12 @@ _default_client_lock = threading.Lock()
 def get_default_client() -> TokenizationClient:
     """Return a process-wide TokenizationClient, building it on first use.
 
-    Reads ``TOKENIZATION_API_URL`` and ``TOKENIZATION_API_KEY`` from the
-    environment (or Airflow connection ``tokenization_api`` for the key).
-    Raises ``TokenizationError`` if either is missing — deferred to first
-    call so test suites and asset definitions that never use sensitive
-    columns can run without configuration.
+    Reads ``TOKENIZATION_API_URL`` (required) and ``TOKENIZATION_API_KEY``
+    (optional — the live service accepts unauthenticated calls) from the
+    environment, or Airflow connection ``tokenization_api`` for the key.
+    Raises ``TokenizationError`` only when the URL is missing — deferred
+    to first call so test suites and asset definitions that never use
+    sensitive columns can run without any configuration.
 
     Thread-safe via double-checked locking: ENTITY_PARALLEL extraction
     spawns multiple worker threads that each may race on the first call.
@@ -225,13 +238,11 @@ def _build_default_client() -> TokenizationClient:
             f"contains_sensitive_data=True."
         )
 
+    # Optional — the live service accepts unauthenticated calls. When
+    # set (env var or Airflow connection 'tokenization_api'), the
+    # Authorization header is added; when missing, the request is sent
+    # without auth.
     api_key = _resolver.resolve(ENV_API_KEY)
-    if not api_key:
-        raise TokenizationError(
-            f"{ENV_API_KEY} is not set (env or Airflow connection "
-            f"'tokenization_api'). Required for assets with "
-            f"contains_sensitive_data=True."
-        )
 
     timeout_raw = os.environ.get(ENV_TIMEOUT)
     timeout = float(timeout_raw) if timeout_raw else DEFAULT_TIMEOUT

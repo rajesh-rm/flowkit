@@ -222,8 +222,11 @@ The registry rejects an asset import when any of the following hold:
 
 - **Per-batch dedup.** Each `write_to_temp` call deduplicates the non-null values in each sensitive column with `dict.fromkeys`, sends the deduplicated list to the endpoint, and remaps every occurrence (including duplicates) before the SQL insert. NULLs pass through unchanged — they are never sent to the API.
 - **Extract-only.** Tokenization runs only on the API-extract path. `TransformAsset` reads from already-tokenized `raw.*` tables and never re-tokenizes — preventing double-tokenization that would break joins.
+- **Request shape.** Each request POSTs `{"values": [...], "options": {"mode": "opaque", "format": "hex", "token_len": 18}}`. The `options` block tells the service how to shape its tokens; defaults match the standard configuration. Pass `options=...` to the `TokenizationClient` constructor for a different shape (e.g. `token_len=12` for shorter tokens).
+- **Response shape.** The service returns `{"tokens": [...], "algo": ..., "namespace": ..., "version": ..., "pii_type_counts": ..., ...}`. The client reads only `tokens` and asserts the array length matches the request; extra metadata fields are tolerated and ignored.
 - **Hard fail on API errors.** A `TokenizationError` from the client (after bounded retries on 5xx/timeout/network, or immediate on 4xx) propagates up through `write_to_temp` and aborts the run before any DB write. `@db_retry` does not retry tokenization failures (it only retries DB-transient errors).
 - **Determinism.** The tokenization service must return the same token for the same plaintext input across calls. Without this, UPSERT on a sensitive PK produces duplicate rows on every run because the PK never matches an existing row. Confirm this with the service owner before flipping the first asset to `True`. Integration tests pin the assumption with a `f"tok_{v}"` mock.
+- **Options stability.** The tokens that determinism guarantees are also keyed on the request `options` (`mode`, `format`, `token_len`). Changing `token_len` from `18` to `12` post-rollout — or any other shape change — yields a different token for the same plaintext, so existing rows in `raw.*` no longer match new ones. Pin `options` at deployment time and treat any change as an explicit re-tokenization step, not a tweak.
 
 ### Configuration
 
@@ -232,7 +235,7 @@ Four environment variables (resolved through the same `CredentialResolver` used 
 | Variable | Required | Default |
 |---|---|---|
 | `TOKENIZATION_API_URL` | When any asset has `contains_sensitive_data=True` | — |
-| `TOKENIZATION_API_KEY` | Same | — |
+| `TOKENIZATION_API_KEY` | No (optional — when unset, the client makes unauthenticated calls) | — |
 | `TOKENIZATION_TIMEOUT_SECONDS` | No | `30` |
 | `TOKENIZATION_MAX_ATTEMPTS` | No | `3` |
 
@@ -1329,7 +1332,7 @@ A `Column` marked `sensitive=True` cannot appear in any explicit `Index.columns`
 The asset registered cleanly but the run aborts with `TokenizationError`:
 
 - **`TOKENIZATION_API_URL is not set...`** — the endpoint URL env var is missing. Set it (or set up the Airflow Connection `tokenization_api`). The error fires on the first batch's call to `write_to_temp`, so you may see a temp table created and a partial run-history row before the failure — that's expected and gets cleaned up.
-- **`TOKENIZATION_API_KEY is not set...`** — same for the bearer token.
+- **HTTP 401/403 on a request that previously worked** — the service is fronted by auth that is rejecting unauthenticated calls. `TOKENIZATION_API_KEY` is optional, but when the upstream requires it, set the key (env var or Airflow connection) so the client adds the `Authorization: Bearer ...` header.
 - **`Tokenization endpoint returned HTTP 4XX: ...`** — non-retriable. Likely a malformed request body or a 401 (rotate the API key).
 - **`Tokenization endpoint returned HTTP 5XX after N attempts`** — the service was unavailable after `TOKENIZATION_MAX_ATTEMPTS` retries (default 3). Retrying the run once the service is back is safe; the previous attempt left no DB state because tokenization fires before any insert.
 - **`Tokenization response length mismatch: sent X, received Y`** — endpoint contract violation. Capture the request and response (the client logs WARNING on every retry; check your run logs) and report it to the service owner.
