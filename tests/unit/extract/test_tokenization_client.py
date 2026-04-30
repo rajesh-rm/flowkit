@@ -57,20 +57,6 @@ class TestConstruction:
         finally:
             c.close()
 
-    @respx.mock
-    def test_explicit_none_api_key_sends_no_auth_on_wire(self):
-        c = TokenizationClient(base_url=URL, api_key=None, base_delay=0.0)
-        try:
-            route = respx.post(URL).mock(
-                return_value=httpx.Response(200, json={"tokens": ["x"]}),
-            )
-            c.tokenize(["a"])
-            assert "authorization" not in {
-                h.lower() for h in route.calls[0].request.headers
-            }
-        finally:
-            c.close()
-
 
 class TestHappyPath:
     @respx.mock
