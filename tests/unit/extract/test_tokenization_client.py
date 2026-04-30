@@ -110,15 +110,15 @@ class TestHappyPath:
         )
         client.tokenize(["alice"])
         body = json.loads(route.calls[0].request.read())
-        assert body["options"] == {"mode": "opaque", "format": "hex", "token_len": 12}
+        assert body["options"] == {"mode": "opaque", "format": "hex", "token_len": 18}
 
     @respx.mock
     def test_custom_options_override_defaults(self):
-        # Sample 3 used token_len=18; clients can request that shape via
-        # the constructor without the framework hardcoding it.
+        # Clients can request a different token shape via the constructor
+        # without the framework hardcoding it (e.g. shorter tokens).
         import json
         c = TokenizationClient(
-            URL, options={"mode": "opaque", "format": "hex", "token_len": 18},
+            URL, options={"mode": "opaque", "format": "hex", "token_len": 12},
             base_delay=0.0,
         )
         try:
@@ -127,7 +127,7 @@ class TestHappyPath:
             )
             c.tokenize(["alice"])
             body = json.loads(route.calls[0].request.read())
-            assert body["options"]["token_len"] == 18
+            assert body["options"]["token_len"] == 12
         finally:
             c.close()
 

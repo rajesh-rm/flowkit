@@ -40,7 +40,7 @@ DEFAULT_MAX_DELAY = 30.0
 # the live service's standard configuration; override per-instance via
 # the ``options=`` constructor argument when a different token shape is
 # needed.
-DEFAULT_OPTIONS: dict = {"mode": "opaque", "format": "hex", "token_len": 12}
+DEFAULT_OPTIONS: dict = {"mode": "opaque", "format": "hex", "token_len": 18}
 
 
 class TokenizationError(RuntimeError):

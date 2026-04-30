@@ -159,7 +159,7 @@ The slice is applied **after** `filter_entity_keys()`, so the limited set only i
 | `ValueError: Asset 'X' has contains_sensitive_data=True but no columns are marked sensitive=True` | The flag and the columns disagree. Either flip the flag back to `False`, or mark the relevant column with `Column("...", Text(), sensitive=True)`. |
 | `ValueError: Asset 'X' marks columns [...] as sensitive but contains_sensitive_data=False` | Same kind of disagreement, opposite direction. Set `contains_sensitive_data = True` on the asset. |
 | `ValueError: Asset 'X' has index referencing sensitive columns [...]` | A column marked `sensitive=True` appears in an explicit `Index`. Drop that index, or remove the column from it. Sensitive columns may stay in `primary_key`. |
-| `TokenizationError: ... after N attempts` | The tokenization endpoint failed for a sensitive-asset run. Check the endpoint is reachable; check the `TOKENIZATION_API_KEY` is current; check the service status. The run aborts before any DB write — temp tables stay clean and the next attempt starts fresh. |
+| `TokenizationError: ... after N attempts` | The tokenization endpoint failed for a sensitive-asset run. Check the endpoint is reachable; if you set `TOKENIZATION_API_KEY` (optional), confirm it's still valid; check the service status. The run aborts before any DB write — temp tables stay clean and the next attempt starts fresh. |
 | `TokenizationError: response length mismatch: sent X, received Y` | The endpoint did not return one token per input value. This is an endpoint-side bug; capture a request/response sample and report it to the service owner. |
 
 ### Step-by-step: triaging a failed run

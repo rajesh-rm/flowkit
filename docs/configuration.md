@@ -139,11 +139,11 @@ These variables apply only when at least one registered asset declares `contains
 | `TOKENIZATION_TIMEOUT_SECONDS` | No | `30` | Per-request timeout. |
 | `TOKENIZATION_MAX_ATTEMPTS` | No | `3` | Bounded retries on 5xx, timeout, or network errors. 4xx fails immediately. |
 
-**Request body**: each call sends `{"values": [...], "options": {"mode": "opaque", "format": "hex", "token_len": 12}}`. The `options` block is what the service uses to shape the response (token format and length). The defaults match the standard tokenizer configuration; override per-instance via the `options=` constructor argument on `TokenizationClient` if a different shape is needed.
+**Request body**: each call sends `{"values": [...], "options": {"mode": "opaque", "format": "hex", "token_len": 18}}`. The `options` block is what the service uses to shape the response (token format and length). The defaults match the standard tokenizer configuration; override per-instance via the `options=` constructor argument on `TokenizationClient` if a different shape is needed.
 
 **Response body**: `{"tokens": [...], "algo": "...", "namespace": "...", "version": "...", "pii_type_counts": {...}, ...}`. The client reads only `tokens` and verifies the array length matches the request; extra metadata fields are tolerated and ignored.
 
-The tokenization service is expected to be **deterministic** — the same plaintext input must always yield the same token. UPSERT on a sensitive primary key relies on this: without determinism, every run produces duplicate rows. Confirm this with the service owner before flipping the first asset to `contains_sensitive_data=True`.
+The tokenization service is expected to be **deterministic** — the same plaintext input must always yield the same token. UPSERT on a sensitive primary key relies on this: without determinism, every run produces duplicate rows. Confirm this with the service owner before flipping the first asset to `contains_sensitive_data=True`. Determinism is keyed on the request `options` as well as the input — changing `token_len` (or any other options field) after rollout yields different tokens for the same plaintext and breaks UPSERT/joins on existing data, so treat any options change as an explicit re-tokenization rather than a tweak.
 
 For the declarative API (asset and column flags), the validation rules, and the full data-flow behavior, see [extending-reference.md](extending-reference.md#sensitive-data-and-tokenization).
 
