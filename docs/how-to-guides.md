@@ -161,6 +161,7 @@ The slice is applied **after** `filter_entity_keys()`, so the limited set only i
 | `ValueError: Asset 'X' has index referencing sensitive columns [...]` | A column marked `sensitive=True` appears in an explicit `Index`. Drop that index, or remove the column from it. Sensitive columns may stay in `primary_key`. |
 | `TokenizationError: ... after N attempts` | The tokenization endpoint failed for a sensitive-asset run. Check the endpoint is reachable; if you set `TOKENIZATION_API_KEY` (optional), confirm it's still valid; check the service status. The run aborts before any DB write — temp tables stay clean and the next attempt starts fresh. |
 | `TokenizationError: response length mismatch: sent X, received Y` | The endpoint did not return one token per input value. This is an endpoint-side bug; capture a request/response sample and report it to the service owner. |
+| Duplicate rows in a tokenized table appearing after a redeploy (UPSERT not converging) | The `options` shape (most often `token_len`) changed between the previous run and the current one. The same plaintext now produces a different token, so the PK never matches existing rows. Either revert `options` to the previous shape, or treat the change as an explicit re-tokenization (TRUNCATE the affected `raw.*` table and re-extract). See [extending-reference.md → Options stability](extending-reference.md#sensitive-data-and-tokenization). |
 
 ### Step-by-step: triaging a failed run
 
@@ -397,7 +398,16 @@ Use this when you have an asset whose column carries PII (user IDs, emails, name
 2. **Flip the asset flag** — set `contains_sensitive_data = True` on the asset class.
 3. **Check your indexes** — sensitive columns may stay in `primary_key`, but they cannot appear in any explicit `Index.columns` or `Index.include`. Registration will fail otherwise.
 4. **Configure the endpoint** — set `TOKENIZATION_API_URL` to the service's POST endpoint. `TOKENIZATION_API_KEY` is optional; set it only if the service is fronted by auth (env var or Airflow connection `tokenization_api`). See [configuration.md](configuration.md#tokenization-service).
-5. **Run and verify** — execute the asset; the temp table will already contain tokenized values. If the endpoint is misconfigured, the run fails with `TokenizationError` before any DB write — no partial data lands.
+5. **Run and verify** — execute the asset against a real or mocked endpoint, e.g.:
+   ```python
+   from data_assets import run_asset
+   run_asset("your_asset", run_mode="full", dry_run=True, max_pages=2)
+   ```
+   On success, query the target table and confirm the sensitive column shows tokenized values (18-character hex strings by default) instead of plaintext:
+   ```sql
+   SELECT user_id, display_name FROM raw.your_asset LIMIT 5;
+   ```
+   If the endpoint is misconfigured, the run fails with `TokenizationError` before any DB write — no partial data lands, no temp-table cleanup needed.
 
 The tokenization endpoint must return the same token for the same plaintext input across calls (deterministic). Without that, UPSERT on a sensitive primary key produces duplicate rows on every run. See [extending-reference.md](extending-reference.md#sensitive-data-and-tokenization) for the full validation rules and behavior.
 
