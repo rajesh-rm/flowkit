@@ -37,13 +37,25 @@ class TestConstruction:
         with pytest.raises(TokenizationError, match="base_url"):
             TokenizationClient(base_url="", api_key="k")
 
-    def test_requires_key(self):
-        with pytest.raises(TokenizationError, match="api_key"):
-            TokenizationClient(base_url=URL, api_key="")
-
     def test_requires_attempts_at_least_one(self):
         with pytest.raises(TokenizationError, match="max_attempts"):
             TokenizationClient(base_url=URL, api_key="k", max_attempts=0)
+
+    def test_constructs_without_api_key(self):
+        # api_key is optional — the live tokenization service accepts
+        # unauthenticated calls.
+        c = TokenizationClient(base_url=URL)
+        try:
+            assert "authorization" not in {h.lower() for h in c._http.headers}
+        finally:
+            c.close()
+
+    def test_constructs_with_explicit_none_api_key(self):
+        c = TokenizationClient(base_url=URL, api_key=None)
+        try:
+            assert "authorization" not in {h.lower() for h in c._http.headers}
+        finally:
+            c.close()
 
 
 class TestHappyPath:
@@ -72,6 +84,64 @@ class TestHappyPath:
         assert '"values"' in body
         assert "alice" in body
         assert "bob" in body
+
+    @respx.mock
+    def test_default_options_sent_in_body(self, client):
+        # The live service uses these to shape the response (token format
+        # and length). Sending the same defaults that produced the
+        # known-good sample responses keeps tokens stable.
+        import json
+        route = respx.post(URL).mock(
+            return_value=httpx.Response(200, json={"tokens": ["x"]}),
+        )
+        client.tokenize(["alice"])
+        body = json.loads(route.calls[0].request.read())
+        assert body["options"] == {"mode": "opaque", "format": "hex", "token_len": 12}
+
+    @respx.mock
+    def test_custom_options_override_defaults(self):
+        # Sample 3 used token_len=18; clients can request that shape via
+        # the constructor without the framework hardcoding it.
+        import json
+        c = TokenizationClient(
+            URL, options={"mode": "opaque", "format": "hex", "token_len": 18},
+            base_delay=0.0,
+        )
+        try:
+            route = respx.post(URL).mock(
+                return_value=httpx.Response(200, json={"tokens": ["x"]}),
+            )
+            c.tokenize(["alice"])
+            body = json.loads(route.calls[0].request.read())
+            assert body["options"]["token_len"] == 18
+        finally:
+            c.close()
+
+    @respx.mock
+    def test_no_authorization_header_when_no_api_key(self):
+        c = TokenizationClient(URL, base_delay=0.0)
+        try:
+            route = respx.post(URL).mock(
+                return_value=httpx.Response(200, json={"tokens": ["x"]}),
+            )
+            c.tokenize(["alice"])
+            assert "authorization" not in {
+                h.lower() for h in route.calls[0].request.headers
+            }
+        finally:
+            c.close()
+
+    def test_default_options_module_constant_not_mutated(self):
+        # Per-instance copy ensures the module-level DEFAULT_OPTIONS
+        # cannot be poisoned by a single misbehaving caller.
+        from data_assets.extract.tokenization_client import DEFAULT_OPTIONS
+        original = dict(DEFAULT_OPTIONS)
+        c = TokenizationClient(URL)
+        try:
+            c._options["token_len"] = 999
+            assert DEFAULT_OPTIONS == original
+        finally:
+            c.close()
 
     def test_empty_input_no_http_call(self, client):
         # Note: no respx.mock — if HTTP were called this would error.
@@ -188,16 +258,15 @@ class TestDefaultClient:
                 with pytest.raises(TokenizationError, match="TOKENIZATION_API_URL"):
                     get_default_client()
 
-    def test_no_key_raises(self):
+    def test_no_key_succeeds_without_auth(self):
+        # The live service accepts unauthenticated calls. A missing
+        # TOKENIZATION_API_KEY is no longer a build-time error.
         with patch.dict(
             "os.environ",
             {"TOKENIZATION_API_URL": URL, "TOKENIZATION_API_KEY": ""},
         ):
-            # The CredentialResolver also checks Airflow connections, but
-            # in the test environment Airflow isn't installed, so falls back
-            # to the (empty) env var.
-            with pytest.raises(TokenizationError, match="TOKENIZATION_API_KEY"):
-                get_default_client()
+            client = get_default_client()
+            assert "authorization" not in {h.lower() for h in client._http.headers}
 
     def test_caches_singleton(self):
         with patch.dict(

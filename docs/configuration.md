@@ -130,14 +130,18 @@ When all four credentials are set, `ServiceNowTokenManager.get_pysnc_auth()` ret
 
 ## Tokenization Service
 
-These variables are required only when at least one registered asset declares `contains_sensitive_data=True`. Assets with `contains_sensitive_data=False` (the default for everything currently shipped) ignore them.
+These variables apply only when at least one registered asset declares `contains_sensitive_data=True`. Assets with `contains_sensitive_data=False` (the default for everything currently shipped) ignore them.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `TOKENIZATION_API_URL` | Yes (when used) | — | Full POST URL for the tokenization endpoint. |
-| `TOKENIZATION_API_KEY` | Yes (when used) | — | Bearer token. Resolved via the same `CredentialResolver` used by source token managers (Airflow Connection `tokenization_api` → env var → `.env` file). |
+| `TOKENIZATION_API_URL` | Yes (when used) | — | Full POST URL for the tokenization endpoint, e.g. `http://tokenizer.internal:8088/tokenize/bulk`. |
+| `TOKENIZATION_API_KEY` | No | — | Bearer token. Optional — when unset, the client makes unauthenticated calls (the standard service does not require auth). When set, it is resolved via the same `CredentialResolver` used by source token managers (Airflow Connection `tokenization_api` → env var → `.env` file). |
 | `TOKENIZATION_TIMEOUT_SECONDS` | No | `30` | Per-request timeout. |
 | `TOKENIZATION_MAX_ATTEMPTS` | No | `3` | Bounded retries on 5xx, timeout, or network errors. 4xx fails immediately. |
+
+**Request body**: each call sends `{"values": [...], "options": {"mode": "opaque", "format": "hex", "token_len": 12}}`. The `options` block is what the service uses to shape the response (token format and length). The defaults match the standard tokenizer configuration; override per-instance via the `options=` constructor argument on `TokenizationClient` if a different shape is needed.
+
+**Response body**: `{"tokens": [...], "algo": "...", "namespace": "...", "version": "...", "pii_type_counts": {...}, ...}`. The client reads only `tokens` and verifies the array length matches the request; extra metadata fields are tolerated and ignored.
 
 The tokenization service is expected to be **deterministic** — the same plaintext input must always yield the same token. UPSERT on a sensitive primary key relies on this: without determinism, every run produces duplicate rows. Confirm this with the service owner before flipping the first asset to `contains_sensitive_data=True`.
 

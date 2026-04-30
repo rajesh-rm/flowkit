@@ -131,8 +131,8 @@ The slice is applied **after** `filter_entity_keys()`, so the limited set only i
 | `pip install` downloads from wrong index | Internal mirror not configured — set `UV_INDEX_URL` or `PIP_INDEX_URL` (see [tutorial-dev-setup.md](tutorial-dev-setup.md#2b-internal-pypi-index-artifactory--nexus--devpi)) |
 | `podman: command not found` or Docker socket errors | Container runtime not set up — see [tutorial-dev-setup.md](tutorial-dev-setup.md#3-container-runtime-podman) |
 | Integration tests skip with `No Postgres available` | Podman socket not active. Run `systemctl --user start podman.socket` and export `DOCKER_HOST` |
-| `TokenizationError: TOKENIZATION_API_URL is not set...` | An asset declares `contains_sensitive_data=True` but the tokenization endpoint is not configured. Set `TOKENIZATION_API_URL` and `TOKENIZATION_API_KEY` (see [configuration.md](configuration.md#tokenization-service)). |
-| `TokenizationError: TOKENIZATION_API_KEY is not set...` | Same as above for the bearer token. Either env var or Airflow Connection `tokenization_api`. |
+| `TokenizationError: TOKENIZATION_API_URL is not set...` | An asset declares `contains_sensitive_data=True` but the tokenization endpoint URL is not configured. Set `TOKENIZATION_API_URL` (see [configuration.md](configuration.md#tokenization-service)). The bearer token is optional. |
+| `TokenizationError: HTTP 401` (or `HTTP 403`) | The endpoint is fronted by auth that rejected an unauthenticated request. Set `TOKENIZATION_API_KEY` (env var or Airflow Connection `tokenization_api`). |
 
 ### Runtime errors
 
@@ -396,7 +396,7 @@ Use this when you have an asset whose column carries PII (user IDs, emails, name
    ```
 2. **Flip the asset flag** — set `contains_sensitive_data = True` on the asset class.
 3. **Check your indexes** — sensitive columns may stay in `primary_key`, but they cannot appear in any explicit `Index.columns` or `Index.include`. Registration will fail otherwise.
-4. **Configure the endpoint** — set `TOKENIZATION_API_URL` and `TOKENIZATION_API_KEY` (env vars or Airflow connection `tokenization_api`). See [configuration.md](configuration.md#tokenization-service).
+4. **Configure the endpoint** — set `TOKENIZATION_API_URL` to the service's POST endpoint. `TOKENIZATION_API_KEY` is optional; set it only if the service is fronted by auth (env var or Airflow connection `tokenization_api`). See [configuration.md](configuration.md#tokenization-service).
 5. **Run and verify** — execute the asset; the temp table will already contain tokenized values. If the endpoint is misconfigured, the run fails with `TokenizationError` before any DB write — no partial data lands.
 
 The tokenization endpoint must return the same token for the same plaintext input across calls (deterministic). Without that, UPSERT on a sensitive primary key produces duplicate rows on every run. See [extending-reference.md](extending-reference.md#sensitive-data-and-tokenization) for the full validation rules and behavior.
