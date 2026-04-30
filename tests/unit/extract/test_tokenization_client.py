@@ -41,19 +41,33 @@ class TestConstruction:
         with pytest.raises(TokenizationError, match="max_attempts"):
             TokenizationClient(base_url=URL, api_key="k", max_attempts=0)
 
-    def test_constructs_without_api_key(self):
+    @respx.mock
+    def test_constructs_without_api_key_sends_no_auth_on_wire(self):
         # api_key is optional — the live tokenization service accepts
-        # unauthenticated calls.
-        c = TokenizationClient(base_url=URL)
+        # unauthenticated calls. Verify on the wire, not in storage.
+        c = TokenizationClient(base_url=URL, base_delay=0.0)
         try:
-            assert "authorization" not in {h.lower() for h in c._http.headers}
+            route = respx.post(URL).mock(
+                return_value=httpx.Response(200, json={"tokens": ["x"]}),
+            )
+            c.tokenize(["a"])
+            assert "authorization" not in {
+                h.lower() for h in route.calls[0].request.headers
+            }
         finally:
             c.close()
 
-    def test_constructs_with_explicit_none_api_key(self):
-        c = TokenizationClient(base_url=URL, api_key=None)
+    @respx.mock
+    def test_explicit_none_api_key_sends_no_auth_on_wire(self):
+        c = TokenizationClient(base_url=URL, api_key=None, base_delay=0.0)
         try:
-            assert "authorization" not in {h.lower() for h in c._http.headers}
+            route = respx.post(URL).mock(
+                return_value=httpx.Response(200, json={"tokens": ["x"]}),
+            )
+            c.tokenize(["a"])
+            assert "authorization" not in {
+                h.lower() for h in route.calls[0].request.headers
+            }
         finally:
             c.close()
 
@@ -258,15 +272,24 @@ class TestDefaultClient:
                 with pytest.raises(TokenizationError, match="TOKENIZATION_API_URL"):
                     get_default_client()
 
-    def test_no_key_succeeds_without_auth(self):
+    @respx.mock
+    def test_no_key_succeeds_without_auth_on_wire(self):
         # The live service accepts unauthenticated calls. A missing
-        # TOKENIZATION_API_KEY is no longer a build-time error.
+        # TOKENIZATION_API_KEY is no longer a build-time error, and the
+        # resulting client must not send an Authorization header on the
+        # wire (verified post-call, not via private attribute).
         with patch.dict(
             "os.environ",
             {"TOKENIZATION_API_URL": URL, "TOKENIZATION_API_KEY": ""},
         ):
             client = get_default_client()
-            assert "authorization" not in {h.lower() for h in client._http.headers}
+            route = respx.post(URL).mock(
+                return_value=httpx.Response(200, json={"tokens": ["x"]}),
+            )
+            client.tokenize(["a"])
+            assert "authorization" not in {
+                h.lower() for h in route.calls[0].request.headers
+            }
 
     def test_caches_singleton(self):
         with patch.dict(
